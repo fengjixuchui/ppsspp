@@ -151,14 +151,15 @@ void FramebufferManagerCommon::EstimateDrawingSize(u32 fb_address, GEBufferForma
 			drawing_width = scissor_width;
 			drawing_height = std::max(drawing_height, scissor_height);
 		}
-		if (scissor_width == 481 && region_width == 480 && scissor_height == 273 && region_height == 272) {
-			drawing_width = 480;
-			drawing_height = 272;
-		}
 	} else {
 		// If viewport wasn't valid, let's just take the greatest anything regardless of stride.
 		drawing_width = std::min(std::max(region_width, scissor_width), fb_stride);
 		drawing_height = std::max(region_height, scissor_height);
+	}
+
+	if (scissor_width == 481 && region_width == 480 && scissor_height == 273 && region_height == 272) {
+		drawing_width = 480;
+		drawing_height = 272;
 	}
 
 	// Assume no buffer is > 512 tall, it couldn't be textured or displayed fully if so.
@@ -894,13 +895,6 @@ void FramebufferManagerCommon::CopyDisplayToOutput(bool reallyDirty) {
 		if (Memory::IsValidAddress(fbaddr)) {
 			// The game is displaying something directly from RAM. In GTA, it's decoded video.
 			if (!vfb) {
-				if (useBufferedRendering_) {
-					// Bind and clear the backbuffer. This should be the first time during the frame that it's bound.
-					draw_->BindFramebufferAsRenderTarget(nullptr, { Draw::RPAction::CLEAR, Draw::RPAction::CLEAR, Draw::RPAction::CLEAR }, "CopyDisplayToOutput_Backbuffer");
-				}
-				// Just a pointer to plain memory to draw. We should create a framebuffer, then draw to it.
-				SetViewport2D(0, 0, pixelWidth_, pixelHeight_);
-				draw_->SetScissorRect(0, 0, pixelWidth_, pixelHeight_);
 				DrawFramebufferToOutput(Memory::GetPointer(fbaddr), displayFormat_, displayStride_);
 				gstate_c.Dirty(DIRTY_BLEND_STATE);
 				return;
@@ -1692,8 +1686,8 @@ void FramebufferManagerCommon::SetRenderSize(VirtualFramebuffer *vfb) {
 void FramebufferManagerCommon::SetSafeSize(u16 w, u16 h) {
 	VirtualFramebuffer *vfb = currentRenderVfb_;
 	if (vfb) {
-		vfb->safeWidth = std::max(vfb->safeWidth, w);
-		vfb->safeHeight = std::max(vfb->safeHeight, h);
+		vfb->safeWidth = std::min(vfb->bufferWidth, std::max(vfb->safeWidth, w));
+		vfb->safeHeight = std::min(vfb->bufferHeight, std::max(vfb->safeHeight, h));
 	}
 }
 
