@@ -680,8 +680,7 @@ const HLEFunction Kernel_Library[] =
 	{0XFA835CDE, &WrapI_I<sceKernelGetTlsAddr>,                "sceKernelGetTlsAddr",                 'i', "i"    },
 };
 
-static u32 sysclib_memcpy(u32 dst, u32 src, u32 size) {
-	ERROR_LOG(SCEKERNEL, "Untested sysclib_memcpy(dest=%08x, src=%08x, size=%i)", dst, src, size);
+static u32 sysclib_memcpy(u32 dst, u32 src, u32 size) {	
 	if (Memory::IsValidRange(dst, size) && Memory::IsValidRange(src, size)) {
 		memcpy(Memory::GetPointer(dst), Memory::GetPointer(src), size);
 	}
@@ -753,6 +752,38 @@ static u32 sysclib_memset(u32 destAddr, int data, int size) {
 	return 0;
 }
 
+static int sysclib_strstr(u32 s1, u32 s2) {
+	ERROR_LOG(SCEKERNEL, "Untested sysclib_strstr(%08x, %08x)", s1, s2);
+	if (Memory::IsValidAddress(s1) && Memory::IsValidAddress(s2)) {
+		std::string str1 = Memory::GetCharPointer(s1);
+		std::string str2 = Memory::GetCharPointer(s2);
+		size_t index = str1.find(str2);
+		if (index == str1.npos) {
+			return 0;
+		}
+		return s1 + (uint32_t)index;
+	}
+	return 0;
+}
+
+static int sysclib_strncmp(u32 s1, u32 s2, u32 size) {
+	ERROR_LOG(SCEKERNEL, "Untested sysclib_strncmp(%08x, %08x, %08x)", s1, s2, size);
+	if (Memory::IsValidAddress(s1) && Memory::IsValidAddress(s2)) {
+		const char * str1 = Memory::GetCharPointer(s1);
+		const char * str2 = Memory::GetCharPointer(s2);
+		return strncmp(str1, str2, size);
+	}
+	return 0;
+}
+
+static u32 sysclib_memmove(u32 dst, u32 src, u32 size) {
+	ERROR_LOG(SCEKERNEL, "Untested sysclib_memmove(%08x, %08x, %08x)", dst, src, size);
+	if (Memory::IsValidRange(dst, size) && Memory::IsValidRange(src, size)) {
+		memmove(Memory::GetPointer(dst), Memory::GetPointer(src), size);
+	}
+	return 0;
+}
+
 const HLEFunction SysclibForKernel[] =
 {
 	{0xAB7592FF, &WrapU_UUU<sysclib_memcpy>,                   "memcpy",                              'x', "xxx",    HLE_KERNEL_SYSCALL },
@@ -763,6 +794,9 @@ const HLEFunction SysclibForKernel[] =
 	{0x81D0D1F7, &WrapI_UUU<sysclib_memcmp>,                   "memcmp",                              'i', "xxx",    HLE_KERNEL_SYSCALL },
 	{0x7661E728, &WrapI_UU<sysclib_sprintf>,                   "sprintf",                             'i', "xx",     HLE_KERNEL_SYSCALL },
 	{0x10F3BB61, &WrapU_UII<sysclib_memset>,                   "memset",                              'x', "xii",    HLE_KERNEL_SYSCALL },
+	{0x0D188658, &WrapI_UU<sysclib_strstr>,                    "strstr",                              'i', "xx",     HLE_KERNEL_SYSCALL },
+	{0x7AB35214, &WrapI_UUU<sysclib_strncmp>,                  "strncmp",                             'i', "xxx",     HLE_KERNEL_SYSCALL },
+	{0xA48D2592, &WrapU_UUU<sysclib_memmove>,                  "memmove",                             'x', "xxx",     HLE_KERNEL_SYSCALL },
 };
 
 void Register_Kernel_Library()

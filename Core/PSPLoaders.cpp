@@ -203,7 +203,7 @@ static const char *altBootNames[] = {
 	"disc0:/PSP_GAME/SYSDIR/EBOOT.LLD",
 	//"disc0:/PSP_GAME/SYSDIR/OLD_EBOOT.BIN", //Utawareru Mono Chinese version
 	"disc0:/PSP_GAME/SYSDIR/EBOOT.123",
-	"disc0:/PSP_GAME/SYSDIR/EBOOT_LRC_CH.BIN",
+	//"disc0:/PSP_GAME/SYSDIR/EBOOT_LRC_CH.BIN", // Hatsune Miku Project Diva Extend chinese version
 	"disc0:/PSP_GAME/SYSDIR/BOOT0.OLD",
 	"disc0:/PSP_GAME/SYSDIR/BOOT1.OLD",
 	"disc0:/PSP_GAME/SYSDIR/BINOT.BIN",
@@ -212,7 +212,7 @@ static const char *altBootNames[] = {
 	"disc0:/PSP_GAME/SYSDIR/EBOOT.LEI",
 	"disc0:/PSP_GAME/SYSDIR/EBOOT.DNR",
 	"disc0:/PSP_GAME/SYSDIR/DBZ2.BIN",
-	"disc0:/PSP_GAME/SYSDIR/ss.RAW",
+	//"disc0:/PSP_GAME/SYSDIR/ss.RAW",//Code Geass: Lost Colors chinese version
 };
 
 bool Load_PSP_ISO(FileLoader *fileLoader, std::string *error_string) {

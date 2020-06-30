@@ -225,9 +225,8 @@ void __PPGeInit() {
 
 	if (loadedZIM) {
 		size_t atlas_data_size;
-		uint8_t *atlas_data;
 		if (!g_ppge_atlas.IsMetadataLoaded()) {
-			atlas_data = VFSReadFile("ppge_atlas.meta", &atlas_data_size);
+			uint8_t *atlas_data = VFSReadFile("ppge_atlas.meta", &atlas_data_size);
 			if (atlas_data)
 				g_ppge_atlas.Load(atlas_data, atlas_data_size);
 			delete[] atlas_data;
@@ -262,7 +261,7 @@ void __PPGeInit() {
 		u8 cval = (a2 << 4) | a1;
 		ramPtr[i] = cval;
 	}
-	
+
 	free(imageData[0]);
 
 	// We can't create it here, because Android needs it on the right thread.
@@ -271,7 +270,7 @@ void __PPGeInit() {
 	textDrawer = nullptr;
 	textDrawerImages.clear();
 
-	DEBUG_LOG(SCEGE, "PPGe drawing library initialized. DL: %08x Data: %08x Atlas: %08x (%i) Args: %08x",
+	INFO_LOG(SCEGE, "PPGe drawing library initialized. DL: %08x Data: %08x Atlas: %08x (%i) Args: %08x",
 		dlPtr, dataPtr, atlasPtr, atlasSize, listArgs.ptr);
 }
 
@@ -798,7 +797,7 @@ static PPGeTextDrawerImage PPGeGetTextImage(const char *text, PPGeAlign align, f
 	}
 
 	PPGeTextDrawerCacheKey key{ text, tdalign, maxWidth / scale };
-	PPGeTextDrawerImage im;
+	PPGeTextDrawerImage im{};
 
 	auto cacheItem = textDrawerImages.find(key);
 	if (cacheItem != textDrawerImages.end()) {
@@ -844,6 +843,10 @@ static PPGeTextDrawerImage PPGeGetTextImage(const char *text, PPGeAlign align, f
 }
 
 static void PPGeDrawTextImage(PPGeTextDrawerImage im, float x, float y, PPGeAlign align, float scale, u32 color) {
+	if (!im.ptr) {
+		return;
+	}
+
 	int bufw = ((im.entry.bmWidth + 31) / 32) * 32;
 	int wp2 = GetPow2(im.entry.bmWidth);
 	int hp2 = GetPow2(im.entry.bmHeight);
@@ -875,6 +878,10 @@ static void PPGeDrawTextImage(PPGeTextDrawerImage im, float x, float y, PPGeAlig
 }
 
 void PPGeDrawText(const char *text, float x, float y, PPGeAlign align, float scale, u32 color) {
+	if (!text || !strlen(text)) {
+		return;
+	}
+
 	if (HasTextDrawer()) {
 		PPGeTextDrawerImage im = PPGeGetTextImage(text, align, scale, 480.0f - x, false);
 		PPGeDrawTextImage(im, x, y, align, scale, color);

@@ -4,12 +4,20 @@
 #include "base/display.h"
 #include "thin3d/thin3d.h"
 #include "thin3d/thin3d_create.h"
+#include "thin3d/VulkanRenderManager.h"
 #include "util/text/parsers.h"
 
 #include "Core/System.h"
 #include "SDLVulkanGraphicsContext.h"
+
 #if defined(VK_USE_PLATFORM_METAL_EXT)
 #include "SDLCocoaMetalLayer.h"
+#endif
+
+#ifdef _DEBUG
+static const bool g_Validate = true;
+#else
+static const bool g_Validate = false;
 #endif
 
 bool SDLVulkanGraphicsContext::Init(SDL_Window *&window, int x, int y, int mode, std::string *error_message) {
@@ -34,7 +42,10 @@ bool SDLVulkanGraphicsContext::Init(SDL_Window *&window, int x, int y, int mode,
 
 	vulkan_ = new VulkanContext();
 	int vulkanFlags = VULKAN_FLAG_PRESENT_MAILBOX;
-	// vulkanFlags |= VULKAN_FLAG_VALIDATE;
+	if (g_Validate) {
+		vulkanFlags |= VULKAN_FLAG_VALIDATE;
+	}
+
 	VulkanContext::CreateInfo info{};
 	info.app_name = "PPSSPP";
 	info.app_ver = gitVer.ToInteger();
@@ -103,6 +114,9 @@ bool SDLVulkanGraphicsContext::Init(SDL_Window *&window, int x, int y, int mode,
 	assert(success);
 	draw_->HandleEvent(Draw::Event::GOT_BACKBUFFER, vulkan_->GetBackbufferWidth(), vulkan_->GetBackbufferHeight());
 
+	renderManager_ = (VulkanRenderManager *)draw_->GetNativeObject(Draw::NativeObject::RENDER_MANAGER);
+	renderManager_->SetInflightFrames(g_Config.iInflightFrames);
+
 	return true;
 }
 
@@ -114,9 +128,23 @@ void SDLVulkanGraphicsContext::Shutdown() {
 	vulkan_->WaitUntilQueueIdle();
 	vulkan_->DestroyObjects();
 	vulkan_->DestroyDevice();
-	vulkan_->DestroyDebugMsgCallback();
 	vulkan_->DestroyInstance();
 	delete vulkan_;
 	vulkan_ = nullptr;
 	finalize_glslang();
+}
+
+void SDLVulkanGraphicsContext::Resize() {
+	draw_->HandleEvent(Draw::Event::LOST_BACKBUFFER, vulkan_->GetBackbufferWidth(), vulkan_->GetBackbufferHeight());
+	vulkan_->DestroyObjects();
+	vulkan_->ReinitSurface();
+	vulkan_->InitObjects();
+	draw_->HandleEvent(Draw::Event::GOT_BACKBUFFER, vulkan_->GetBackbufferWidth(), vulkan_->GetBackbufferHeight());
+}
+
+void SDLVulkanGraphicsContext::Poll() {
+	// Check for existing swapchain to avoid issues during shutdown.
+	if (vulkan_->GetSwapchain() && renderManager_->NeedsSwapchainRecreate()) {
+		Resize();
+	}
 }
