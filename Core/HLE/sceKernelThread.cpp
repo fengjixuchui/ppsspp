@@ -31,6 +31,7 @@
 #include "Core/MIPS/MIPSCodeUtils.h"
 #include "Core/MIPS/MIPS.h"
 #include "Core/MIPS/MIPSDebugInterface.h"
+#include "Core/Core.h"
 #include "Core/CoreTiming.h"
 #include "Core/MemMapHelpers.h"
 #include "Core/MIPS/JitCommon/JitCommon.h"
@@ -372,6 +373,8 @@ public:
 
 class PSPThread : public KernelObject {
 public:
+	PSPThread() : debug(currentMIPS, context) {}
+
 	const char *GetName() override { return nt.name; }
 	const char *GetTypeName() override { return "Thread"; }
 	void GetQuickInfo(char *ptr, int size) override
@@ -491,10 +494,6 @@ public:
 		return true;
 	}
 
-	PSPThread() : debug(currentMIPS, context) {
-		currentStack.start = 0;
-	}
-
 	// Can't use a destructor since savestates will call that too.
 	void Cleanup()
 	{
@@ -573,14 +572,14 @@ public:
 		}
 	}
 
-	NativeThread nt;
+	NativeThread nt{};
 
-	ThreadWaitInfo waitInfo;
-	SceUID moduleId;
+	ThreadWaitInfo waitInfo{};
+	SceUID moduleId = -1;
 
-	bool isProcessingCallbacks;
-	u32 currentMipscallId;
-	SceUID currentCallbackId;
+	bool isProcessingCallbacks = false;
+	u32 currentMipscallId = -1;
+	SceUID currentCallbackId = -1;
 
 	PSPThreadContext context;
 	KernelThreadDebugInterface debug;
@@ -597,7 +596,7 @@ public:
 	// These are stacks that aren't "active" right now, but will pop off once the func returns.
 	std::vector<StackInfo> pushedStacks;
 
-	StackInfo currentStack;
+	StackInfo currentStack{};
 
 	// For thread end.
 	std::vector<SceUID> waitingThreads;
@@ -1144,6 +1143,10 @@ bool __KernelSwitchToThread(SceUID threadID, const char *reason)
 		if (current && current->isRunning())
 			__KernelChangeReadyState(current, currentThread, true);
 
+		if (!Memory::IsValidAddress(t->context.pc)) {
+			Core_ExecException(t->context.pc, currentMIPS->pc, ExecExceptionType::THREAD);
+		}
+
 		__KernelSwitchContext(t, reason);
 		return true;
 	}
@@ -1182,6 +1185,11 @@ void __KernelThreadingShutdown() {
 	pausedDelays.clear();
 	threadEventHandlers.clear();
 	pendingDeleteThreads.clear();
+}
+
+std::string __KernelThreadingSummary() {
+	PSPThread *t = __GetCurrentThread();
+	return StringFromFormat("Cur thread: %s (attr %08x)", t ? t->GetName() : "(null)", t ? t->nt.attr : 0);
 }
 
 const char *__KernelGetThreadName(SceUID threadID)
@@ -1458,6 +1466,10 @@ void __KernelLoadContext(PSPThreadContext *ctx, bool vfpuEnabled) {
 	if (vfpuEnabled) {
 		memcpy(currentMIPS->v, ctx->v, sizeof(ctx->v));
 		memcpy(currentMIPS->vfpuCtrl, ctx->vfpuCtrl, sizeof(ctx->vfpuCtrl));
+	}
+
+	if (!Memory::IsValidAddress(ctx->pc)) {
+		Core_ExecException(ctx->pc, currentMIPS->pc, ExecExceptionType::THREAD);
 	}
 
 	memcpy(currentMIPS->other, ctx->other, sizeof(ctx->other));
@@ -1909,6 +1921,10 @@ SceUID __KernelSetupRootThread(SceUID moduleID, int args, const char *argp, int 
 
 	strcpy(thread->nt.name, "root");
 
+	if (!Memory::IsValidAddress(thread->context.pc)) {
+		Core_ExecException(thread->context.pc, currentMIPS->pc, ExecExceptionType::THREAD);
+	}
+
 	__KernelLoadContext(&thread->context, (attr & PSP_THREAD_ATTR_VFPU) != 0);
 	currentMIPS->r[MIPS_REG_A0] = args;
 	currentMIPS->r[MIPS_REG_SP] -= (args + 0xf) & ~0xf;
@@ -2038,6 +2054,9 @@ int __KernelStartThread(SceUID threadToStartID, int argSize, u32 argBlockPtr, bo
 
 	// Smaller is better for priority.  Only switch if the new thread is better.
 	if (cur && cur->nt.currentPriority > startThread->nt.currentPriority) {
+		if (!Memory::IsValidAddress(startThread->context.pc)) {
+			Core_ExecException(startThread->context.pc, currentMIPS->pc, ExecExceptionType::THREAD);
+		}
 		__KernelChangeReadyState(cur, currentThread, true);
 		hleReSchedule("thread started");
 	}
@@ -2900,6 +2919,10 @@ u32 sceKernelExtendThreadStack(u32 size, u32 entryAddr, u32 entryParameter)
 	Memory::Write_U32(currentMIPS->r[MIPS_REG_SP], thread->currentStack.end - 8);
 	Memory::Write_U32(currentMIPS->pc, thread->currentStack.end - 12);
 
+	if (!Memory::IsValidAddress(entryAddr)) {
+		Core_ExecException(entryAddr, currentMIPS->pc, ExecExceptionType::THREAD);
+	}
+
 	currentMIPS->pc = entryAddr;
 	currentMIPS->r[MIPS_REG_A0] = entryParameter;
 	currentMIPS->r[MIPS_REG_RA] = extendReturnHackAddr;
@@ -2930,6 +2953,10 @@ void __KernelReturnFromExtendStack()
 	{
 		ERROR_LOG_REPORT(SCEKERNEL, "__KernelReturnFromExtendStack() - no stack to restore?");
 		return;
+	}
+
+	if (!Memory::IsValidAddress(restorePC)) {
+		Core_ExecException(restorePC, currentMIPS->pc, ExecExceptionType::THREAD);
 	}
 
 	DEBUG_LOG(SCEKERNEL, "__KernelReturnFromExtendStack()");
@@ -3100,6 +3127,7 @@ static bool __CanExecuteCallbackNow(PSPThread *thread) {
 	return currentCallbackThreadID == 0 && g_inCbCount == 0;
 }
 
+// Takes ownership of afterAction.
 void __KernelCallAddress(PSPThread *thread, u32 entryPoint, PSPAction *afterAction, const u32 args[], int numargs, bool reschedAfter, SceUID cbId) {
 	if (!thread || thread->isStopped()) {
 		WARN_LOG_REPORT(SCEKERNEL, "Running mipscall on dormant thread");
@@ -3211,6 +3239,10 @@ bool __KernelExecuteMipsCallOnCurrentThread(u32 callId, bool reschedAfter)
 	call->savedId = cur->currentMipscallId;
 	call->reschedAfter = reschedAfter;
 
+	if (!Memory::IsValidAddress(call->entryPoint)) {
+		Core_ExecException(call->entryPoint, currentMIPS->pc, ExecExceptionType::THREAD);
+	}
+
 	// Set up the new state
 	currentMIPS->pc = call->entryPoint;
 	currentMIPS->r[MIPS_REG_RA] = __KernelCallbackReturnAddress();
@@ -3244,11 +3276,11 @@ void __KernelReturnFromMipsCall()
 	u32 retVal = currentMIPS->r[MIPS_REG_V0];
 	DEBUG_LOG(SCEKERNEL, "__KernelReturnFromMipsCall(), returned %08x", retVal);
 
-	// Should also save/restore wait state here.
-	if (call->doAfter)
-	{
+	// TODO: Should also save/restore wait state here?
+	if (call->doAfter) {
 		call->doAfter->run(*call);
 		delete call->doAfter;
+		call->doAfter = nullptr;
 	}
 
 	u32 &sp = currentMIPS->r[MIPS_REG_SP];
@@ -3259,6 +3291,10 @@ void __KernelReturnFromMipsCall()
 	currentMIPS->r[MIPS_REG_T9] = Memory::Read_U32(sp + MIPS_REG_T9 * 4);
 	currentMIPS->r[MIPS_REG_RA] = Memory::Read_U32(sp + MIPS_REG_RA * 4);
 	sp += 32 * 4;
+
+	if (!Memory::IsValidAddress(call->savedPc)) {
+		Core_ExecException(call->savedPc, currentMIPS->pc, ExecExceptionType::THREAD);
+	}
 
 	currentMIPS->pc = call->savedPc;
 	// This is how we set the return value.

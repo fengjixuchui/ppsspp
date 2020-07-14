@@ -24,7 +24,6 @@
 #include "net/resolve.h"
 #include "Common/ChunkFile.h"
 
-#include "Core/Config.h"
 #include "Core/CoreTiming.h"
 #include "Core/MemMap.h"
 #include "Core/HLE/HLE.h"
@@ -778,11 +777,10 @@ public:
 	}
 	void run(MipsCall &call) override;
 	void SetContextID(u32 ContextID, u32 eventId);
-	void SetContext(SceNetAdhocMatchingContext *Context, u32 eventId) { context = Context; EventID = eventId; }
 
 private:
-	u32 EventID;
-	SceNetAdhocMatchingContext *context;
+	u32 EventID = 0;
+	SceNetAdhocMatchingContext *context = nullptr;
 };
 
 extern int actionAfterMatchingMipsCall;

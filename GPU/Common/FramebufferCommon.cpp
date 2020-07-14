@@ -28,10 +28,10 @@
 #include "Common/Common.h"
 #include "Core/Config.h"
 #include "Core/ConfigValues.h"
+#include "Core/Core.h"
 #include "Core/CoreParameter.h"
 #include "Core/Host.h"
 #include "Core/Reporting.h"
-#include "Core/System.h"
 #include "GPU/Common/DrawEngineCommon.h"
 #include "GPU/Common/FramebufferCommon.h"
 #include "GPU/Common/PostShader.h"
@@ -45,7 +45,6 @@ FramebufferManagerCommon::FramebufferManagerCommon(Draw::DrawContext *draw)
 	: draw_(draw),
 		displayFormat_(GE_FORMAT_565) {
 	presentation_ = new PresentationCommon(draw);
-	UpdateSize();
 }
 
 FramebufferManagerCommon::~FramebufferManagerCommon() {
@@ -70,8 +69,8 @@ FramebufferManagerCommon::~FramebufferManagerCommon() {
 }
 
 void FramebufferManagerCommon::Init() {
-	BeginFrame();
-	presentation_->UpdatePostShader();
+	// We may need to override the render size if the shader is upscaling or SSAA.
+	Resized();
 }
 
 bool FramebufferManagerCommon::UpdateSize() {
@@ -661,7 +660,7 @@ void FramebufferManagerCommon::DrawPixels(VirtualFramebuffer *vfb, int dstX, int
 			std::swap(v0, v1);
 		flags = g_Config.iBufFilter == SCALE_LINEAR ? DRAWTEX_LINEAR : DRAWTEX_NEAREST;
 		flags = flags | DRAWTEX_TO_BACKBUFFER;
-		FRect frame = GetInsetScreenFrame(pixelWidth_, pixelHeight_);
+		FRect frame = GetScreenFrame(pixelWidth_, pixelHeight_);
 		FRect rc;
 		CenterDisplayOutputRect(&rc, 480.0f, 272.0f, frame, ROTATION_LOCKED_HORIZONTAL);
 		SetViewport2D(rc.x, rc.y, rc.w, rc.h);
@@ -831,7 +830,7 @@ void FramebufferManagerCommon::CopyDisplayToOutput(bool reallyDirty) {
 	currentRenderVfb_ = 0;
 
 	if (displayFramebufPtr_ == 0) {
-		if (coreState == CORE_STEPPING)
+		if (Core_IsStepping())
 			VERBOSE_LOG(FRAMEBUF, "Display disabled, displaying only black");
 		else
 			DEBUG_LOG(FRAMEBUF, "Display disabled, displaying only black");
@@ -925,7 +924,7 @@ void FramebufferManagerCommon::CopyDisplayToOutput(bool reallyDirty) {
 	displayFramebuf_ = vfb;
 
 	if (vfb->fbo) {
-		if (coreState == CORE_STEPPING)
+		if (Core_IsStepping())
 			VERBOSE_LOG(FRAMEBUF, "Displaying FBO %08x", vfb->fb_address);
 		else
 			DEBUG_LOG(FRAMEBUF, "Displaying FBO %08x", vfb->fb_address);

@@ -41,7 +41,7 @@ struct Vertex {
 	uint32_t rgba;
 };
 
-FRect GetInsetScreenFrame(float pixelWidth, float pixelHeight) {
+FRect GetScreenFrame(float pixelWidth, float pixelHeight) {
 	FRect rc = FRect{
 		0.0f,
 		0.0f,
@@ -49,17 +49,21 @@ FRect GetInsetScreenFrame(float pixelWidth, float pixelHeight) {
 		pixelHeight,
 	};
 
-	// Remove the DPI scale to get back to pixels.
-	float left = System_GetPropertyFloat(SYSPROP_DISPLAY_SAFE_INSET_LEFT) / g_dpi_scale_x;
-	float right = System_GetPropertyFloat(SYSPROP_DISPLAY_SAFE_INSET_RIGHT) / g_dpi_scale_x;
-	float top = System_GetPropertyFloat(SYSPROP_DISPLAY_SAFE_INSET_TOP) / g_dpi_scale_y;
-	float bottom = System_GetPropertyFloat(SYSPROP_DISPLAY_SAFE_INSET_BOTTOM) / g_dpi_scale_y;
+	bool applyInset = !g_Config.bIgnoreScreenInsets;
 
-	// Adjust left edge to compensate for cutouts (notches) if any.
-	rc.x += left;
-	rc.w -= (left + right);
-	rc.y += top;
-	rc.h -= (top + bottom);
+	if (applyInset) {
+		// Remove the DPI scale to get back to pixels.
+		float left = System_GetPropertyFloat(SYSPROP_DISPLAY_SAFE_INSET_LEFT) / g_dpi_scale_x;
+		float right = System_GetPropertyFloat(SYSPROP_DISPLAY_SAFE_INSET_RIGHT) / g_dpi_scale_x;
+		float top = System_GetPropertyFloat(SYSPROP_DISPLAY_SAFE_INSET_TOP) / g_dpi_scale_y;
+		float bottom = System_GetPropertyFloat(SYSPROP_DISPLAY_SAFE_INSET_BOTTOM) / g_dpi_scale_y;
+
+		// Adjust left edge to compensate for cutouts (notches) if any.
+		rc.x += left;
+		rc.w -= (left + right);
+		rc.y += top;
+		rc.h -= (top + bottom);
+	}
 	return rc;
 }
 
@@ -281,23 +285,45 @@ bool PresentationCommon::BuildPostShader(const ShaderInfo *shaderInfo, const Sha
 		} else if (shaderInfo->outputResolution) {
 			// If the current shader uses output res (not next), we will use output res for it.
 			FRect rc;
-			FRect frame = GetInsetScreenFrame((float)pixelWidth_, (float)pixelHeight_);
+			FRect frame = GetScreenFrame((float)pixelWidth_, (float)pixelHeight_);
 			CenterDisplayOutputRect(&rc, 480.0f, 272.0f, frame, g_Config.iInternalScreenRotation);
 			nextWidth = (int)rc.w;
 			nextHeight = (int)rc.h;
 		}
 
-		// No depth/stencil for post processing
-		Draw::Framebuffer *fbo = draw_->CreateFramebuffer({ nextWidth, nextHeight, 1, 1, false, Draw::FBO_8888 });
-		if (!fbo) {
+		if (!AllocateFramebuffer(nextWidth, nextHeight)) {
 			pipeline->Release();
 			return false;
 		}
-		postShaderFramebuffers_.push_back(fbo);
 	}
 
 	postShaderPipelines_.push_back(pipeline);
 	postShaderInfo_.push_back(*shaderInfo);
+	return true;
+}
+
+bool PresentationCommon::AllocateFramebuffer(int w, int h) {
+	using namespace Draw;
+
+	// First, let's try to find a framebuffer of the right size that is NOT the most recent.
+	Framebuffer *last = postShaderFramebuffers_.empty() ? nullptr : postShaderFramebuffers_.back();
+	for (const auto &prev : postShaderFBOUsage_) {
+		if (prev.w == w && prev.h == h && prev.fbo != last) {
+			// Great, this one's perfect.  Ref it for when we release.
+			prev.fbo->AddRef();
+			postShaderFramebuffers_.push_back(prev.fbo);
+			return true;
+		}
+	}
+
+	// No depth/stencil for post processing
+	Draw::Framebuffer *fbo = draw_->CreateFramebuffer({ w, h, 1, 1, false, Draw::FBO_8888 });
+	if (!fbo) {
+		return false;
+	}
+
+	postShaderFBOUsage_.push_back({ fbo, w, h });
+	postShaderFramebuffers_.push_back(fbo);
 	return true;
 }
 
@@ -436,6 +462,7 @@ void PresentationCommon::DestroyPostShader() {
 	DoReleaseVector(postShaderPipelines_);
 	DoReleaseVector(postShaderFramebuffers_);
 	postShaderInfo_.clear();
+	postShaderFBOUsage_.clear();
 }
 
 Draw::ShaderModule *PresentationCommon::CompileShaderModule(Draw::ShaderStage stage, ShaderLanguage lang, const std::string &src, std::string *errorString) {
@@ -498,11 +525,11 @@ void PresentationCommon::SourceFramebuffer(Draw::Framebuffer *fb, int bufferWidt
 	srcHeight_ = bufferHeight;
 }
 
-void PresentationCommon::BindSource() {
+void PresentationCommon::BindSource(int binding) {
 	if (srcTexture_) {
-		draw_->BindTexture(0, srcTexture_);
+		draw_->BindTexture(binding, srcTexture_);
 	} else if (srcFramebuffer_) {
-		draw_->BindFramebufferAsTexture(srcFramebuffer_, 0, Draw::FB_COLOR_BIT, 0);
+		draw_->BindFramebufferAsTexture(srcFramebuffer_, binding, Draw::FB_COLOR_BIT, 0);
 	} else {
 		assert(false);
 	}
@@ -528,7 +555,7 @@ void PresentationCommon::CopyToOutput(OutputFlags flags, int uvRotation, float u
 	int lastHeight = srcHeight_;
 
 	// These are the output coordinates.
-	FRect frame = GetInsetScreenFrame((float)pixelWidth_, (float)pixelHeight_);
+	FRect frame = GetScreenFrame((float)pixelWidth_, (float)pixelHeight_);
 	FRect rc;
 	CenterDisplayOutputRect(&rc, 480.0f, 272.0f, frame, uvRotation);
 
@@ -626,8 +653,9 @@ void PresentationCommon::CopyToOutput(OutputFlags flags, int uvRotation, float u
 			if (usePostShaderOutput) {
 				draw_->BindFramebufferAsTexture(postShaderFramebuffers_[i - 1], 0, Draw::FB_COLOR_BIT, 0);
 			} else {
-				BindSource();
+				BindSource(0);
 			}
+			BindSource(1);
 
 			int nextWidth, nextHeight;
 			draw_->GetFramebufferDimensions(postShaderFramebuffer, &nextWidth, &nextHeight);
@@ -643,6 +671,7 @@ void PresentationCommon::CopyToOutput(OutputFlags flags, int uvRotation, float u
 
 			Draw::SamplerState *sampler = useNearest || shaderInfo->isUpscalingFilter ? samplerNearest_ : samplerLinear_;
 			draw_->BindSamplerStates(0, 1, &sampler);
+			draw_->BindSamplerStates(1, 1, &sampler);
 
 			draw_->BindVertexBuffers(0, 1, &vdata_, &postVertsOffset);
 			draw_->BindIndexBuffer(idata_, 0);
@@ -673,8 +702,9 @@ void PresentationCommon::CopyToOutput(OutputFlags flags, int uvRotation, float u
 	if (usePostShaderOutput) {
 		draw_->BindFramebufferAsTexture(postShaderFramebuffers_.back(), 0, Draw::FB_COLOR_BIT, 0);
 	} else {
-		BindSource();
+		BindSource(0);
 	}
+	BindSource(1);
 
 	if (isFinalAtOutputResolution) {
 		PostShaderUniforms uniforms;
@@ -691,6 +721,7 @@ void PresentationCommon::CopyToOutput(OutputFlags flags, int uvRotation, float u
 
 	Draw::SamplerState *sampler = useNearest ? samplerNearest_ : samplerLinear_;
 	draw_->BindSamplerStates(0, 1, &sampler);
+	draw_->BindSamplerStates(1, 1, &sampler);
 
 	auto setViewport = [&](float x, float y, float w, float h) {
 		Draw::Viewport viewport{ x, y, w, h, 0.0f, 1.0f };
@@ -717,6 +748,7 @@ void PresentationCommon::CopyToOutput(OutputFlags flags, int uvRotation, float u
 	DoRelease(srcFramebuffer_);
 	DoRelease(srcTexture_);
 
+	// Unbinds all textures and samplers too, needed since sometimes a MakePixelTexture is deleted etc.
 	draw_->BindPipeline(nullptr);
 }
 

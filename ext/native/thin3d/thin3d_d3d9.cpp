@@ -540,7 +540,7 @@ public:
 	void BindTextures(int start, int count, Texture **textures) override;
 	void BindSamplerStates(int start, int count, SamplerState **states) override {
 		for (int i = 0; i < count; ++i) {
-			D3D9SamplerState *s = static_cast<D3D9SamplerState *>(states[start + i]);
+			D3D9SamplerState *s = static_cast<D3D9SamplerState *>(states[i]);
 			s->Apply(device_, start + i);
 		}
 	}
@@ -558,6 +558,8 @@ public:
 	void BindPipeline(Pipeline *pipeline) override {
 		curPipeline_ = (D3D9Pipeline *)pipeline;
 	}
+
+	void EndFrame() override;
 
 	void UpdateDynamicUniformBuffer(const void *ub, size_t size) override;
 
@@ -800,6 +802,10 @@ void D3D9Context::BindTextures(int start, int count, Texture **textures) {
 			device_->SetTexture(i, nullptr);
 		}
 	}
+}
+
+void D3D9Context::EndFrame() {
+	curPipeline_ = nullptr;
 }
 
 static void SemanticToD3D9UsageAndIndex(int semantic, BYTE *usage, BYTE *index) {

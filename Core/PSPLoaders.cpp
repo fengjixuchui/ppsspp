@@ -278,7 +278,7 @@ bool Load_PSP_ISO(FileLoader *fileLoader, std::string *error_string) {
 		} else {
 			*error_string = "A PSP game couldn't be found on the disc.";
 		}
-		coreState = CORE_ERROR;
+		coreState = CORE_BOOT_ERROR;
 		return false;
 	}
 
@@ -303,7 +303,7 @@ bool Load_PSP_ISO(FileLoader *fileLoader, std::string *error_string) {
 		if (success && coreState == CORE_POWERUP) {
 			coreState = PSP_CoreParameter().startBreak ? CORE_STEPPING : CORE_RUNNING;
 		} else {
-			coreState = CORE_ERROR;
+			coreState = CORE_BOOT_ERROR;
 			// TODO: This is a crummy way to communicate the error...
 			PSP_CoreParameter().fileToStart = "";
 		}
@@ -340,10 +340,11 @@ bool Load_PSP_ELF_PBP(FileLoader *fileLoader, std::string *error_string) {
 		auto bd = constructBlockDevice(PSP_CoreParameter().mountIsoLoader);
 		if (bd != NULL) {
 			ISOFileSystem *umd2 = new ISOFileSystem(&pspFileSystem, bd);
+			ISOBlockSystem *blockSystem = new ISOBlockSystem(umd2);
 
-			pspFileSystem.Mount("umd1:", umd2);
+			pspFileSystem.Mount("umd1:", blockSystem);
 			pspFileSystem.Mount("disc0:", umd2);
-			pspFileSystem.Mount("umd:", umd2);
+			pspFileSystem.Mount("umd:", blockSystem);
 		}
 	}
 
@@ -374,7 +375,7 @@ bool Load_PSP_ELF_PBP(FileLoader *fileLoader, std::string *error_string) {
 		// If root is not a subpath of path, we can't boot the game.
 		if (!startsWith(pathNorm, rootNorm)) {
 			*error_string = "Cannot boot ELF located outside mountRoot.";
-			coreState = CORE_ERROR;
+			coreState = CORE_BOOT_ERROR;
 			return false;
 		}
 
@@ -386,7 +387,7 @@ bool Load_PSP_ELF_PBP(FileLoader *fileLoader, std::string *error_string) {
 		pspFileSystem.SetStartingDirectory(ms_path);
 	}
 
-	DirectoryFileSystem *fs = new DirectoryFileSystem(&pspFileSystem, path);
+	DirectoryFileSystem *fs = new DirectoryFileSystem(&pspFileSystem, path, FileSystemFlags::SIMULATE_FAT32 | FileSystemFlags::CARD);
 	pspFileSystem.Mount("umd0:", fs);
 
 	std::string finalName = ms_path + file + extension;
@@ -433,7 +434,7 @@ bool Load_PSP_ELF_PBP(FileLoader *fileLoader, std::string *error_string) {
 		if (success && coreState == CORE_POWERUP) {
 			coreState = PSP_CoreParameter().startBreak ? CORE_STEPPING : CORE_RUNNING;
 		} else {
-			coreState = CORE_ERROR;
+			coreState = CORE_BOOT_ERROR;
 			// TODO: This is a crummy way to communicate the error...
 			PSP_CoreParameter().fileToStart = "";
 		}
@@ -457,7 +458,7 @@ bool Load_PSP_GE_Dump(FileLoader *fileLoader, std::string *error_string) {
 		if (success && coreState == CORE_POWERUP) {
 			coreState = PSP_CoreParameter().startBreak ? CORE_STEPPING : CORE_RUNNING;
 		} else {
-			coreState = CORE_ERROR;
+			coreState = CORE_BOOT_ERROR;
 			// TODO: This is a crummy way to communicate the error...
 			PSP_CoreParameter().fileToStart = "";
 		}

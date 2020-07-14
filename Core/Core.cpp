@@ -29,6 +29,7 @@
 #include "profiler/profiler.h"
 
 #include "Common/GraphicsContext.h"
+#include "Common/Log.h"
 #include "Core/Core.h"
 #include "Core/Config.h"
 #include "Core/Host.h"
@@ -43,7 +44,6 @@
 #include "Common/CommonWindows.h"
 #include "Windows/InputDevice.h"
 #endif
-
 
 // Time until we stop considering the core active without user input.
 // Should this be configurable?  2 hours currently.
@@ -62,6 +62,8 @@ static double lastActivity = 0.0;
 static double lastKeepAwake = 0.0;
 static GraphicsContext *graphicsContext;
 static bool powerSaving = false;
+
+static ExceptionInfo g_exceptionInfo;
 
 void Core_SetGraphicsContext(GraphicsContext *ctx) {
 	graphicsContext = ctx;
@@ -92,6 +94,7 @@ void Core_ListenStopRequest(CoreStopRequestFunc func) {
 }
 
 void Core_Stop() {
+	g_exceptionInfo.type = ExceptionType::NONE;
 	Core_UpdateState(CORE_POWERDOWN);
 	for (auto func : stopFuncs) {
 		func();
@@ -262,6 +265,7 @@ void Core_UpdateSingleStep() {
 }
 
 void Core_SingleStep() {
+	g_exceptionInfo.type = ExceptionType::NONE;
 	currentMIPS->SingleStep();
 	if (coreState == CORE_STEPPING)
 		steppingCounter++;
@@ -339,7 +343,8 @@ void Core_Run(GraphicsContext *ctx) {
 
 		case CORE_POWERUP:
 		case CORE_POWERDOWN:
-		case CORE_ERROR:
+		case CORE_BOOT_ERROR:
+		case CORE_RUNTIME_ERROR:
 			// Exit loop!!
 			Core_StateProcessed();
 
@@ -358,12 +363,109 @@ void Core_EnableStepping(bool step) {
 		steppingCounter++;
 	} else {
 		host->SetDebugMode(false);
+		// Clear the exception if we resume.
+		g_exceptionInfo.type = ExceptionType::NONE;
 		coreState = CORE_RUNNING;
 		coreStatePending = false;
 		m_StepCond.notify_all();
 	}
 }
 
+bool Core_NextFrame() {
+	if (coreState == CORE_RUNNING) {
+		coreState = CORE_NEXTFRAME;
+		return true;
+	} else {
+		return false;
+	}
+}
+
 int Core_GetSteppingCounter() {
 	return steppingCounter;
+}
+
+const char *ExceptionTypeAsString(ExceptionType type) {
+	switch (type) {
+	case ExceptionType::MEMORY: return "Invalid Memory Access";
+	case ExceptionType::BREAK: return "Break";
+	case ExceptionType::BAD_EXEC_ADDR: return "Bad Execution Address";
+	default: return "N/A";
+	}
+}
+
+const char *MemoryExceptionTypeAsString(MemoryExceptionType type) {
+	switch (type) {
+	case MemoryExceptionType::READ_WORD: return "Read Word";
+	case MemoryExceptionType::WRITE_WORD: return "Write Word";
+	case MemoryExceptionType::READ_BLOCK: return "Read Block";
+	case MemoryExceptionType::WRITE_BLOCK: return "Read/Write Block";
+	default:
+		return "N/A";
+	}
+}
+
+const char *ExecExceptionTypeAsString(ExecExceptionType type) {
+	switch (type) {
+	case ExecExceptionType::JUMP: return "CPU Jump";
+	case ExecExceptionType::THREAD: return "Thread switch";
+	default:
+		return "N/A";
+	}
+}
+
+void Core_MemoryException(u32 address, u32 pc, MemoryExceptionType type) {
+	const char *desc = MemoryExceptionTypeAsString(type);
+	// In jit, we only flush PC when bIgnoreBadMemAccess is off.
+	if (g_Config.iCpuCore == (int)CPUCore::JIT && g_Config.bIgnoreBadMemAccess) {
+		WARN_LOG(MEMMAP, "%s: Invalid address %08x", desc, address);
+	} else {
+		WARN_LOG(MEMMAP, "%s: Invalid address %08x PC %08x LR %08x", desc, address, currentMIPS->pc, currentMIPS->r[MIPS_REG_RA]);
+	}
+
+	if (!g_Config.bIgnoreBadMemAccess) {
+		ExceptionInfo &e = g_exceptionInfo;
+		e = {};
+		e.type = ExceptionType::MEMORY;
+		e.info = "";
+		e.memory_type = type;
+		e.address = address;
+		e.pc = pc;
+		Core_EnableStepping(true);
+		host->SetDebugMode(true);
+	}
+}
+
+void Core_ExecException(u32 address, u32 pc, ExecExceptionType type) {
+	const char *desc = ExecExceptionTypeAsString(type);
+	WARN_LOG(MEMMAP, "%s: Invalid destination %08x PC %08x LR %08x", desc, address, currentMIPS->pc, currentMIPS->r[MIPS_REG_RA]);
+
+	if (!g_Config.bIgnoreBadMemAccess) {
+		ExceptionInfo &e = g_exceptionInfo;
+		e = {};
+		e.type = ExceptionType::BAD_EXEC_ADDR;
+		e.info = "";
+		e.exec_type = type;
+		e.address = address;
+		e.pc = pc;
+		Core_EnableStepping(true);
+		host->SetDebugMode(true);
+	}
+}
+
+void Core_Break() {
+	ERROR_LOG(CPU, "BREAK!");
+
+	ExceptionInfo &e = g_exceptionInfo;
+	e = {};
+	e.type = ExceptionType::BREAK;
+	e.info = "";
+
+	if (!g_Config.bIgnoreBadMemAccess) {
+		Core_EnableStepping(true);
+		host->SetDebugMode(true);
+	}
+}
+
+const ExceptionInfo &Core_GetExceptionInfo() {
+	return g_exceptionInfo;
 }

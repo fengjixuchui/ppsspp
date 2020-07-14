@@ -17,6 +17,7 @@
 
 #pragma once
 
+#include "base/basictypes.h"
 #include "GPU/Common/ShaderCommon.h"
 
 struct CardboardSettings {
@@ -45,7 +46,7 @@ struct FRect {
 	float h;
 };
 
-FRect GetInsetScreenFrame(float pixelWidth, float pixelHeight);
+FRect GetScreenFrame(float pixelWidth, float pixelHeight);
 void CenterDisplayOutputRect(FRect *rc, float origW, float origH, const FRect &frame, int rotation);
 
 namespace Draw {
@@ -69,17 +70,7 @@ enum class OutputFlags {
 	POSITION_FLIPPED = 0x0008,
 	PILLARBOX = 0x0010,
 };
-
-inline OutputFlags operator | (const OutputFlags &lhs, const OutputFlags &rhs) {
-	return OutputFlags((int)lhs | (int)rhs);
-}
-inline OutputFlags operator |= (OutputFlags &lhs, const OutputFlags &rhs) {
-	lhs = lhs | rhs;
-	return lhs;
-}
-inline bool operator & (const OutputFlags &lhs, const OutputFlags &rhs) {
-	return ((int)lhs & (int)rhs) != 0;
-}
+ENUM_CLASS_BITOPS(OutputFlags);
 
 class PresentationCommon {
 public:
@@ -122,8 +113,9 @@ protected:
 	Draw::ShaderModule *CompileShaderModule(Draw::ShaderStage stage, ShaderLanguage lang, const std::string &src, std::string *errorString);
 	Draw::Pipeline *CreatePipeline(std::vector<Draw::ShaderModule *> shaders, bool postShader, const Draw::UniformBufferDesc *uniformDesc);
 	bool BuildPostShader(const ShaderInfo *shaderInfo, const ShaderInfo *next);
+	bool AllocateFramebuffer(int w, int h);
 
-	void BindSource();
+	void BindSource(int binding);
 
 	void GetCardboardSettings(CardboardSettings *cardboardSettings);
 	void CalculatePostShaderUniforms(int bufferWidth, int bufferHeight, int targetWidth, int targetHeight, const ShaderInfo *shaderInfo, PostShaderUniforms *uniforms);
@@ -155,4 +147,11 @@ protected:
 	bool usePostShader_ = false;
 	bool restorePostShader_ = false;
 	ShaderLanguage lang_;
+
+	struct PrevFBO {
+		Draw::Framebuffer *fbo;
+		int w;
+		int h;
+	};
+	std::vector<PrevFBO> postShaderFBOUsage_;
 };

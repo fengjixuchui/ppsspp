@@ -54,6 +54,10 @@
 
 static inline void DelayBranchTo(u32 where)
 {
+	if (!Memory::IsValidAddress(where)) {
+		// TODO: What about misaligned?
+		Core_ExecException(where, PC, ExecExceptionType::JUMP);
+	}
 	PC += 4;
 	mipsr4k.nextPC = where;
 	mipsr4k.inDelaySlot = true;
@@ -152,11 +156,7 @@ namespace MIPSInt
 	void Int_Break(MIPSOpcode op)
 	{
 		Reporting::ReportMessage("BREAK instruction hit");
-		ERROR_LOG(CPU, "BREAK!");
-		if (!g_Config.bIgnoreBadMemAccess) {
-			Core_EnableStepping(true);
-			host->SetDebugMode(true);
-		}
+		Core_Break();
 		PC += 4;
 	}
 

@@ -504,6 +504,7 @@ static bool DefaultSasThread() {
 static ConfigSetting cpuSettings[] = {
 	ReportedConfigSetting("CPUCore", &g_Config.iCpuCore, &DefaultCpuCore, true, true),
 	ReportedConfigSetting("SeparateSASThread", &g_Config.bSeparateSASThread, &DefaultSasThread, true, true),
+	ReportedConfigSetting("SeparateIOThread", &g_Config.bSeparateIOThread, true, true, true),
 	ReportedConfigSetting("IOTimingMethod", &g_Config.iIOTimingMethod, IOTIMING_FAST, true, true),
 	ConfigSetting("FastMemoryAccess", &g_Config.bFastMemory, true, true, true),
 	ReportedConfigSetting("FuncReplacements", &g_Config.bFuncReplacements, true, true, true),
@@ -517,8 +518,8 @@ static ConfigSetting cpuSettings[] = {
 };
 
 static int DefaultInternalResolution() {
-	// Auto on Windows, 2x on large screens, 1x elsewhere.
-#if defined(USING_WIN_UI)
+	// Auto on Windows and Linux, 2x on large screens, 1x elsewhere.
+#if defined(USING_WIN_UI) || defined(USING_QT_UI)
 	return 0;
 #else
 	int longestDisplaySide = std::max(System_GetPropertyInt(SYSPROP_DISPLAY_XRES), System_GetPropertyInt(SYSPROP_DISPLAY_YRES));
@@ -757,6 +758,7 @@ static ConfigSetting graphicsSettings[] = {
 	ConfigSetting("SmallDisplayZoomLevel", &g_Config.fSmallDisplayZoomLevel, 1.0f, true, true),
 	ConfigSetting("ImmersiveMode", &g_Config.bImmersiveMode, false, true, true),
 	ConfigSetting("SustainedPerformanceMode", &g_Config.bSustainedPerformanceMode, false, true, true),
+	ConfigSetting("IgnoreScreenInsets", &g_Config.bIgnoreScreenInsets, true, true, false),
 
 	ReportedConfigSetting("ReplaceTextures", &g_Config.bReplaceTextures, true, true, true),
 	ReportedConfigSetting("SaveNewTextures", &g_Config.bSaveNewTextures, false, true, true),

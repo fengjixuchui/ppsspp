@@ -155,6 +155,9 @@ void __KernelThreadingInit();
 void __KernelThreadingDoState(PointerWrap &p);
 void __KernelThreadingDoStateLate(PointerWrap &p);
 void __KernelThreadingShutdown();
+
+std::string __KernelThreadingSummary();
+
 KernelObject *__KernelThreadObject();
 KernelObject *__KernelCallbackObject();
 
@@ -219,6 +222,7 @@ int sceKernelReferCallbackStatus(SceUID cbId, u32 statusAddr);
 class PSPAction;
 
 // Not an official Callback object, just calls a mips function on the current thread.
+// Takes ownership of afterAction.
 void __KernelDirectMipsCall(u32 entryPoint, PSPAction *afterAction, u32 args[], int numargs, bool reschedAfter);
 
 void __KernelReturnFromMipsCall();  // Called as HLE function
