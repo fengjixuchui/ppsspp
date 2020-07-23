@@ -80,8 +80,10 @@
     <ClCompile Include="..\..\Core\CoreTiming.cpp" />
     <ClCompile Include="..\..\Core\CwCheat.cpp" />
     <ClCompile Include="..\..\Core\HDRemaster.cpp" />
+    <ClCompile Include="..\..\Core\Instance.cpp" />
     <ClCompile Include="..\..\Core\Host.cpp" />
     <ClCompile Include="..\..\Core\Loaders.cpp" />
+    <ClCompile Include="..\..\Core\MemFault.cpp" />
     <ClCompile Include="..\..\Core\MemMap.cpp" />
     <ClCompile Include="..\..\Core\MemMapFunctions.cpp" />
     <ClCompile Include="..\..\Core\PSPLoaders.cpp" />
@@ -706,6 +708,9 @@
     <ClCompile Include="..\..\Core\HW\Camera.cpp">
       <Filter>HW</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\Core\Util\PortManager.cpp">
+      <Filter>Util</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
@@ -717,8 +722,10 @@
     <ClInclude Include="..\..\Core\CoreTiming.h" />
     <ClInclude Include="..\..\Core\CwCheat.h" />
     <ClInclude Include="..\..\Core\HDRemaster.h" />
+    <ClInclude Include="..\..\Core\Instance.h" />
     <ClInclude Include="..\..\Core\Host.h" />
     <ClInclude Include="..\..\Core\Loaders.h" />
+    <ClInclude Include="..\..\Core\MemFault.h" />
     <ClInclude Include="..\..\Core\MemMap.h" />
     <ClInclude Include="..\..\Core\MemMapHelpers.h" />
     <ClInclude Include="..\..\Core\Opcode.h" />
@@ -1302,6 +1309,9 @@
     </ClInclude>
     <ClInclude Include="..\..\Core\HW\Camera.h">
       <Filter>HW</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Core\Util\PortManager.h">
+      <Filter>Util</Filter>
     </ClInclude>
   </ItemGroup>
 </Project>

@@ -161,8 +161,8 @@ public:
 	bool bVSync;
 	int iFrameSkip;
 	int iFrameSkipType;
+	int iUnthrottleMode; // See UnthrottleMode in ConfigValues.h.
 	bool bAutoFrameSkip;
-	bool bFrameSkipUnthrottle;
 
 	bool bEnableCardboardVR; // Cardboard Master Switch
 	int iCardboardScreenSize; // Screen Size (in %)
@@ -396,9 +396,7 @@ public:
 
 	// SystemParam
 	std::string sNickName;
-	std::string proAdhocServer;
 	std::string sMACAddress;
-	int iPortOffset;
 	int iLanguage;
 	int iTimeFormat;
 	int iDateFormat;
@@ -410,8 +408,14 @@ public:
 	bool bSavedataUpgrade;
 
 	// Networking
+	std::string proAdhocServer;
 	bool bEnableWlan;
 	bool bEnableAdhocServer;
+	bool bTCPNoDelay;
+	bool bEnableUPnP;
+	bool bUPnPUseOriginalPort;
+	int iPortOffset;
+	int iMinTimeout;
 	int iWlanAdhocChannel;
 	bool bWlanPowerSave;
 	bool bEnableNetworkChat;

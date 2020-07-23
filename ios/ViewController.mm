@@ -38,7 +38,7 @@
 #define IS_IPAD() ([UIDevice currentDevice].userInterfaceIdiom == UIUserInterfaceIdiomPad)
 #define IS_IPHONE() ([UIDevice currentDevice].userInterfaceIdiom == UIUserInterfaceIdiomPhone)
 
-class IOSGraphicsContext : public DummyGraphicsContext {
+class IOSGraphicsContext : public GraphicsContext {
 public:
 	IOSGraphicsContext() {
 		CheckGLExtensions();
@@ -47,7 +47,7 @@ public:
 		renderManager_->SetInflightFrames(g_Config.iInflightFrames);
 		SetGPUBackend(GPUBackend::OPENGL);
 		bool success = draw_->CreatePresets();
-		_assert_msg_(G3D, success, "Failed to compile preset shaders");
+		_assert_msg_(success, "Failed to compile preset shaders");
 	}
 	~IOSGraphicsContext() {
 		delete draw_;
@@ -55,6 +55,12 @@ public:
 	Draw::DrawContext *GetDrawContext() override {
 		return draw_;
 	}
+
+	void SwapInterval(int interval) override {}
+	void SwapBuffers() override {}
+	void Resize() override {}
+	void Shutdown() override {}
+
 	void ThreadStart() override {
 		renderManager_->ThreadStart(draw_);
 	}
@@ -71,6 +77,7 @@ public:
 		renderManager_->WaitUntilQueueIdle();
 		renderManager_->StopThread();
 	}
+
 private:
 	Draw::DrawContext *draw_;
 	GLRenderManager *renderManager_;

@@ -93,7 +93,8 @@ struct FPL : public KernelObject
 		}
 	}
 	const char *GetName() override { return nf.name; }
-	const char *GetTypeName() override { return "FPL"; }
+	const char *GetTypeName() override { return GetStaticTypeName(); }
+	static const char *GetStaticTypeName() { return "FPL"; }
 	static u32 GetMissingErrorCode() { return SCE_KERNEL_ERROR_UNKNOWN_FPLID; }
 	static int GetStaticIDType() { return SCE_KERNEL_TMID_Fpl; }
 	int GetIDType() const override { return SCE_KERNEL_TMID_Fpl; }
@@ -302,11 +303,11 @@ struct SceKernelVplHeader {
 
 	inline void Validate() {
 		auto lastBlock = LastBlock();
-		_dbg_assert_msg_(SCEKERNEL, nextFreeBlock_->next.ptr != SentinelPtr(), "Next free block should not be allocated.");
-		_dbg_assert_msg_(SCEKERNEL, nextFreeBlock_->next.ptr != sentinel_, "Next free block should not point to sentinel.");
-		_dbg_assert_msg_(SCEKERNEL, lastBlock->sizeInBlocks == 0, "Last block should have size of 0.");
-		_dbg_assert_msg_(SCEKERNEL, lastBlock->next.ptr != SentinelPtr(), "Last block should not be allocated.");
-		_dbg_assert_msg_(SCEKERNEL, lastBlock->next.ptr != sentinel_, "Last block should not point to sentinel.");
+		_dbg_assert_msg_(nextFreeBlock_->next.ptr != SentinelPtr(), "Next free block should not be allocated.");
+		_dbg_assert_msg_(nextFreeBlock_->next.ptr != sentinel_, "Next free block should not point to sentinel.");
+		_dbg_assert_msg_(lastBlock->sizeInBlocks == 0, "Last block should have size of 0.");
+		_dbg_assert_msg_(lastBlock->next.ptr != SentinelPtr(), "Last block should not be allocated.");
+		_dbg_assert_msg_(lastBlock->next.ptr != sentinel_, "Last block should not point to sentinel.");
 
 		auto b = PSPPointer<SceKernelVplBlock>::Create(FirstBlockPtr());
 		bool sawFirstFree = false;
@@ -314,22 +315,22 @@ struct SceKernelVplHeader {
 			bool isFree = b->next.ptr != SentinelPtr();
 			if (isFree) {
 				if (!sawFirstFree) {
-					_dbg_assert_msg_(SCEKERNEL, lastBlock->next.ptr == b.ptr, "Last block should point to first free block.");
+					_dbg_assert_msg_(lastBlock->next.ptr == b.ptr, "Last block should point to first free block.");
 					sawFirstFree = true;
 				}
-				_dbg_assert_msg_(SCEKERNEL, b->next.ptr != SentinelPtr(), "Free blocks should only point to other free blocks.");
-				_dbg_assert_msg_(SCEKERNEL, b->next.ptr > b.ptr, "Free blocks should be in order.");
-				_dbg_assert_msg_(SCEKERNEL, b + b->sizeInBlocks < b->next || b->next.ptr == lastBlock.ptr, "Two free blocks should not be next to each other.");
+				_dbg_assert_msg_(b->next.ptr != SentinelPtr(), "Free blocks should only point to other free blocks.");
+				_dbg_assert_msg_(b->next.ptr > b.ptr, "Free blocks should be in order.");
+				_dbg_assert_msg_(b + b->sizeInBlocks < b->next || b->next.ptr == lastBlock.ptr, "Two free blocks should not be next to each other.");
 			} else {
-				_dbg_assert_msg_(SCEKERNEL, b->next.ptr == SentinelPtr(), "Allocated blocks should point to the sentinel.");
+				_dbg_assert_msg_(b->next.ptr == SentinelPtr(), "Allocated blocks should point to the sentinel.");
 			}
-			_dbg_assert_msg_(SCEKERNEL, b->sizeInBlocks != 0, "Only the last block should have a size of 0.");
+			_dbg_assert_msg_(b->sizeInBlocks != 0, "Only the last block should have a size of 0.");
 			b += b->sizeInBlocks;
 		}
 		if (!sawFirstFree) {
-			_dbg_assert_msg_(SCEKERNEL, lastBlock->next.ptr == lastBlock.ptr, "Last block should point to itself when full.");
+			_dbg_assert_msg_(lastBlock->next.ptr == lastBlock.ptr, "Last block should point to itself when full.");
 		}
-		_dbg_assert_msg_(SCEKERNEL, b.ptr == lastBlock.ptr, "Blocks should not extend outside vpl.");
+		_dbg_assert_msg_(b.ptr == lastBlock.ptr, "Blocks should not extend outside vpl.");
 	}
 
 	void ListBlocks() {
@@ -375,7 +376,8 @@ struct SceKernelVplHeader {
 struct VPL : public KernelObject
 {
 	const char *GetName() override { return nv.name; }
-	const char *GetTypeName() override { return "VPL"; }
+	const char *GetTypeName() override { return GetStaticTypeName(); }
+	static const char *GetStaticTypeName() { return "VPL"; }
 	static u32 GetMissingErrorCode() { return SCE_KERNEL_ERROR_UNKNOWN_VPLID; }
 	static int GetStaticIDType() { return SCE_KERNEL_TMID_Vpl; }
 	int GetIDType() const override { return SCE_KERNEL_TMID_Vpl; }
@@ -899,7 +901,8 @@ class PartitionMemoryBlock : public KernelObject
 {
 public:
 	const char *GetName() override { return name; }
-	const char *GetTypeName() override { return "MemoryPart"; }
+	const char *GetTypeName() override { return GetStaticTypeName(); }
+	static const char *GetStaticTypeName() { return "MemoryPart"; }
 	void GetQuickInfo(char *ptr, int size) override
 	{
 		int sz = alloc->GetBlockSizeFromAddress(address);
@@ -1869,7 +1872,8 @@ struct NativeTlspl
 struct TLSPL : public KernelObject
 {
 	const char *GetName() override { return ntls.name; }
-	const char *GetTypeName() override { return "TLS"; }
+	const char *GetTypeName() override { return GetStaticTypeName(); }
+	static const char *GetStaticTypeName() { return "TLS"; }
 	static u32 GetMissingErrorCode() { return PSP_ERROR_UNKNOWN_TLSPL_ID; }
 	static int GetStaticIDType() { return SCE_KERNEL_TMID_Tlspl; }
 	int GetIDType() const override { return SCE_KERNEL_TMID_Tlspl; }

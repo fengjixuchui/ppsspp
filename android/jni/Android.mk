@@ -15,6 +15,7 @@ ifeq ($(TARGET_ARCH_ABI),x86)
 ARCH_FILES := \
   $(SRC)/Common/ABI.cpp \
   $(SRC)/Common/x64Emitter.cpp \
+  $(SRC)/Common/x64Analyzer.cpp \
   $(SRC)/Common/CPUDetect.cpp \
   $(SRC)/Common/Thunk.cpp \
   $(SRC)/Core/MIPS/x86/CompALU.cpp \
@@ -36,6 +37,7 @@ ifeq ($(TARGET_ARCH_ABI),x86_64)
 ARCH_FILES := \
   $(SRC)/Common/ABI.cpp \
   $(SRC)/Common/x64Emitter.cpp \
+  $(SRC)/Common/x64Analyzer.cpp \
   $(SRC)/Common/CPUDetect.cpp \
   $(SRC)/Common/Thunk.cpp \
   $(SRC)/Core/MIPS/x86/CompALU.cpp \
@@ -205,6 +207,7 @@ EXEC_AND_LIB_FILES := \
   $(SRC)/Common/Crypto/sha256.cpp \
   $(SRC)/Common/ChunkFile.cpp \
   $(SRC)/Common/ColorConv.cpp \
+  $(SRC)/Common/ExceptionHandlerSetup.cpp \
   $(SRC)/Common/KeyMap.cpp \
   $(SRC)/Common/LogManager.cpp \
   $(SRC)/Common/MemArenaAndroid.cpp \
@@ -288,6 +291,7 @@ EXEC_AND_LIB_FILES := \
   $(SRC)/Core/CoreTiming.cpp \
   $(SRC)/Core/CwCheat.cpp \
   $(SRC)/Core/HDRemaster.cpp \
+  $(SRC)/Core/Instance.cpp \
   $(SRC)/Core/Host.cpp \
   $(SRC)/Core/Loaders.cpp \
   $(SRC)/Core/PSPLoaders.cpp \
@@ -297,6 +301,7 @@ EXEC_AND_LIB_FILES := \
   $(SRC)/Core/FileLoaders/LocalFileLoader.cpp \
   $(SRC)/Core/FileLoaders/RamCachingFileLoader.cpp \
   $(SRC)/Core/FileLoaders/RetryingFileLoader.cpp \
+  $(SRC)/Core/MemFault.cpp \
   $(SRC)/Core/MemMap.cpp \
   $(SRC)/Core/MemMapFunctions.cpp \
   $(SRC)/Core/Reporting.cpp \
@@ -416,6 +421,7 @@ EXEC_AND_LIB_FILES := \
   $(SRC)/Core/MIPS/JitCommon/JitBlockCache.cpp \
   $(SRC)/Core/MIPS/JitCommon/JitState.cpp \
   $(SRC)/Core/Util/AudioFormat.cpp \
+  $(SRC)/Core/Util/PortManager.cpp \
   $(SRC)/Core/Util/GameManager.cpp \
   $(SRC)/Core/Util/BlockAllocator.cpp \
   $(SRC)/Core/Util/PPGeDraw.cpp \
@@ -587,6 +593,7 @@ endif
 $(call import-module,libzip)
 $(call import-module,native)
 $(call import-module,glslang-build)
+$(call import-module,miniupnp-build)
 
 ifeq ($(ANDROID_NDK_PROFILER),1)
   $(call import-module,android-ndk-profiler)

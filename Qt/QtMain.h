@@ -55,7 +55,9 @@ public:
 		renderManager_ = (GLRenderManager *)draw_->GetNativeObject(Draw::NativeObject::RENDER_MANAGER);
 		renderManager_->SetInflightFrames(g_Config.iInflightFrames);
 		bool success = draw_->CreatePresets();
-		_assert_msg_(G3D, success, "Failed to compile preset shaders");
+		_assert_msg_(success, "Failed to compile preset shaders");
+
+		// TODO: Need to figure out how to implement SetSwapInterval for Qt.
 	}
 
 	~QtGLGraphicsContext() {
@@ -65,7 +67,10 @@ public:
 	}
 
 	void Shutdown() override {}
-	void SwapInterval(int interval) override {}
+	void SwapInterval(int interval) override {
+		// See TODO in constructor.
+		// renderManager_->SwapInterval(interval);
+	}
 	void SwapBuffers() override {}
 	void Resize() override {}
 

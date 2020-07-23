@@ -395,6 +395,7 @@ const char *ExceptionTypeAsString(ExceptionType type) {
 
 const char *MemoryExceptionTypeAsString(MemoryExceptionType type) {
 	switch (type) {
+	case MemoryExceptionType::UNKNOWN: return "Unknown";
 	case MemoryExceptionType::READ_WORD: return "Read Word";
 	case MemoryExceptionType::WRITE_WORD: return "Write Word";
 	case MemoryExceptionType::READ_BLOCK: return "Read Block";
@@ -427,6 +428,28 @@ void Core_MemoryException(u32 address, u32 pc, MemoryExceptionType type) {
 		e = {};
 		e.type = ExceptionType::MEMORY;
 		e.info = "";
+		e.memory_type = type;
+		e.address = address;
+		e.pc = pc;
+		Core_EnableStepping(true);
+		host->SetDebugMode(true);
+	}
+}
+
+void Core_MemoryExceptionInfo(u32 address, u32 pc, MemoryExceptionType type, std::string additionalInfo) {
+	const char *desc = MemoryExceptionTypeAsString(type);
+	// In jit, we only flush PC when bIgnoreBadMemAccess is off.
+	if (g_Config.iCpuCore == (int)CPUCore::JIT && g_Config.bIgnoreBadMemAccess) {
+		WARN_LOG(MEMMAP, "%s: Invalid address %08x. %s", desc, address, additionalInfo.c_str());
+	} else {
+		WARN_LOG(MEMMAP, "%s: Invalid address %08x PC %08x LR %08x %s", desc, address, currentMIPS->pc, currentMIPS->r[MIPS_REG_RA], additionalInfo.c_str());
+	}
+
+	if (!g_Config.bIgnoreBadMemAccess) {
+		ExceptionInfo &e = g_exceptionInfo;
+		e = {};
+		e.type = ExceptionType::MEMORY;
+		e.info = additionalInfo;
 		e.memory_type = type;
 		e.address = address;
 		e.pc = pc;

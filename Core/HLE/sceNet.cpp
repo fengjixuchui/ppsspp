@@ -15,6 +15,13 @@
 // Official git repository and contact information can be found at
 // https://github.com/hrydgard/ppsspp and http://www.ppsspp.org/.
 
+#if __linux__ || __APPLE__
+#include <unistd.h>
+#include <sys/types.h>
+#include <sys/mman.h>
+#include <fcntl.h>
+#endif
+
 #include "net/resolve.h"
 #include "util/text/parsers.h"
 
@@ -25,6 +32,7 @@
 #include "Core/MIPS/MIPS.h"
 #include "Core/Config.h"
 #include "Core/MemMapHelpers.h"
+#include "Core/Util/PortManager.h"
 
 #include "sceKernel.h"
 #include "sceKernelThread.h"
@@ -35,10 +43,11 @@
 #include "Core/HLE/sceNetAdhoc.h"
 #include "Core/HLE/sceNet.h"
 #include "Core/Reporting.h"
+#include "Core/Instance.h"
 
 static bool netInited;
-static bool netInetInited;
-static bool netApctlInited;
+bool netInetInited;
+bool netApctlInited;
 u32 netDropRate = 0;
 u32 netDropDuration = 0;
 u32 netPoolAddr = 0;
@@ -49,21 +58,97 @@ static struct SceNetMallocStat netMallocStat;
 
 static std::map<int, ApctlHandler> apctlHandlers;
 
+static int InitLocalhostIP() {
+	// find local IP
+	addrinfo* localAddr;
+	addrinfo* ptr;
+	char ipstr[256];
+	sprintf(ipstr, "127.0.0.%u", PPSSPP_ID);
+	int iResult = getaddrinfo(ipstr, 0, NULL, &localAddr);
+	if (iResult != 0) {
+		ERROR_LOG(SCENET, "DNS Error (%s) result: %d\n", ipstr, iResult);
+		//osm.Show("DNS Error, can't resolve client bind " + ipstr, 8.0f);
+		((sockaddr_in*)&LocalhostIP)->sin_family = AF_INET;
+		((sockaddr_in*)&LocalhostIP)->sin_addr.s_addr = inet_addr(ipstr); //"127.0.0.1"
+		((sockaddr_in*)&LocalhostIP)->sin_port = 0;
+		return iResult;
+	}
+	for (ptr = localAddr; ptr != NULL; ptr = ptr->ai_next) {
+		switch (ptr->ai_family) {
+		case AF_INET:
+			memcpy(&LocalhostIP, ptr->ai_addr, sizeof(sockaddr));
+			break;
+		}
+	}
+	((sockaddr_in*)&LocalhostIP)->sin_port = 0;
+	freeaddrinfo(localAddr);
+
+	// Resolve server dns
+	addrinfo* resultAddr;
+	in_addr serverIp;
+	serverIp.s_addr = INADDR_NONE;
+
+	iResult = getaddrinfo(g_Config.proAdhocServer.c_str(), 0, NULL, &resultAddr);
+	if (iResult != 0) {
+		ERROR_LOG(SCENET, "DNS Error (%s)\n", g_Config.proAdhocServer.c_str());
+		return iResult;
+	}
+	for (ptr = resultAddr; ptr != NULL; ptr = ptr->ai_next) {
+		switch (ptr->ai_family) {
+		case AF_INET:
+			serverIp = ((sockaddr_in*)ptr->ai_addr)->sin_addr;
+			break;
+		}
+	}
+	freeaddrinfo(resultAddr);
+	isLocalServer = (((uint8_t*)&serverIp.s_addr)[0] == 0x7f);
+
+	return 0;
+}
+
 static void __ResetInitNetLib() {
 	netInited = false;
 	netApctlInited = false;
 	netInetInited = false;
 
 	memset(&netMallocStat, 0, sizeof(netMallocStat));
+	memset(&parameter, 0, sizeof(parameter));
 }
 
 void __NetInit() {
+	// Windows: Assuming WSAStartup already called beforehand
 	portOffset = g_Config.iPortOffset;
+	isOriPort = g_Config.bEnableUPnP && g_Config.bUPnPUseOriginalPort;
+	minSocketTimeoutUS = g_Config.iMinTimeout * 1000UL;
+
+	InitLocalhostIP();
+
+	char tmpmac[18];
+	SceNetEtherAddr mac;
+	getLocalMac(&mac);
+	INFO_LOG(SCENET, "LocalHost IP will be %s [MAC: %s]", inet_ntoa(((sockaddr_in*)&LocalhostIP)->sin_addr), mac2str(&mac, tmpmac));
+
+	// Only initialize when UPnP is enabled since it takes a few seconds to detect UPnP device (may affect people who don't have UPnP device)
+	if (g_Config.bEnableUPnP) {
+		// TODO: May be we should initialize & cleanup somewhere else than here for PortManager to be used as general purpose for whatever port forwarding PPSSPP needed
+		g_PortManager.Initialize();
+	}
+
 	__ResetInitNetLib();
 }
 
 void __NetShutdown() {
+	// Network Cleanup
+	Net_Term();
+	
 	__ResetInitNetLib();
+
+	// Since PortManager supposed to be general purpose for whatever port forwarding PPSSPP needed, may be we shouldn't clear & restore ports in here? it will be cleared and restored by PortManager's destructor when exiting PPSSPP anyway
+	if (g_PortManager.GetInitState() == UPNP_INITSTATE_DONE) {
+		g_PortManager.Clear();
+		g_PortManager.Restore();
+		g_PortManager.Terminate();
+	}
 }
 
 static void __UpdateApctlHandlers(int oldState, int newState, int flag, int error) {
@@ -84,6 +169,10 @@ void __NetDoState(PointerWrap &p) {
 	auto s = p.Section("sceNet", 1, 3);
 	if (!s)
 		return;
+
+	auto cur_netInited = netInited;
+	auto cur_netInetInited = netInetInited;
+	auto cur_netApctlInited = netApctlInited;
 
 	p.Do(netInited);
 	p.Do(netInetInited);
@@ -106,6 +195,12 @@ void __NetDoState(PointerWrap &p) {
 		p.Do(netThread1Addr);
 		p.Do(netThread2Addr);
 	}
+	// Let's not change "Inited" value when Loading SaveState in the middle of multiplayer to prevent memory & port leaks
+	if (p.mode == p.MODE_READ) {
+		netApctlInited = cur_netApctlInited;
+		netInetInited = cur_netInetInited;
+		netInited = cur_netInited;
+	}
 }
 
 static inline u32 AllocUser(u32 size, bool fromTop, const char *name) {
@@ -121,26 +216,65 @@ static inline void FreeUser(u32 &addr) {
 	addr = 0;
 }
 
-static u32 sceNetTerm() {
-	//May also need to Terminate netAdhocctl and netAdhoc since the game (ie. GTA:VCS, Wipeout Pulse, etc) might not called them before calling sceNetTerm and causing them to behave strangely on the next sceNetInit+sceNetAdhocInit
-	if (netAdhocctlInited) sceNetAdhocctlTerm();
-	if (netAdhocInited) sceNetAdhocTerm();
+u32 Net_Term() {
+	// May also need to Terminate netAdhocctl and netAdhoc to free some resources & threads, since the game (ie. GTA:VCS, Wipeout Pulse, etc) might not called them before calling sceNetTerm and causing them to behave strangely on the next sceNetInit & sceNetAdhocInit
+	NetAdhocctl_Term();
+	NetAdhoc_Term();
 
-	WARN_LOG(SCENET, "sceNetTerm()");
-	netInited = false;
+	// TODO: Not implemented yet
+	//sceNetApctl_Term();
+	//NetInet_Term();
+
+	// Library is initialized
+	if (netInited) {
+		// Delete PDP Sockets
+		deleteAllPDP();
+
+		// Delete PTP Sockets
+		deleteAllPTP();
+
+		// Delete GameMode Buffer
+		//deleteAllGMB();
+
+		// Terminate Internet Library
+		//sceNetInetTerm();
+
+		// Unload Internet Modules (Just keep it in memory... unloading crashes?!)
+		// if (_manage_modules != 0) sceUtilityUnloadModule(PSP_MODULE_NET_INET);
+		// Library shutdown
+	}
+
 	FreeUser(netPoolAddr);
 	FreeUser(netThread1Addr);
 	FreeUser(netThread2Addr);
+	netInited = false;
 
 	return 0;
 }
 
-// TODO: should that struct actually be initialized here?
+static u32 sceNetTerm() {
+	WARN_LOG(SCENET, "sceNetTerm()");
+	int retval = Net_Term();
+
+	// Give time to make sure everything are cleaned up
+	hleDelayResult(retval, "give time to init/cleanup", adhocEventDelayMS * 1000);
+	return retval;
+}
+
+/*
+Parameters:
+	poolsize	- Memory pool size (appears to be for the whole of the networking library).
+	calloutprio	- Priority of the SceNetCallout thread.
+	calloutstack	- Stack size of the SceNetCallout thread (defaults to 4096 on non 1.5 firmware regardless of what value is passed).
+	netintrprio	- Priority of the SceNetNetintr thread.
+	netintrstack	- Stack size of the SceNetNetintr thread (defaults to 4096 on non 1.5 firmware regardless of what value is passed).
+*/
 static int sceNetInit(u32 poolSize, u32 calloutPri, u32 calloutStack, u32 netinitPri, u32 netinitStack)  {
+	// TODO: Create Network Threads using given priority & stack
 	// TODO: The correct behavior is actually to allocate more and leak the other threads/pool.
 	// But we reset here for historic reasons (GTA:VCS potentially triggers this.)
 	if (netInited)
-		sceNetTerm();
+		Net_Term(); // This cleanup attempt might not worked when SaveState were loaded in the middle of multiplayer game and re-entering multiplayer, thus causing memory leaks & wasting binded ports. May be we shouldn't save/load "Inited" vars on SaveState?
 
 	if (poolSize == 0) {
 		return hleLogError(SCENET, SCE_KERNEL_ERROR_ILLEGAL_MEMSIZE, "invalid pool size");
@@ -172,11 +306,30 @@ static int sceNetInit(u32 poolSize, u32 calloutPri, u32 calloutStack, u32 netini
 
 	WARN_LOG(SCENET, "sceNetInit(poolsize=%d, calloutpri=%i, calloutstack=%d, netintrpri=%i, netintrstack=%d) at %08x", poolSize, calloutPri, calloutStack, netinitPri, netinitStack, currentMIPS->pc);
 	netInited = true;
-	netMallocStat.maximum = poolSize;
-	netMallocStat.free = poolSize;
-	netMallocStat.pool = 0;
+	netMallocStat.pool = poolSize; // This should be the poolSize isn't?
+	netMallocStat.maximum = poolSize/2; // According to JPCSP's sceNetGetMallocStat this is Currently Used size = (poolSize - free), faked to half the pool
+	netMallocStat.free = poolSize - netMallocStat.maximum;
+
+	// Clear Socket Translator Memory
+	memset(&pdp, 0, sizeof(pdp));
+	memset(&ptp, 0, sizeof(ptp));
 	
 	return hleLogSuccessI(SCENET, 0);
+}
+
+// Free(delete) thread info / data. 
+// Normal usage: sceKernelDeleteThread followed by sceNetFreeThreadInfo with the same threadID as argument
+static int sceNetFreeThreadinfo(SceUID thid) {
+	ERROR_LOG(SCENET, "UNIMPL sceNetFreeThreadinfo(%i)", thid);
+
+	return 0;
+}
+
+// Abort a thread.
+static int sceNetThreadAbort(SceUID thid) {
+	ERROR_LOG(SCENET, "UNIMPL sceNetThreadAbort(%i)", thid);
+
+	return 0;
 }
 
 static u32 sceWlanGetEtherAddr(u32 addrAddr) {
@@ -186,6 +339,10 @@ static u32 sceWlanGetEtherAddr(u32 addrAddr) {
 	}
 
 	u8 *addr = Memory::GetPointer(addrAddr);
+	if (PPSSPP_ID > 1) {
+		Memory::Memset(addrAddr, PPSSPP_ID, 6);
+	}
+	else
 	// Read MAC Address from config
 	if (!ParseMacAddress(g_Config.sMACAddress.c_str(), addr)) {
 		ERROR_LOG(SCENET, "Error parsing mac address %s", g_Config.sMACAddress.c_str());
@@ -210,7 +367,7 @@ static u32 sceWlanGetSwitchState() {
 }
 
 // Probably a void function, but often returns a useful value.
-static int sceNetEtherNtostr(u32 macPtr, u32 bufferPtr) {
+static void sceNetEtherNtostr(u32 macPtr, u32 bufferPtr) {
 	DEBUG_LOG(SCENET, "sceNetEtherNtostr(%08x, %08x)", macPtr, bufferPtr);
 
 	if (Memory::IsValidAddress(bufferPtr) && Memory::IsValidAddress(macPtr)) {
@@ -218,11 +375,10 @@ static int sceNetEtherNtostr(u32 macPtr, u32 bufferPtr) {
 		const u8 *mac = Memory::GetPointer(macPtr);
 
 		// MAC address is always 6 bytes / 48 bits.
-		return sprintf(buffer, "%02x:%02x:%02x:%02x:%02x:%02x",
+		sprintf(buffer, "%02x:%02x:%02x:%02x:%02x:%02x",
 			mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
-	} else {
-		// Possibly a void function, seems to return this on bad args.
-		return 0x09d40000;
+
+		VERBOSE_LOG(SCENET, "sceNetEtherNtostr - [%s]", buffer);
 	}
 }
 
@@ -237,7 +393,7 @@ static int hex_to_digit(int c) {
 }
 
 // Probably a void function, but sometimes returns a useful-ish value.
-static int sceNetEtherStrton(u32 bufferPtr, u32 macPtr) {
+static void sceNetEtherStrton(u32 bufferPtr, u32 macPtr) {
 	DEBUG_LOG(SCENET, "sceNetEtherStrton(%08x, %08x)", bufferPtr, macPtr);
 
 	if (Memory::IsValidAddress(bufferPtr) && Memory::IsValidAddress(macPtr)) {
@@ -268,11 +424,9 @@ static int sceNetEtherStrton(u32 bufferPtr, u32 macPtr) {
 			}
 		}
 
+		VERBOSE_LOG(SCENET, "sceNetEtherStrton - [%s]", mac2str((SceNetEtherAddr*)Memory::GetPointer(macPtr)));
 		// Seems to maybe kinda return the last value.  Probably returns void.
-		return value;
-	} else {
-		// Possibly a void function, seems to return this on bad args (or crash.)
-		return 0;
+		//return value;
 	}
 }
 
@@ -296,7 +450,7 @@ static int sceNetInetInit() {
 	return 0;
 }
 
-static int sceNetInetTerm() {
+int sceNetInetTerm() {
 	ERROR_LOG(SCENET, "UNIMPL sceNetInetTerm()");
 	netInetInited = false;
 
@@ -312,7 +466,7 @@ static int sceNetApctlInit() {
 	return 0;
 }
 
-static int sceNetApctlTerm() {
+int sceNetApctlTerm() {
 	ERROR_LOG(SCENET, "UNIMPL sceNeApctlTerm()");
 	netApctlInited = false;
 	
@@ -377,7 +531,7 @@ int sceNetInetPoll(void *fds, u32 nfds, int timeout) { // timeout in miliseconds
 	DEBUG_LOG(SCENET, "UNTESTED sceNetInetPoll(%p, %d, %i) at %08x", fds, nfds, timeout, currentMIPS->pc);
 	int retval = -1;
 	SceNetInetPollfd *fdarray = (SceNetInetPollfd *)fds; // SceNetInetPollfd/pollfd, sceNetInetPoll() have similarity to BSD poll() but pollfd have different size on 64bit
-//#ifdef _MSC_VER
+//#ifdef _WIN32
 	//WSAPoll only available for Vista or newer, so we'll use an alternative way for XP since Windows doesn't have poll function like *NIX
 	if (nfds > FD_SETSIZE) return -1;
 	fd_set readfds, writefds, exceptfds;
@@ -531,12 +685,12 @@ static int sceNetSetDropRate(u32 dropRate, u32 dropDuration)
 const HLEFunction sceNet[] = {
 	{0X39AF39A6, &WrapI_UUUUU<sceNetInit>,           "sceNetInit",                      'i', "xxxxx"},
 	{0X281928A9, &WrapU_V<sceNetTerm>,               "sceNetTerm",                      'x', ""     },
-	{0X89360950, &WrapI_UU<sceNetEtherNtostr>,       "sceNetEtherNtostr",               'i', "xx"   },
-	{0XD27961C9, &WrapI_UU<sceNetEtherStrton>,       "sceNetEtherStrton",               'i', "xx"   },
+	{0X89360950, &WrapV_UU<sceNetEtherNtostr>,       "sceNetEtherNtostr",               'v', "xx"   },
+	{0XD27961C9, &WrapV_UU<sceNetEtherStrton>,       "sceNetEtherStrton",               'v', "xx"   },
 	{0X0BF0A3AE, &WrapU_U<sceNetGetLocalEtherAddr>,  "sceNetGetLocalEtherAddr",         'x', "x"    },
-	{0X50647530, nullptr,                            "sceNetFreeThreadinfo",            '?', ""     },
+	{0X50647530, &WrapI_I<sceNetFreeThreadinfo>,     "sceNetFreeThreadinfo",            'i', "i"    },
 	{0XCC393E48, &WrapI_U<sceNetGetMallocStat>,      "sceNetGetMallocStat",             'i', "x"    },
-	{0XAD6844C6, nullptr,                            "sceNetThreadAbort",               '?', ""     },
+	{0XAD6844C6, &WrapI_I<sceNetThreadAbort>,        "sceNetThreadAbort",               'i', "i"    },
 };
 
 const HLEFunction sceNetResolver[] = {

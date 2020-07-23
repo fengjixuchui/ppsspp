@@ -42,6 +42,7 @@
 #include "Core/ConfigValues.h"
 #include "Core/Loaders.h"
 #include "Core/HLE/sceUtility.h"
+#include "Core/Instance.h"
 #include "GPU/Common/FramebufferCommon.h"
 
 // TODO: Find a better place for this.
@@ -249,7 +250,7 @@ struct ConfigSetting {
 			}
 			return true;
 		default:
-			_dbg_assert_msg_(LOADER, false, "Unexpected ini setting type");
+			_dbg_assert_msg_(false, "Unexpected ini setting type");
 			return false;
 		}
 	}
@@ -282,7 +283,7 @@ struct ConfigSetting {
 			}
 			return;
 		default:
-			_dbg_assert_msg_(LOADER, false, "Unexpected ini setting type");
+			_dbg_assert_msg_(false, "Unexpected ini setting type");
 			return;
 		}
 	}
@@ -306,7 +307,7 @@ struct ConfigSetting {
 			// Doesn't report.
 			return;
 		default:
-			_dbg_assert_msg_(LOADER, false, "Unexpected ini setting type");
+			_dbg_assert_msg_(false, "Unexpected ini setting type");
 			return;
 		}
 	}
@@ -529,11 +530,11 @@ static int DefaultInternalResolution() {
 #endif
 }
 
-static bool DefaultFrameskipUnthrottle() {
-#if !PPSSPP_PLATFORM(WINDOWS) || PPSSPP_PLATFORM(UWP)
-	return true;
+static int DefaultUnthrottleMode() {
+#if PPSSPP_PLATFORM(ANDROID) || defined(USING_QT_UI) || PPSSPP_PLATFORM(UWP) || PPSSPP_PLATFORM(IOS)
+	return (int)UnthrottleMode::SKIP_DRAW;
 #else
-	return false;
+	return (int)UnthrottleMode::CONTINUOUS;
 #endif
 }
 
@@ -705,6 +706,28 @@ struct ConfigTranslator {
 
 typedef ConfigTranslator<GPUBackend, GPUBackendToString, GPUBackendFromString> GPUBackendTranslator;
 
+static int UnthrottleModeFromString(const std::string &s) {
+	if (!strcasecmp(s.c_str(), "CONTINUOUS"))
+		return (int)UnthrottleMode::CONTINUOUS;
+	if (!strcasecmp(s.c_str(), "SKIP_DRAW"))
+		return (int)UnthrottleMode::SKIP_DRAW;
+	if (!strcasecmp(s.c_str(), "SKIP_FLIP"))
+		return (int)UnthrottleMode::SKIP_FLIP;
+	return DefaultUnthrottleMode();
+}
+
+std::string UnthrottleModeToString(int v) {
+	switch (UnthrottleMode(v)) {
+	case UnthrottleMode::CONTINUOUS:
+		return "CONTINUOUS";
+	case UnthrottleMode::SKIP_DRAW:
+		return "SKIP_DRAW";
+	case UnthrottleMode::SKIP_FLIP:
+		return "SKIP_FLIP";
+	}
+	return "CONTINUOUS";
+}
+
 static ConfigSetting graphicsSettings[] = {
 	ConfigSetting("EnableCardboardVR", &g_Config.bEnableCardboardVR, false, true, true),
 	ConfigSetting("CardboardScreenSize", &g_Config.iCardboardScreenSize, 50, true, true),
@@ -734,7 +757,7 @@ static ConfigSetting graphicsSettings[] = {
 	ReportedConfigSetting("AutoFrameSkip", &g_Config.bAutoFrameSkip, false, true, true),
 	ConfigSetting("FrameRate", &g_Config.iFpsLimit1, 0, true, true),
 	ConfigSetting("FrameRate2", &g_Config.iFpsLimit2, -1, true, true),
-	ConfigSetting("FrameSkipUnthrottle", &g_Config.bFrameSkipUnthrottle, &DefaultFrameskipUnthrottle, true, false),
+	ConfigSetting("UnthrottleMode", &g_Config.iUnthrottleMode, &DefaultUnthrottleMode, &UnthrottleModeToString, &UnthrottleModeFromString, true, true),
 #if defined(USING_WIN_UI)
 	ConfigSetting("RestartRequired", &g_Config.bRestartRequired, false, false),
 #endif
@@ -932,6 +955,13 @@ static ConfigSetting controlSettings[] = {
 static ConfigSetting networkSettings[] = {
 	ConfigSetting("EnableWlan", &g_Config.bEnableWlan, false, true, true),
 	ConfigSetting("EnableAdhocServer", &g_Config.bEnableAdhocServer, false, true, true),
+	ConfigSetting("proAdhocServer", &g_Config.proAdhocServer, "myneighborsushicat.com", true, true),
+	ConfigSetting("PortOffset", &g_Config.iPortOffset, 0, true, true),
+	ConfigSetting("MinTimeout", &g_Config.iMinTimeout, 1, true, true),
+	ConfigSetting("TCPNoDelay", &g_Config.bTCPNoDelay, false, true, true),
+	ConfigSetting("EnableUPnP", &g_Config.bEnableUPnP, false, true, true),
+	ConfigSetting("UPnPUseOriginalPort", &g_Config.bUPnPUseOriginalPort, true, true, true),
+
 	ConfigSetting("EnableNetworkChat", &g_Config.bEnableNetworkChat, false, true, true),
 	ConfigSetting("ChatButtonPosition",&g_Config.iChatButtonPosition,BOTTOM_LEFT,true,true),
 	ConfigSetting("ChatScreenPosition",&g_Config.iChatScreenPosition,BOTTOM_LEFT,true,true),
@@ -941,6 +971,7 @@ static ConfigSetting networkSettings[] = {
 	ConfigSetting("QuickChat3", &g_Config.sQuickChat2, "Quick Chat 3", true, true),
 	ConfigSetting("QuickChat4", &g_Config.sQuickChat3, "Quick Chat 4", true, true),
 	ConfigSetting("QuickChat5", &g_Config.sQuickChat4, "Quick Chat 5", true, true),
+
 	ConfigSetting(false),
 };
 
@@ -969,12 +1000,10 @@ static ConfigSetting systemParamSettings[] = {
 	ReportedConfigSetting("PSPModel", &g_Config.iPSPModel, &DefaultPSPModel, true, true),
 	ReportedConfigSetting("PSPFirmwareVersion", &g_Config.iFirmwareVersion, PSP_DEFAULT_FIRMWARE, true, true),
 	ConfigSetting("NickName", &g_Config.sNickName, "PPSSPP", true, true),
-	ConfigSetting("proAdhocServer", &g_Config.proAdhocServer, "myneighborsushicat.com", true, true),
 	ConfigSetting("MacAddress", &g_Config.sMACAddress, "", true, true),
-	ConfigSetting("PortOffset", &g_Config.iPortOffset, 0, true, true),
 	ReportedConfigSetting("Language", &g_Config.iLanguage, &DefaultSystemParamLanguage, true, true),
-	ConfigSetting("TimeFormat", &g_Config.iTimeFormat, PSP_SYSTEMPARAM_TIME_FORMAT_24HR, true, true),
-	ConfigSetting("DateFormat", &g_Config.iDateFormat, PSP_SYSTEMPARAM_DATE_FORMAT_YYYYMMDD, true, true),
+	ConfigSetting("ParamTimeFormat", &g_Config.iTimeFormat, PSP_SYSTEMPARAM_TIME_FORMAT_24HR, true, true),
+	ConfigSetting("ParamDateFormat", &g_Config.iDateFormat, PSP_SYSTEMPARAM_DATE_FORMAT_YYYYMMDD, true, true),
 	ConfigSetting("TimeZone", &g_Config.iTimeZone, 0, true, true),
 	ConfigSetting("DayLightSavings", &g_Config.bDayLightSavings, (bool) PSP_SYSTEMPARAM_DAYLIGHTSAVINGS_STD, true, true),
 	ReportedConfigSetting("ButtonPreference", &g_Config.iButtonPreference, PSP_SYSTEMPARAM_BUTTON_CROSS, true, true),
@@ -1085,8 +1114,13 @@ static void IterateSettings(IniFile &iniFile, std::function<void(IniFile::Sectio
 	}
 }
 
-Config::Config() : bGameSpecific(false) { }
-Config::~Config() { }
+Config::Config() : bGameSpecific(false) {
+	InitInstanceCounter();
+}
+
+Config::~Config() {
+	ShutdownInstanceCounter();
+}
 
 std::map<std::string, std::pair<std::string, int>> GetLangValuesMapping() {
 	std::map<std::string, std::pair<std::string, int>> langValuesMapping;
@@ -1268,9 +1302,23 @@ void Config::Load(const char *iniFileName, const char *controllerIniFilename) {
 		jitForcedOff = true;
 		g_Config.iCpuCore = (int)CPUCore::INTERPRETER;
 	}
+
+	// Automatically silence secondary instances. Could be an option I guess, but meh.
+	if (PPSSPP_ID > 1) {
+		g_Config.iGlobalVolume = 0;
+	}
+
+	INFO_LOG(LOADER, "Config loaded: '%s'", iniFilename_.c_str());
 }
 
 void Config::Save(const char *saveReason) {
+	if (!IsFirstInstance()) {
+		// TODO: Should we allow saving config if started from a different directory?
+		// How do we tell?
+		WARN_LOG(LOADER, "Not saving config - secondary instances don't.");
+		return;
+	}
+
 	if (jitForcedOff) {
 		// if JIT has been forced off, we don't want to screw up the user's ppsspp.ini
 		g_Config.iCpuCore = (int)CPUCore::JIT;

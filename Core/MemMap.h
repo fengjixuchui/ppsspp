@@ -20,6 +20,7 @@
 #include "ppsspp_config.h"
 
 #include <cstring>
+#include <cstdint>
 #ifndef offsetof
 #include <stddef.h>
 #endif
@@ -125,7 +126,7 @@ bool MemoryMap_Setup(u32 flags);
 void MemoryMap_Shutdown(u32 flags);
 
 // Init and Shutdown
-void Init();
+bool Init();
 void Shutdown();
 void DoState(PointerWrap &p);
 void Clear();
@@ -257,8 +258,14 @@ bool IsRAMAddress(const u32 address);
 bool IsVRAMAddress(const u32 address);
 bool IsScratchpadAddress(const u32 address);
 
+// Used for auto-converted char * parameters, which can sometimes legitimately be null -
+// so we don't want to get caught in GetPointer's crash reporting.
 inline const char* GetCharPointer(const u32 address) {
-	return (const char *)GetPointer(address);
+	if (address) {
+		return (const char *)GetPointer(address);
+	} else {
+		return nullptr;
+	}
 }
 
 inline void MemcpyUnchecked(void *to_data, const u32 from_address, const u32 len) {

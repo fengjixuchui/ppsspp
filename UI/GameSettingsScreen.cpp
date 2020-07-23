@@ -338,7 +338,7 @@ void GameSettingsScreen::CreateViews() {
 		return !g_Config.bSoftwareRendering && g_Config.iRenderingMode != FB_NON_BUFFERED_MODE;
 	});
 
-#ifdef __ANDROID__
+#if PPSSPP_PLATFORM(ANDROID)
 	if (System_GetPropertyInt(SYSPROP_DEVICE_TYPE) != DEVICE_TYPE_TV) {
 		static const char *deviceResolutions[] = { "Native device resolution", "Auto (same as Rendering)", "1x PSP", "2x PSP", "3x PSP", "4x PSP", "5x PSP" };
 		int max_res_temp = std::max(System_GetPropertyInt(SYSPROP_DISPLAY_XRES), System_GetPropertyInt(SYSPROP_DISPLAY_YRES)) / 480 + 2;
@@ -350,13 +350,14 @@ void GameSettingsScreen::CreateViews() {
 	}
 #endif
 
-#ifdef _WIN32
+#if !(PPSSPP_PLATFORM(ANDROID) || defined(USING_QT_UI) || PPSSPP_PLATFORM(UWP)) || PPSSPP_PLATFORM(IOS)
 	CheckBox *vSync = graphicsSettings->Add(new CheckBox(&g_Config.bVSync, gr->T("VSync")));
 	vSync->OnClick.Add([=](EventParams &e) {
 		NativeResized();
 		return UI::EVENT_CONTINUE;
 	});
 #endif
+
 	CheckBox *frameDuplication = graphicsSettings->Add(new CheckBox(&g_Config.bRenderDuplicateFrames, gr->T("Render duplicate frames to 60hz")));
 	frameDuplication->SetEnabledFunc([] {
 		return g_Config.iRenderingMode != FB_NON_BUFFERED_MODE || (g_Config.bSoftwareRendering && g_Config.iFrameSkip != 0);
@@ -690,7 +691,19 @@ void GameSettingsScreen::CreateViews() {
 	networkingSettings->Add(new ChoiceWithValueDisplay(&g_Config.proAdhocServer, n->T("Change proAdhocServer Address"), (const char *)nullptr))->OnClick.Handle(this, &GameSettingsScreen::OnChangeproAdhocServerAddress);
 	networkingSettings->Add(new CheckBox(&g_Config.bEnableAdhocServer, n->T("Enable built-in PRO Adhoc Server", "Enable built-in PRO Adhoc Server")));
 	networkingSettings->Add(new ChoiceWithValueDisplay(&g_Config.sMACAddress, n->T("Change Mac Address"), (const char *)nullptr))->OnClick.Handle(this, &GameSettingsScreen::OnChangeMacAddress);
-	networkingSettings->Add(new PopupSliderChoice(&g_Config.iPortOffset, 0, 60000, n->T("Port offset", "Port offset(0 = PSP compatibility)"), 100, screenManager()));
+	static const char* wlanChannels[] = { "Auto", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11" };
+	auto wlanChannelChoice = networkingSettings->Add(new PopupMultiChoice(&g_Config.iWlanAdhocChannel, gr->T("WLAN Channel"), wlanChannels, 0, ARRAY_SIZE(wlanChannels), gr->GetName(), screenManager()));
+	for (int i = 0; i < 4; i++) {
+		wlanChannelChoice->HideChoice(i+2);
+		wlanChannelChoice->HideChoice(i+7);
+	}
+	networkingSettings->Add(new PopupSliderChoice(&g_Config.iPortOffset, 0, 60000, n->T("Port offset", "Port offset (0 = PSP compatibility)"), 100, screenManager()));
+	networkingSettings->Add(new PopupSliderChoice(&g_Config.iMinTimeout, 1, 15000, n->T("Minimum Timeout", "Minimum Timeout (override low latency in ms)"), 100, screenManager()));
+	networkingSettings->Add(new CheckBox(&g_Config.bTCPNoDelay, n->T("TCP No Delay", "TCP No Delay (faster TCP)")));
+
+	networkingSettings->Add(new ItemHeader(n->T("UPnP")));
+	networkingSettings->Add(new CheckBox(&g_Config.bEnableUPnP, n->T("Enable UPnP", "Enable UPnP (need a few seconds to detect)")));
+	networkingSettings->Add(new CheckBox(&g_Config.bUPnPUseOriginalPort, n->T("UPnP use original port", "UPnP use original port (PSP compatibility)")))->SetEnabledPtr(&g_Config.bEnableUPnP);
 
 	networkingSettings->Add(new ItemHeader(n->T("Chat")));
 	networkingSettings->Add(new CheckBox(&g_Config.bEnableNetworkChat, n->T("Enable network chat", "Enable network chat")));
@@ -918,9 +931,9 @@ void GameSettingsScreen::CreateViews() {
 #endif
 	systemSettings->Add(new CheckBox(&g_Config.bDayLightSavings, sy->T("Day Light Saving")));
 	static const char *dateFormat[] = { "YYYYMMDD", "MMDDYYYY", "DDMMYYYY"};
-	systemSettings->Add(new PopupMultiChoice(&g_Config.iDateFormat, sy->T("Date Format"), dateFormat, 1, 3, sy->GetName(), screenManager()));
-	static const char *timeFormat[] = { "12HR", "24HR"};
-	systemSettings->Add(new PopupMultiChoice(&g_Config.iTimeFormat, sy->T("Time Format"), timeFormat, 1, 2, sy->GetName(), screenManager()));
+	systemSettings->Add(new PopupMultiChoice(&g_Config.iDateFormat, sy->T("Date Format"), dateFormat, 0, 3, sy->GetName(), screenManager()));
+	static const char *timeFormat[] = { "24HR", "12HR" };
+	systemSettings->Add(new PopupMultiChoice(&g_Config.iTimeFormat, sy->T("Time Format"), timeFormat, 0, 2, sy->GetName(), screenManager()));
 	static const char *buttonPref[] = { "Use O to confirm", "Use X to confirm" };
 	systemSettings->Add(new PopupMultiChoice(&g_Config.iButtonPreference, sy->T("Confirmation Button"), buttonPref, 0, 2, sy->GetName(), screenManager()));
 }

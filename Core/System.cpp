@@ -39,7 +39,7 @@
 #include "util/text/utf8.h"
 
 #include "Common/GraphicsContext.h"
-#include "Core/MemMap.h"
+#include "Core/MemFault.h"
 #include "Core/HDRemaster.h"
 #include "Core/MIPS/MIPS.h"
 #include "Core/MIPS/MIPSAnalyst.h"
@@ -62,6 +62,7 @@
 #include "Core/ELF/ParamSFO.h"
 #include "Core/SaveState.h"
 #include "Common/LogManager.h"
+#include "Common/ExceptionHandlerSetup.h"
 #include "Core/HLE/sceAudiocodec.h"
 
 #include "GPU/GPUState.h"
@@ -183,7 +184,7 @@ bool CPU_HasPendingAction() {
 
 void CPU_Shutdown();
 
-void CPU_Init() {
+bool CPU_Init() {
 	coreState = CORE_POWERUP;
 	currentMIPS = &mipsr4k;
 
@@ -242,7 +243,10 @@ void CPU_Init() {
 	std::string discID = g_paramSFO.GetDiscID();
 	coreParameter.compat.Load(discID);
 
-	Memory::Init();
+	if (!Memory::Init()) {
+		// We're screwed.
+		return false;
+	}
 	mipsr4k.Reset();
 
 	host->AttemptLoadSymbolMap();
@@ -263,13 +267,15 @@ void CPU_Init() {
 	if (!LoadFile(&loadedFile, &coreParameter.errorString)) {
 		CPU_Shutdown();
 		coreParameter.fileToStart = "";
-		return;
+		return false;
 	}
-
 
 	if (coreParameter.updateRecent) {
 		g_Config.AddRecent(filename);
 	}
+
+	InstallExceptionHandler(&Memory::HandleFault);
+	return true;
 }
 
 PSP_LoadingLock::PSP_LoadingLock() {
@@ -281,6 +287,8 @@ PSP_LoadingLock::~PSP_LoadingLock() {
 }
 
 void CPU_Shutdown() {
+	UninstallExceptionHandler();
+
 	// Since we load on a background thread, wait for startup to complete.
 	PSP_LoadingLock lock;
 	PSPLoaders_Shutdown();
@@ -357,7 +365,10 @@ bool PSP_InitStart(const CoreParameter &coreParam, std::string *error_string) {
 	pspIsIniting = true;
 	PSP_SetLoading("Loading game...");
 
-	CPU_Init();
+	if (!CPU_Init()) {
+		*error_string = "Failed initializing CPU/Memory";
+		return false;
+	}
 
 	// Compat flags get loaded in CPU_Init (which is a bit of a misnomer) so we check for SW renderer here.
 	if (g_Config.bSoftwareRendering || PSP_CoreParameter().compat.flags().ForceSoftwareRenderer) {
