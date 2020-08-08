@@ -162,7 +162,7 @@ SOURCES_CXX += \
 	$(GPUCOMMONDIR)/GPUStateUtils.cpp \
 	$(GPUCOMMONDIR)/DrawEngineCommon.cpp \
 	$(GPUCOMMONDIR)/SplineCommon.cpp \
-	$(GPUCOMMONDIR)/FramebufferCommon.cpp \
+	$(GPUCOMMONDIR)/FramebufferManagerCommon.cpp \
 	$(GPUCOMMONDIR)/PresentationCommon.cpp \
 	$(GPUCOMMONDIR)/ShaderId.cpp \
 	$(GPUCOMMONDIR)/ShaderCommon.cpp \
@@ -187,6 +187,7 @@ SOURCES_CXX += \
 	$(GPUDIR)/Software/TransformUnit.cpp \
 	$(GPUDIR)/Software/SoftGpu.cpp \
 	$(GPUDIR)/Software/Sampler.cpp \
+	$(GPUDIR)/GeConstants.cpp \
 	$(GPUDIR)/GeDisasm.cpp \
 	$(GPUDIR)/GPUCommon.cpp \
 	$(GPUDIR)/GPU.cpp \
@@ -486,7 +487,6 @@ SOURCES_CXX += $(NATIVEDIR)/math/dataconv.cpp \
 	       $(COREDIR)/Util/PPGeDraw.cpp \
 	       $(COREDIR)/Util/AudioFormat.cpp \
 	       $(COREDIR)/Util/PortManager.cpp \
-          $(EXTDIR)/disarm.cpp \
           $(CORE_DIR)/UI/TextureUtil.cpp \
           $(CORE_DIR)/UI/GameInfoCache.cpp
 
@@ -509,6 +509,7 @@ ifeq ($(WITH_DYNAREC),1)
 			       $(COREDIR)/MIPS/ARM/ArmJit.cpp \
 			       $(COREDIR)/MIPS/ARM/ArmRegCache.cpp \
 			       $(COREDIR)/MIPS/ARM/ArmRegCacheFPU.cpp \
+                               $(EXTDIR)/disarm.cpp \
 			       $(GPUCOMMONDIR)/VertexDecoderArm.cpp
 
 		ifeq ($(HAVE_NEON),1)
@@ -545,6 +546,7 @@ ifeq ($(WITH_DYNAREC),1)
 			SOURCES_CXX   += \
 					 $(COREDIR)/MIPS/ARM/ArmCompVFPUNEON.cpp \
 					 $(COREDIR)/MIPS/ARM/ArmCompVFPUNEONUtil.cpp \
+					 $(COREDIR)/Util/AudioFormatNEON.cpp \
 					 $(COMMONDIR)/ColorConvNEON.cpp \
 					 $(GPUDIR)/Common/TextureDecoderNEON.cpp
 
@@ -591,11 +593,6 @@ endif
 		SOURCES_C   += $(NATIVEDIR)/math/fast/fast_matrix_sse.c
    endif
 endif
-SOURCES_CXX += \
-   $(COMMONDIR)/ArmEmitter.cpp \
-   $(COMMONDIR)/Arm64Emitter.cpp \
-   $(COREDIR)/Util/DisArm64.cpp
-
 #UDIS86
 # Compiled and linked even on ARM for now
 
@@ -634,7 +631,7 @@ SOURCES_CXX += \
 	$(GPUDIR)/Vulkan/DepalettizeShaderVulkan.cpp \
 	$(GPUDIR)/Vulkan/DrawEngineVulkan.cpp \
 	$(GPUDIR)/Vulkan/FragmentShaderGeneratorVulkan.cpp \
-	$(GPUDIR)/Vulkan/FramebufferVulkan.cpp \
+	$(GPUDIR)/Vulkan/FramebufferManagerVulkan.cpp \
 	$(GPUDIR)/Vulkan/GPU_Vulkan.cpp \
 	$(GPUDIR)/Vulkan/PipelineManagerVulkan.cpp \
 	$(GPUDIR)/Vulkan/ShaderManagerVulkan.cpp \
@@ -658,7 +655,7 @@ SOURCES_CXX += \
 	$(GPUDIR)/Directx9/DepalettizeShaderDX9.cpp \
 	$(GPUDIR)/Directx9/DrawEngineDX9.cpp \
 	$(GPUDIR)/Directx9/PixelShaderGeneratorDX9.cpp \
-	$(GPUDIR)/Directx9/FramebufferDX9.cpp \
+	$(GPUDIR)/Directx9/FramebufferManagerDX9.cpp \
 	$(GPUDIR)/Directx9/GPU_DX9.cpp \
 	$(GPUDIR)/Directx9/ShaderManagerDX9.cpp \
 	$(GPUDIR)/Directx9/StateMappingDX9.cpp \

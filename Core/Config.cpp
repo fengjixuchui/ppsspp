@@ -43,7 +43,7 @@
 #include "Core/Loaders.h"
 #include "Core/HLE/sceUtility.h"
 #include "Core/Instance.h"
-#include "GPU/Common/FramebufferCommon.h"
+#include "GPU/Common/FramebufferManagerCommon.h"
 
 // TODO: Find a better place for this.
 http::Downloader g_DownloadManager;
@@ -433,6 +433,7 @@ static ConfigSetting generalSettings[] = {
 	ConfigSetting("Language", &g_Config.sLanguageIni, &DefaultLangRegion),
 	ConfigSetting("ForceLagSync2", &g_Config.bForceLagSync, false, true, true),
 	ConfigSetting("DiscordPresence", &g_Config.bDiscordPresence, true, true, false),  // Or maybe it makes sense to have it per-game? Race conditions abound...
+	ConfigSetting("UISound", &g_Config.bUISound, false, true, false),
 
 	ReportedConfigSetting("NumWorkerThreads", &g_Config.iNumWorkerThreads, &DefaultNumWorkers, true, true),
 	ConfigSetting("AutoLoadSaveState", &g_Config.iAutoLoadSaveState, 0, true, true),
@@ -450,19 +451,19 @@ static ConfigSetting generalSettings[] = {
 	ConfigSetting("EnableStateUndo", &g_Config.bEnableStateUndo, &DefaultEnableStateUndo, true, true),
 	ConfigSetting("RewindFlipFrequency", &g_Config.iRewindFlipFrequency, 0, true, true),
 
-	ConfigSetting("ShowRegionOnGameIcon", &g_Config.bShowRegionOnGameIcon, false, true, true),
-	ConfigSetting("ShowIDOnGameIcon", &g_Config.bShowIDOnGameIcon, false, true, true),
-	ConfigSetting("GameGridScale", &g_Config.fGameGridScale, 1.0, true, true),
+	ConfigSetting("ShowRegionOnGameIcon", &g_Config.bShowRegionOnGameIcon, false),
+	ConfigSetting("ShowIDOnGameIcon", &g_Config.bShowIDOnGameIcon, false),
+	ConfigSetting("GameGridScale", &g_Config.fGameGridScale, 1.0),
 	ConfigSetting("GridView1", &g_Config.bGridView1, true),
 	ConfigSetting("GridView2", &g_Config.bGridView2, true),
 	ConfigSetting("GridView3", &g_Config.bGridView3, false),
 	ConfigSetting("ComboMode", &g_Config.iComboMode, 0),
-	ConfigSetting("RightAnalogUp", &g_Config.iRightAnalogUp, 0),
-	ConfigSetting("RightAnalogDown", &g_Config.iRightAnalogDown, 0),
-	ConfigSetting("RightAnalogLeft", &g_Config.iRightAnalogLeft, 0),
-	ConfigSetting("RightAnalogRight", &g_Config.iRightAnalogRight, 0),
-	ConfigSetting("RightAnalogPress", &g_Config.iRightAnalogPress, 0),
-	ConfigSetting("RightAnalogCustom", &g_Config.bRightAnalogCustom, false),
+	ConfigSetting("RightAnalogUp", &g_Config.iRightAnalogUp, 0, true, true),
+	ConfigSetting("RightAnalogDown", &g_Config.iRightAnalogDown, 0, true, true),
+	ConfigSetting("RightAnalogLeft", &g_Config.iRightAnalogLeft, 0, true, true),
+	ConfigSetting("RightAnalogRight", &g_Config.iRightAnalogRight, 0, true, true),
+	ConfigSetting("RightAnalogPress", &g_Config.iRightAnalogPress, 0, true, true),
+	ConfigSetting("RightAnalogCustom", &g_Config.bRightAnalogCustom, false, true, true),
 
 	// "default" means let emulator decide, "" means disable.
 	ConfigSetting("ReportingHost", &g_Config.sReportHost, "default"),
@@ -798,6 +799,7 @@ static ConfigSetting graphicsSettings[] = {
 	ReportedConfigSetting("SplineBezierQuality", &g_Config.iSplineBezierQuality, 2, true, true),
 	ReportedConfigSetting("HardwareTessellation", &g_Config.bHardwareTessellation, false, true, true),
 	ReportedConfigSetting("PostShader", &g_Config.sPostShaderName, "Off", true, true),
+	ConfigSetting("TextureShader", &g_Config.sTextureShaderName, "Off", true, true),
 
 	ReportedConfigSetting("MemBlockTransferGPU", &g_Config.bBlockTransferGPU, true, true, true),
 	ReportedConfigSetting("DisableSlowFramebufEffects", &g_Config.bDisableSlowFramebufEffects, false, true, true),

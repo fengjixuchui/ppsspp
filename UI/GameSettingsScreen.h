@@ -82,6 +82,8 @@ private:
 	UI::EventReturn OnAutoFrameskip(UI::EventParams &e);
 	UI::EventReturn OnPostProcShader(UI::EventParams &e);
 	UI::EventReturn OnPostProcShaderChange(UI::EventParams &e);
+	UI::EventReturn OnTextureShader(UI::EventParams &e);
+	UI::EventReturn OnTextureShaderChange(UI::EventParams &e);
 	UI::EventReturn OnDeveloperTools(UI::EventParams &e);
 	UI::EventReturn OnRemoteISO(UI::EventParams &e);
 	UI::EventReturn OnChangeQuickChat0(UI::EventParams &e);
@@ -103,6 +105,7 @@ private:
 	UI::EventReturn OnRenderingDevice(UI::EventParams &e);
 	UI::EventReturn OnInflightFramesChoice(UI::EventParams &e);
 	UI::EventReturn OnCameraDeviceChange(UI::EventParams& e);
+	UI::EventReturn OnMicDeviceChange(UI::EventParams& e);
 	UI::EventReturn OnAudioDevice(UI::EventParams &e);
 	UI::EventReturn OnJitAffectingSetting(UI::EventParams &e);
 #if PPSSPP_PLATFORM(ANDROID)
@@ -208,6 +211,9 @@ private:
 	UI::EventReturn OnPointClick(UI::EventParams &e);
 	UI::EventReturn OnDeleteClick(UI::EventParams &e);
 	UI::EventReturn OnDeleteAllClick(UI::EventParams &e);
+	UI::EventReturn OnEditClick(UI::EventParams& e);
+	UI::EventReturn OnShowIPListClick(UI::EventParams& e);
+	UI::EventReturn OnIPClick(UI::EventParams& e);
 
 	enum class ResolverState {
 		WAITING,
@@ -221,6 +227,7 @@ private:
 	UI::TextEdit *addrView_ = nullptr;
 	UI::TextView *errorView_ = nullptr;
 	UI::TextView *progressView_ = nullptr;
+	UI::LinearLayout *ipRows_ = nullptr;
 
 	std::thread resolver_;
 	ResolverState resolverState_ = ResolverState::WAITING;

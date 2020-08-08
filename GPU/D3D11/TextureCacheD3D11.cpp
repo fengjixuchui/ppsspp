@@ -32,7 +32,7 @@
 #include "GPU/D3D11/ShaderManagerD3D11.h"
 #include "GPU/D3D11/DepalettizeShaderD3D11.h"
 #include "GPU/D3D11/D3D11Util.h"
-#include "GPU/Common/FramebufferCommon.h"
+#include "GPU/Common/FramebufferManagerCommon.h"
 #include "GPU/Common/TextureDecoder.h"
 #include "Core/Config.h"
 #include "Core/Host.h"
@@ -147,8 +147,8 @@ void TextureCacheD3D11::ReleaseTexture(TexCacheEntry *entry, bool delete_them) {
 void TextureCacheD3D11::ForgetLastTexture() {
 	InvalidateLastTexture();
 	gstate_c.Dirty(DIRTY_TEXTURE_PARAMS);
-	ID3D11ShaderResourceView *nullTex = nullptr;
-	context_->PSSetShaderResources(0, 1, &nullTex);
+	ID3D11ShaderResourceView *nullTex[2]{};
+	context_->PSSetShaderResources(0, 2, nullTex);
 }
 
 void TextureCacheD3D11::InvalidateLastTexture(TexCacheEntry *entry) {

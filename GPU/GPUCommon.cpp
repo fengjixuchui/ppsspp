@@ -26,7 +26,7 @@
 #include "Core/Debugger/Breakpoints.h"
 #include "Core/MemMapHelpers.h"
 #include "GPU/Common/DrawEngineCommon.h"
-#include "GPU/Common/FramebufferCommon.h"
+#include "GPU/Common/FramebufferManagerCommon.h"
 #include "GPU/Common/SplineCommon.h"
 #include "GPU/Common/TextureCacheCommon.h"
 #include "GPU/Debugger/Debugger.h"
@@ -467,7 +467,7 @@ void GPUCommon::Reinitialize() {
 }
 
 void GPUCommon::UpdateVsyncInterval(bool force) {
-#if !(PPSSPP_PLATFORM(ANDROID) || USING_QT_UI || PPSSPP_PLATFORM(UWP) || PPSSPP_PLATFORM(IOS))
+#if !(PPSSPP_PLATFORM(ANDROID) || defined(USING_QT_UI) || PPSSPP_PLATFORM(UWP) || PPSSPP_PLATFORM(IOS))
 	int desiredVSyncInterval = g_Config.bVSync ? 1 : 0;
 	if (PSP_CoreParameter().unthrottle) {
 		desiredVSyncInterval = 0;

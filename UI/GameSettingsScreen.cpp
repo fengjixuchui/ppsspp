@@ -55,15 +55,17 @@
 #include "Core/Config.h"
 #include "Core/ConfigValues.h"
 #include "Core/Host.h"
+#include "Core/Instance.h"
 #include "Core/System.h"
 #include "Core/Reporting.h"
 #include "Core/TextureReplacer.h"
 #include "Core/WebServer.h"
 #include "Core/HLE/sceUsbCam.h"
+#include "Core/HLE/sceUsbMic.h"
 #include "GPU/Common/PostShader.h"
 #include "android/jni/TestRunner.h"
 #include "GPU/GPUInterface.h"
-#include "GPU/Common/FramebufferCommon.h"
+#include "GPU/Common/FramebufferManagerCommon.h"
 
 #if defined(_WIN32) && !PPSSPP_PLATFORM(UWP)
 #pragma warning(disable:4091)  // workaround bug in VS2015 headers
@@ -108,6 +110,21 @@ bool DoesBackendSupportHWTess() {
 		return true;
 	default:
 		return false;
+	}
+}
+
+static bool UsingHardwareTextureScaling() {
+	// For now, Vulkan only.
+	return g_Config.bTexHardwareScaling && GetGPUBackend() == GPUBackend::VULKAN && !g_Config.bSoftwareRendering;
+}
+
+static std::string TextureTranslateName(const char *value) {
+	auto ps = GetI18NCategory("TextureShaders");
+	const TextureShaderInfo *info = GetTextureShaderInfo(value);
+	if (info) {
+		return ps->T(value, info ? info->name.c_str() : value);
+	} else {
+		return value;
 	}
 }
 
@@ -213,6 +230,11 @@ void GameSettingsScreen::CreateViews() {
 		renderingBackendChoice->HideChoice((int)GPUBackend::DIRECT3D11);
 	if (!g_Config.IsBackendEnabled(GPUBackend::VULKAN))
 		renderingBackendChoice->HideChoice((int)GPUBackend::VULKAN);
+
+	if (!IsFirstInstance()) {
+		// If we're not the first instance, can't save the setting, and it requires a restart, so...
+		renderingBackendChoice->SetEnabled(false);
+	}
 #endif
 
 	Draw::DrawContext *draw = screenManager()->getDrawContext();
@@ -350,7 +372,7 @@ void GameSettingsScreen::CreateViews() {
 	}
 #endif
 
-#if !(PPSSPP_PLATFORM(ANDROID) || defined(USING_QT_UI) || PPSSPP_PLATFORM(UWP)) || PPSSPP_PLATFORM(IOS)
+#if !(PPSSPP_PLATFORM(ANDROID) || defined(USING_QT_UI) || PPSSPP_PLATFORM(UWP) || PPSSPP_PLATFORM(IOS))
 	CheckBox *vSync = graphicsSettings->Add(new CheckBox(&g_Config.bVSync, gr->T("VSync")));
 	vSync->OnClick.Add([=](EventParams &e) {
 		NativeResized();
@@ -359,15 +381,12 @@ void GameSettingsScreen::CreateViews() {
 #endif
 
 	CheckBox *frameDuplication = graphicsSettings->Add(new CheckBox(&g_Config.bRenderDuplicateFrames, gr->T("Render duplicate frames to 60hz")));
-	frameDuplication->SetEnabledFunc([] {
-		return g_Config.iRenderingMode != FB_NON_BUFFERED_MODE || (g_Config.bSoftwareRendering && g_Config.iFrameSkip != 0);
-	});
 	frameDuplication->OnClick.Add([=](EventParams &e) {
 		settingInfo_->Show(gr->T("RenderDuplicateFrames Tip", "Can make framerate smoother in games that run at lower framerates"), e.v);
 		return UI::EVENT_CONTINUE;
 	});
-	frameDuplication->SetEnabledFunc([]() -> bool {
-		return g_Config.iFrameSkip == 0;
+	frameDuplication->SetEnabledFunc([] {
+		return g_Config.iRenderingMode != FB_NON_BUFFERED_MODE && g_Config.iFrameSkip == 0;
 	});
 
 	if (GetGPUBackend() == GPUBackend::VULKAN || GetGPUBackend() == GPUBackend::OPENGL) {
@@ -449,7 +468,7 @@ void GameSettingsScreen::CreateViews() {
 		texScalingChoice->HideChoice(5); // 5x
 	}
 	texScalingChoice->OnChoice.Add([=](EventParams &e) {
-		if (g_Config.iTexScalingLevel != 1) {
+		if (g_Config.iTexScalingLevel != 1 && !UsingHardwareTextureScaling()) {
 			settingInfo_->Show(gr->T("UpscaleLevel Tip", "CPU heavy - some scaling may be delayed to avoid stutter"), e.v);
 		}
 		return UI::EVENT_CONTINUE;
@@ -458,7 +477,9 @@ void GameSettingsScreen::CreateViews() {
 
 	static const char *texScaleAlgos[] = { "xBRZ", "Hybrid", "Bicubic", "Hybrid + Bicubic", };
 	PopupMultiChoice *texScalingType = graphicsSettings->Add(new PopupMultiChoice(&g_Config.iTexScalingType, gr->T("Upscale Type"), texScaleAlgos, 0, ARRAY_SIZE(texScaleAlgos), gr->GetName(), screenManager()));
-	texScalingType->SetDisabledPtr(&g_Config.bSoftwareRendering);
+	texScalingType->SetEnabledFunc([]() {
+		return !g_Config.bSoftwareRendering && !UsingHardwareTextureScaling();
+	});
 
 	CheckBox *deposterize = graphicsSettings->Add(new CheckBox(&g_Config.bTexDeposterize, gr->T("Deposterize")));
 	deposterize->OnClick.Add([=](EventParams &e) {
@@ -467,7 +488,15 @@ void GameSettingsScreen::CreateViews() {
 		}
 		return UI::EVENT_CONTINUE;
 	});
-	deposterize->SetDisabledPtr(&g_Config.bSoftwareRendering);
+	deposterize->SetEnabledFunc([]() {
+		return !g_Config.bSoftwareRendering && !UsingHardwareTextureScaling();
+	});
+
+	ChoiceWithValueDisplay *textureShaderChoice = graphicsSettings->Add(new ChoiceWithValueDisplay(&g_Config.sTextureShaderName, gr->T("Texture Shader"), &TextureTranslateName));
+	textureShaderChoice->OnClick.Handle(this, &GameSettingsScreen::OnTextureShader);
+	textureShaderChoice->SetEnabledFunc([]() {
+		return GetGPUBackend() == GPUBackend::VULKAN && !g_Config.bSoftwareRendering;
+	});
 
 	graphicsSettings->Add(new ItemHeader(gr->T("Texture Filtering")));
 	static const char *anisoLevels[] = { "Off", "2x", "4x", "8x", "16x" };
@@ -546,6 +575,13 @@ void GameSettingsScreen::CreateViews() {
 		audioBackend->SetEnabledPtr(&g_Config.bEnableSound);
 	}
 #endif
+
+	std::vector<std::string> micList = Microphone::getDeviceList();
+	if (micList.size() >= 1) {
+		audioSettings->Add(new ItemHeader(gr->T("Microphone")));
+		PopupMultiChoiceDynamic *MicChoice = audioSettings->Add(new PopupMultiChoiceDynamic(&g_Config.sMicDevice, gr->T("Microphone Device"), micList, nullptr, screenManager()));
+		MicChoice->OnChoice.Handle(this, &GameSettingsScreen::OnMicDeviceChange);
+	}
 
 #if defined(SDL)
 	std::vector<std::string> audioDeviceList;
@@ -681,29 +717,27 @@ void GameSettingsScreen::CreateViews() {
 	networkingSettingsScroll->Add(networkingSettings);
 	tabHolder->AddTab(ms->T("Networking"), networkingSettingsScroll);
 
-	networkingSettings->Add(new ItemHeader(ms->T("Networking")));
+	networkingSettings->Add(new ItemHeader(n->T("Networking")));
 
 	networkingSettings->Add(new Choice(n->T("Adhoc Multiplayer forum")))->OnClick.Handle(this, &GameSettingsScreen::OnAdhocGuides);
 
 	networkingSettings->Add(new CheckBox(&g_Config.bEnableWlan, n->T("Enable networking", "Enable networking/wlan (beta)")));
+	networkingSettings->Add(new ChoiceWithValueDisplay(&g_Config.sMACAddress, n->T("Change Mac Address"), (const char*)nullptr))->OnClick.Handle(this, &GameSettingsScreen::OnChangeMacAddress);
+	static const char* wlanChannels[] = { "Auto", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11" };
+	auto wlanChannelChoice = networkingSettings->Add(new PopupMultiChoice(&g_Config.iWlanAdhocChannel, n->T("WLAN Channel"), wlanChannels, 0, ARRAY_SIZE(wlanChannels), n->GetName(), screenManager()));
+	for (int i = 0; i < 4; i++) {
+		wlanChannelChoice->HideChoice(i + 2);
+		wlanChannelChoice->HideChoice(i + 7);
+	}
 	networkingSettings->Add(new CheckBox(&g_Config.bDiscordPresence, n->T("Send Discord Presence information")));
 
-	networkingSettings->Add(new ChoiceWithValueDisplay(&g_Config.proAdhocServer, n->T("Change proAdhocServer Address"), (const char *)nullptr))->OnClick.Handle(this, &GameSettingsScreen::OnChangeproAdhocServerAddress);
+	networkingSettings->Add(new ItemHeader(n->T("AdHoc Server")));
 	networkingSettings->Add(new CheckBox(&g_Config.bEnableAdhocServer, n->T("Enable built-in PRO Adhoc Server", "Enable built-in PRO Adhoc Server")));
-	networkingSettings->Add(new ChoiceWithValueDisplay(&g_Config.sMACAddress, n->T("Change Mac Address"), (const char *)nullptr))->OnClick.Handle(this, &GameSettingsScreen::OnChangeMacAddress);
-	static const char* wlanChannels[] = { "Auto", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11" };
-	auto wlanChannelChoice = networkingSettings->Add(new PopupMultiChoice(&g_Config.iWlanAdhocChannel, gr->T("WLAN Channel"), wlanChannels, 0, ARRAY_SIZE(wlanChannels), gr->GetName(), screenManager()));
-	for (int i = 0; i < 4; i++) {
-		wlanChannelChoice->HideChoice(i+2);
-		wlanChannelChoice->HideChoice(i+7);
-	}
-	networkingSettings->Add(new PopupSliderChoice(&g_Config.iPortOffset, 0, 60000, n->T("Port offset", "Port offset (0 = PSP compatibility)"), 100, screenManager()));
-	networkingSettings->Add(new PopupSliderChoice(&g_Config.iMinTimeout, 1, 15000, n->T("Minimum Timeout", "Minimum Timeout (override low latency in ms)"), 100, screenManager()));
-	networkingSettings->Add(new CheckBox(&g_Config.bTCPNoDelay, n->T("TCP No Delay", "TCP No Delay (faster TCP)")));
+	networkingSettings->Add(new ChoiceWithValueDisplay(&g_Config.proAdhocServer, n->T("Change proAdhocServer Address (localhost = multiple instance)"), (const char*)nullptr))->OnClick.Handle(this, &GameSettingsScreen::OnChangeproAdhocServerAddress);
 
-	networkingSettings->Add(new ItemHeader(n->T("UPnP")));
+	networkingSettings->Add(new ItemHeader(n->T("UPnP (port-forwarding)")));
 	networkingSettings->Add(new CheckBox(&g_Config.bEnableUPnP, n->T("Enable UPnP", "Enable UPnP (need a few seconds to detect)")));
-	networkingSettings->Add(new CheckBox(&g_Config.bUPnPUseOriginalPort, n->T("UPnP use original port", "UPnP use original port (PSP compatibility)")))->SetEnabledPtr(&g_Config.bEnableUPnP);
+	networkingSettings->Add(new CheckBox(&g_Config.bUPnPUseOriginalPort, n->T("UPnP use original port", "UPnP use original port (Enabled = PSP compatibility)")))->SetEnabledPtr(&g_Config.bEnableUPnP);
 
 	networkingSettings->Add(new ItemHeader(n->T("Chat")));
 	networkingSettings->Add(new CheckBox(&g_Config.bEnableNetworkChat, n->T("Enable network chat", "Enable network chat")));
@@ -758,6 +792,11 @@ void GameSettingsScreen::CreateViews() {
 	qc5->SetEnabledPtr(&g_Config.bEnableQuickChat);
 #endif
 
+	networkingSettings->Add(new ItemHeader(n->T("Misc (default = compatiblity)")));
+	networkingSettings->Add(new PopupSliderChoice(&g_Config.iPortOffset, 0, 60000, n->T("Port offset", "Port offset (0 = PSP compatibility)"), 100, screenManager()));
+	networkingSettings->Add(new PopupSliderChoice(&g_Config.iMinTimeout, 1, 15000, n->T("Minimum Timeout", "Minimum Timeout (override low latency in ms)"), 100, screenManager()));
+	networkingSettings->Add(new CheckBox(&g_Config.bTCPNoDelay, n->T("TCP No Delay", "TCP No Delay (faster TCP)")));
+
 	ViewGroup *toolsScroll = new ScrollView(ORIENT_VERTICAL, new LinearLayoutParams(FILL_PARENT, FILL_PARENT));
 	toolsScroll->SetTag("GameSettingsTools");
 	LinearLayout *tools = new LinearLayout(ORIENT_VERTICAL);
@@ -780,8 +819,9 @@ void GameSettingsScreen::CreateViews() {
 	systemSettingsScroll->Add(systemSettings);
 	tabHolder->AddTab(ms->T("System"), systemSettingsScroll);
 
-	systemSettings->Add(new ItemHeader(sy->T("UI Language")));
+	systemSettings->Add(new ItemHeader(sy->T("UI Language")));  // Should be renamed "UI"?
 	systemSettings->Add(new Choice(dev->T("Language", "Language")))->OnClick.Handle(this, &GameSettingsScreen::OnLanguage);
+	systemSettings->Add(new CheckBox(&g_Config.bUISound, dev->T("UI Sound")));
 
 	systemSettings->Add(new ItemHeader(sy->T("Help the PPSSPP team")));
 	enableReports_ = Reporting::IsEnabled();
@@ -823,7 +863,6 @@ void GameSettingsScreen::CreateViews() {
 		}
 	}
 #endif
-
 	systemSettings->Add(new CheckBox(&g_Config.bCheckForNewVersion, sy->T("VersionCheck", "Check for new versions of PPSSPP")));
 	const std::string bgPng = GetSysDirectory(DIRECTORY_SYSTEM) + "background.png";
 	const std::string bgJpg = GetSysDirectory(DIRECTORY_SYSTEM) + "background.jpg";
@@ -1237,6 +1276,8 @@ void GameSettingsScreen::TriggerRestart(const char *why) {
 	} else if (!gamePath_.empty()) {
 		param += " \"" + ReplaceAll(ReplaceAll(gamePath_, "\\", "\\\\"), "\"", "\\\"") + "\"";
 	}
+	// Make sure the new instance is considered the first.
+	ShutdownInstanceCounter();
 	System_SendMessage("graphics_restart", param.c_str());
 }
 
@@ -1306,6 +1347,11 @@ UI::EventReturn GameSettingsScreen::OnInflightFramesChoice(UI::EventParams &e) {
 
 UI::EventReturn GameSettingsScreen::OnCameraDeviceChange(UI::EventParams& e) {
 	Camera::onCameraDeviceChange();
+	return UI::EVENT_DONE;
+}
+
+UI::EventReturn GameSettingsScreen::OnMicDeviceChange(UI::EventParams& e) {
+	Microphone::onMicDeviceChange();
 	return UI::EVENT_DONE;
 }
 
@@ -1391,17 +1437,9 @@ UI::EventReturn GameSettingsScreen::OnChangeNickname(UI::EventParams &e) {
 }
 
 UI::EventReturn GameSettingsScreen::OnChangeproAdhocServerAddress(UI::EventParams &e) {
-	auto sy = GetI18NCategory("System");
+	auto n = GetI18NCategory("Networking");
 
-#if defined(__ANDROID__)
-	System_InputBoxGetString(sy->T("proAdhocServer Address:"), g_Config.proAdhocServer, [](bool result, const std::string &value) {
-		if (result) {
-			g_Config.proAdhocServer = value;
-		}
-	});
-#else
-	screenManager()->push(new HostnameSelectScreen(&g_Config.proAdhocServer, sy->T("proAdhocServer Address:")));
-#endif
+	screenManager()->push(new HostnameSelectScreen(&g_Config.proAdhocServer, n->T("proAdhocServer Address:")));
 
 	return UI::EVENT_DONE;
 }
@@ -1449,6 +1487,23 @@ UI::EventReturn GameSettingsScreen::OnPostProcShader(UI::EventParams &e) {
 UI::EventReturn GameSettingsScreen::OnPostProcShaderChange(UI::EventParams &e) {
 	NativeMessageReceived("gpu_resized", "");
 	RecreateViews(); // Update setting name
+	return UI::EVENT_DONE;
+}
+
+UI::EventReturn GameSettingsScreen::OnTextureShader(UI::EventParams &e) {
+	auto gr = GetI18NCategory("Graphics");
+	auto shaderScreen = new TextureShaderScreen(gr->T("Texture Shader"));
+	shaderScreen->OnChoice.Handle(this, &GameSettingsScreen::OnTextureShaderChange);
+	if (e.v)
+		shaderScreen->SetPopupOrigin(e.v);
+	screenManager()->push(shaderScreen);
+	return UI::EVENT_DONE;
+}
+
+UI::EventReturn GameSettingsScreen::OnTextureShaderChange(UI::EventParams &e) {
+	NativeMessageReceived("gpu_resized", "");
+	RecreateViews(); // Update setting name
+	g_Config.bTexHardwareScaling = g_Config.sTextureShaderName != "Off";
 	return UI::EVENT_DONE;
 }
 
@@ -1698,9 +1753,34 @@ void HostnameSelectScreen::CreatePopupContents(UI::ViewGroup *parent) {
 	buttonsRow1->Add(new Spacer(new LinearLayoutParams(1.0, G_RIGHT)));
 
 	buttonsRow2->Add(new Spacer(new LinearLayoutParams(1.0, G_LEFT)));
+#if defined(__ANDROID__)
+	buttonsRow2->Add(new Button(di->T("Edit")))->OnClick.Handle(this, &HostnameSelectScreen::OnEditClick); // Since we don't have OnClick Event triggered from TextEdit's Touch().. here we go!
+#endif
 	buttonsRow2->Add(new Button(di->T("Delete")))->OnClick.Handle(this, &HostnameSelectScreen::OnDeleteClick);
 	buttonsRow2->Add(new Button(di->T("Delete all")))->OnClick.Handle(this, &HostnameSelectScreen::OnDeleteAllClick);
+	buttonsRow2->Add(new Button(di->T("Toggle List")))->OnClick.Handle(this, &HostnameSelectScreen::OnShowIPListClick);
 	buttonsRow2->Add(new Spacer(new LinearLayoutParams(1.0, G_RIGHT)));
+
+	std::vector<std::string> listIP = {"myneighborsushicat.com", "localhost"};
+	net::GetIPList(listIP);
+	ipRows_ = new LinearLayout(ORIENT_VERTICAL, new LinearLayoutParams(1.0));
+	ScrollView* scrollView = new ScrollView(ORIENT_VERTICAL, new LinearLayoutParams(FILL_PARENT, WRAP_CONTENT));
+	LinearLayout* innerView = new LinearLayout(ORIENT_VERTICAL, new LinearLayoutParams(FILL_PARENT, WRAP_CONTENT));
+	if (listIP.size() > 0) {
+		for (const auto& label : listIP) {
+			// Filter out IP prefixed with "127." and "169.254." also "0." since they can be rendundant or unusable
+			if (label.find("127.") != 0 && label.find("169.254.") != 0 && label.find("0.") != 0) {
+				auto button = innerView->Add(new Button(label, new LinearLayoutParams(FILL_PARENT, WRAP_CONTENT)));
+				button->OnClick.Handle(this, &HostnameSelectScreen::OnIPClick);
+				button->SetTag(label);
+			}
+		}
+	}
+	scrollView->Add(innerView);
+	ipRows_->Add(scrollView);
+	ipRows_->SetVisibility(V_GONE);
+	parent->Add(ipRows_);
+	listIP.clear(); listIP.shrink_to_fit();
 
 	errorView_ = parent->Add(new TextView(n->T("Invalid IP or hostname"), ALIGN_HCENTER, false, new LinearLayoutParams(Margins(0, 10, 0, 0))));
 	errorView_->SetTextColor(0xFF3030FF);
@@ -1738,6 +1818,38 @@ UI::EventReturn HostnameSelectScreen::OnDeleteClick(UI::EventParams &e) {
 
 UI::EventReturn HostnameSelectScreen::OnDeleteAllClick(UI::EventParams &e) {
 	addrView_->SetText("");
+	return UI::EVENT_DONE;
+}
+
+UI::EventReturn HostnameSelectScreen::OnEditClick(UI::EventParams& e) {
+	auto n = GetI18NCategory("Networking");
+#if defined(__ANDROID__)
+	System_InputBoxGetString(n->T("proAdhocServer Address:"), addrView_->GetText(), [this](bool result, const std::string& value) {
+		if (result) {
+		    addrView_->SetText(value);
+		}
+	});
+#endif
+	return UI::EVENT_DONE;
+}
+
+UI::EventReturn HostnameSelectScreen::OnShowIPListClick(UI::EventParams& e) {
+	if (ipRows_->GetVisibility() == UI::V_GONE) {
+		ipRows_->SetVisibility(UI::V_VISIBLE);
+	}
+	else {
+		ipRows_->SetVisibility(UI::V_GONE);
+	}
+	return UI::EVENT_DONE;
+}
+
+UI::EventReturn HostnameSelectScreen::OnIPClick(UI::EventParams& e) {
+	std::string text = e.v ? e.v->Tag() : "";
+	if (text.length() > 0) {
+		addrView_->SetText(text);
+		// TODO: Copy the IP to clipboard for the host to easily share their IP through chatting apps.
+		System_SendMessage("setclipboardtext", text.c_str()); // Doesn't seems to be working on windows (yet?)
+	}
 	return UI::EVENT_DONE;
 }
 

@@ -77,12 +77,13 @@
 #include "sceImpose.h"
 #include "sceUsb.h"
 #include "sceUsbGps.h"
+#include "sceUsbCam.h"
+#include "sceUsbMic.h"
 #include "scePspNpDrm_user.h"
 #include "sceVaudio.h"
 #include "sceHeap.h"
 #include "sceDmac.h"
 #include "sceMp4.h"
-#include "sceUsbCam.h"
 
 #include "../Util/PPGeDraw.h"
 
@@ -146,6 +147,7 @@ void __KernelInit()
 	__VideoPmpInit();
 	__UsbGpsInit();
 	__UsbCamInit();
+	__UsbMicInit();
 	
 	SaveState::Init();  // Must be after IO, as it may create a directory
 	Reporting::Init();
@@ -170,6 +172,7 @@ void __KernelShutdown()
 	kernelObjects.Clear();
 
 	__UsbCamShutdown();
+	__UsbMicShutdown();
 	__UsbGpsShutdown();
 
 	__AudioCodecShutdown();
@@ -278,6 +281,7 @@ void __KernelDoState(PointerWrap &p)
 		__VideoPmpDoState(p);
 		__AACDoState(p);
 		__UsbGpsDoState(p);
+		__UsbMicDoState(p);
 
 		// IMPORTANT! Add new sections last!
 	}
@@ -869,6 +873,11 @@ const HLEFunction ThreadManForUser[] =
 
 	// Shouldn't hook this up. No games should import this function manually and call it.
 	// {0x6E9EA350, _sceKernelReturnFromCallback,"_sceKernelReturnFromCallback"},
+	{0X71EC4271, &WrapU_UU<sceKernelLibcGettimeofday>,               "sceKernelLibcGettimeofday",               'x', "xx" },
+	{0X79D1C3FA, &WrapI_V<sceKernelDcacheWritebackAll>,              "sceKernelDcacheWritebackAll",             'i', "" },
+	{0X91E4F6A7, &WrapU_V<sceKernelLibcClock>,                       "sceKernelLibcClock",                      'x', "" },
+	{0XB435DEC5, &WrapI_V<sceKernelDcacheWritebackInvalidateAll>,    "sceKernelDcacheWritebackInvalidateAll",   'i', "" },
+
 };
 
 const HLEFunction ThreadManForKernel[] =
@@ -882,6 +891,8 @@ const HLEFunction ThreadManForKernel[] =
 	{0X9944F31F, &WrapI_I<sceKernelSuspendThread>,                   "sceKernelSuspendThread",                    'i', "i",      HLE_KERNEL_SYSCALL },
 	{0X75156E8F, &WrapI_I<sceKernelResumeThread>,                    "sceKernelResumeThread",                     'i', "i",      HLE_KERNEL_SYSCALL },
 	{0X94416130, &WrapU_UUUU<sceKernelGetThreadmanIdList>,           "sceKernelGetThreadmanIdList",               'x', "xxxx",   HLE_KERNEL_SYSCALL },
+	{0X28B6489C, &WrapI_I<sceKernelDeleteSema>,                      "sceKernelDeleteSema",                       'i', "i",      HLE_KERNEL_SYSCALL },
+	{0XEF9E4C70, &WrapU_I<sceKernelDeleteEventFlag>,                 "sceKernelDeleteEventFlag",                  'x', "i",      HLE_KERNEL_SYSCALL },
 };
 
 void Register_ThreadManForUser()

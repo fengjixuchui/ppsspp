@@ -52,6 +52,7 @@
 #include "UI/DisplayLayoutScreen.h"
 #include "UI/SavedataScreen.h"
 #include "UI/Store.h"
+#include "UI/InstallZipScreen.h"
 #include "Core/Config.h"
 #include "Core/Loaders.h"
 #include "GPU/GPUInterface.h"
@@ -73,6 +74,28 @@
 #include <sstream>
 
 bool MainScreen::showHomebrewTab = false;
+
+bool LaunchFile(ScreenManager *screenManager, std::string path) {
+	// Depending on the file type, we don't want to launch EmuScreen at all.
+	auto loader = ConstructFileLoader(path);
+	if (!loader) {
+		return false;
+	}
+
+	IdentifiedFileType type = Identify_File(loader);
+	delete loader;
+
+	switch (type) {
+	case IdentifiedFileType::ARCHIVE_ZIP:
+		screenManager->push(new InstallZipScreen(path));
+		break;
+	default:
+		// Let the EmuScreen take care of it.
+		screenManager->switchScreen(new EmuScreen(path));
+		break;
+	}
+	return true;
+}
 
 static bool IsTempPath(const std::string &str) {
 	std::string item = str;
@@ -912,12 +935,12 @@ UI::EventReturn GameBrowser::OnHomebrewStore(UI::EventParams &e) {
 
 MainScreen::MainScreen() {
 	System_SendMessage("event", "mainscreen");
-	SetBackgroundAudioGame("");
+	g_BackgroundAudio.SetGame("");
 	lastVertical_ = UseVerticalLayout();
 }
 
 MainScreen::~MainScreen() {
-	SetBackgroundAudioGame("");
+	g_BackgroundAudio.SetGame("");
 }
 
 void MainScreen::CreateViews() {
@@ -1155,7 +1178,7 @@ void MainScreen::sendMessage(const char *message, const char *value) {
 
 	if (screenManager()->topScreen() == this) {
 		if (!strcmp(message, "boot")) {
-			screenManager()->switchScreen(new EmuScreen(value));
+			LaunchFile(screenManager(), std::string(value));
 		}
 		if (!strcmp(message, "browse_folderSelect")) {
 			int tab = tabHolder_->GetCurrentTab();
@@ -1260,7 +1283,7 @@ UI::EventReturn MainScreen::OnGameSelected(UI::EventParams &e) {
 
 	// Restore focus if it was highlighted (e.g. by gamepad.)
 	restoreFocusGamePath_ = highlightedGamePath_;
-	SetBackgroundAudioGame(path);
+	g_BackgroundAudio.SetGame(path);
 	lockBackgroundAudio_ = true;
 	screenManager()->push(new GameScreen(path));
 	return UI::EVENT_DONE;
@@ -1291,7 +1314,7 @@ UI::EventReturn MainScreen::OnGameHighlight(UI::EventParams &e) {
 	}
 
 	if ((!highlightedGamePath_.empty() || e.a == FF_LOSTFOCUS) && !lockBackgroundAudio_) {
-		SetBackgroundAudioGame(highlightedGamePath_);
+		g_BackgroundAudio.SetGame(highlightedGamePath_);
 	}
 
 	lockBackgroundAudio_ = false;
@@ -1304,8 +1327,8 @@ UI::EventReturn MainScreen::OnGameSelectedInstant(UI::EventParams &e) {
 #else
 	std::string path = e.s;
 #endif
-	// Go directly into the game.
-	screenManager()->switchScreen(new EmuScreen(path));
+	ScreenManager *screen = screenManager();
+	LaunchFile(screen, path);
 	return UI::EVENT_DONE;
 }
 
@@ -1378,7 +1401,7 @@ void MainScreen::dialogFinished(const Screen *dialog, DialogResult result) {
 			restoreFocusGamePath_.clear();
 		} else {
 			// Not refocusing, so we need to stop the audio.
-			SetBackgroundAudioGame("");
+			g_BackgroundAudio.SetGame("");
 		}
 	}
 }

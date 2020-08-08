@@ -3,6 +3,7 @@
 #include <thread>
 #include <atomic>
 #include <vector>
+#include <stdlib.h>
 
 #include "base/timeutil.h"
 #include "Common/ChunkFile.h"
@@ -23,7 +24,7 @@
 #include "file/zip_read.h"
 #include "GPU/GPUState.h"
 #include "GPU/GPUInterface.h"
-#include "GPU/Common/FramebufferCommon.h"
+#include "GPU/Common/FramebufferManagerCommon.h"
 #include "GPU/Common/TextureScalerCommon.h"
 #include "input/input_state.h"
 #include "base/NativeApp.h"
@@ -31,6 +32,10 @@
 
 #include "libretro/libretro.h"
 #include "libretro/LibretroGraphicsContext.h"
+
+#if PPSSPP_PLATFORM(ANDROID)
+#include <sys/system_properties.h>
+#endif
 
 #define DIR_SEP "/"
 #ifdef _WIN32
@@ -820,7 +825,8 @@ bool retro_unserialize(const void *data, size_t size)
    if (useEmuThread)
       EmuThreadPause(); // Does nothing if already paused
 
-   retVal = CChunkFileReader::LoadPtr((u8 *)data, state) 
+   std::string errorString;
+   retVal = CChunkFileReader::LoadPtr((u8 *)data, state, &errorString) 
       == CChunkFileReader::ERROR_NONE;
 
    if (useEmuThread)
@@ -856,6 +862,15 @@ int System_GetPropertyInt(SystemProperty prop)
    {
       case SYSPROP_AUDIO_SAMPLE_RATE:
          return SAMPLERATE;
+#if PPSSPP_PLATFORM(ANDROID)
+      case SYSPROP_SYSTEMVERSION: {
+         char sdk[PROP_VALUE_MAX] = {0};
+         if (__system_property_get("ro.build.version.sdk", sdk) != 0) {
+            return atoi(sdk);
+         }
+         return -1;
+      }
+#endif
       default:
          break;
    }

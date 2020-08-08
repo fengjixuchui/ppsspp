@@ -8,20 +8,20 @@
 #include "math/math_util.h"
 #include "math/lin/vec3.h"
 #include "GPU/GPUState.h"
-#include "GPU/Common/FramebufferCommon.h"
+#include "GPU/Common/FramebufferManagerCommon.h"
 #include "GPU/Common/GPUStateUtils.h"
 #include "GPU/Math3D.h"
 
 using namespace Lin;
 
 static void ConvertProjMatrixToVulkan(Matrix4x4 &in) {
-	const Vec3 trans(0, 0, gstate_c.vpZOffset * 0.5f + 0.5f);
+	const Vec3 trans(gstate_c.vpXOffset, gstate_c.vpYOffset, gstate_c.vpZOffset * 0.5f + 0.5f);
 	const Vec3 scale(gstate_c.vpWidthScale, gstate_c.vpHeightScale, gstate_c.vpDepthScale * 0.5f);
 	in.translateAndScale(trans, scale);
 }
 
 static void ConvertProjMatrixToD3D11(Matrix4x4 &in) {
-	const Vec3 trans(0, 0, gstate_c.vpZOffset * 0.5f + 0.5f);
+	const Vec3 trans(gstate_c.vpXOffset, -gstate_c.vpYOffset, gstate_c.vpZOffset * 0.5f + 0.5f);
 	const Vec3 scale(gstate_c.vpWidthScale, -gstate_c.vpHeightScale, gstate_c.vpDepthScale * 0.5f);
 	in.translateAndScale(trans, scale);
 }

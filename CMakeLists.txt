@@ -730,10 +730,10 @@ if(ANDROID)
 		android/jni/AndroidVulkanContext.cpp
 		android/jni/AndroidVulkanContext.h
 		android/jni/AndroidGraphicsContext.h
-		android/jni/native_audio.cpp
-		android/jni/native_audio.h
-		android/jni/native-audio-so.cpp
-		android/jni/native-audio-so.h
+		android/jni/AndroidAudio.cpp
+		android/jni/AndroidAudio.h
+		android/jni/OpenSLContext.cpp
+		android/jni/OpenSLContext.h
 	)
 	# No target
 elseif(IOS)
@@ -1267,8 +1267,8 @@ set(GPU_VULKAN
 	GPU/Vulkan/DrawEngineVulkan.h
 	GPU/Vulkan/FragmentShaderGeneratorVulkan.cpp
 	GPU/Vulkan/FragmentShaderGeneratorVulkan.h
-	GPU/Vulkan/FramebufferVulkan.cpp
-	GPU/Vulkan/FramebufferVulkan.h
+	GPU/Vulkan/FramebufferManagerVulkan.cpp
+	GPU/Vulkan/FramebufferManagerVulkan.h
 	GPU/Vulkan/GPU_Vulkan.cpp
 	GPU/Vulkan/GPU_Vulkan.h
 	GPU/Vulkan/PipelineManagerVulkan.cpp
@@ -1295,8 +1295,8 @@ set(GPU_D3D9
 	GPU/Directx9/DrawEngineDX9.h
 	GPU/Directx9/PixelShaderGeneratorDX9.cpp
 	GPU/Directx9/PixelShaderGeneratorDX9.h
-	GPU/Directx9/FramebufferDX9.cpp
-	GPU/Directx9/FramebufferDX9.h
+	GPU/Directx9/FramebufferManagerDX9.cpp
+	GPU/Directx9/FramebufferManagerDX9.h
 	GPU/Directx9/GPU_DX9.cpp
 	GPU/Directx9/GPU_DX9.h
 	GPU/Directx9/ShaderManagerDX9.cpp
@@ -1352,8 +1352,8 @@ set(GPU_SOURCES
 	${GPU_NEON}
 	GPU/Common/DepalettizeShaderCommon.cpp
 	GPU/Common/DepalettizeShaderCommon.h
-	GPU/Common/FramebufferCommon.cpp
-	GPU/Common/FramebufferCommon.h
+	GPU/Common/FramebufferManagerCommon.cpp
+	GPU/Common/FramebufferManagerCommon.h
 	GPU/Common/GPUDebugInterface.cpp
 	GPU/Common/GPUDebugInterface.h
 	GPU/Common/GPUStateUtils.cpp
@@ -1402,6 +1402,8 @@ set(GPU_SOURCES
 	GPU/Debugger/RecordFormat.h
 	GPU/Debugger/Stepping.cpp
 	GPU/Debugger/Stepping.h
+	GPU/ge_constants.h
+	GPU/GeConstants.cpp
 	GPU/GPUInterface.h
 	GPU/GeDisasm.cpp
 	GPU/GeDisasm.h
@@ -1482,6 +1484,8 @@ add_library(${CoreLibName} ${CoreLinkType}
 	Core/Debugger/WebSocket/HLESubscriber.h
 	Core/Debugger/WebSocket/LogBroadcaster.cpp
 	Core/Debugger/WebSocket/LogBroadcaster.h
+	Core/Debugger/WebSocket/MemorySubscriber.cpp
+	Core/Debugger/WebSocket/MemorySubscriber.h
 	Core/Debugger/WebSocket/SteppingBroadcaster.cpp
 	Core/Debugger/WebSocket/SteppingBroadcaster.h
 	Core/Debugger/WebSocket/SteppingSubscriber.cpp
@@ -2033,6 +2037,11 @@ set(NativeAssets
 	assets/rargray.png
 	assets/unknown.png
 	assets/zip.png
+	assets/sfx_back.wav
+	assets/sfx_confirm.wav
+	assets/sfx_select.wav
+	assets/sfx_toggle_off.wav
+	assets/sfx_toggle_on.wav
 	source_assets/image/logo.png
 	source_assets/image/icon_regular_72.png
 )

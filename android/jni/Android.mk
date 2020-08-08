@@ -134,7 +134,7 @@ VULKAN_FILES := \
   $(SRC)/Common/Vulkan/VulkanMemory.cpp \
   $(SRC)/GPU/Vulkan/FragmentShaderGeneratorVulkan.cpp \
   $(SRC)/GPU/Vulkan/DrawEngineVulkan.cpp \
-  $(SRC)/GPU/Vulkan/FramebufferVulkan.cpp \
+  $(SRC)/GPU/Vulkan/FramebufferManagerVulkan.cpp \
   $(SRC)/GPU/Vulkan/GPU_Vulkan.cpp \
   $(SRC)/GPU/Vulkan/PipelineManagerVulkan.cpp \
   $(SRC)/GPU/Vulkan/ShaderManagerVulkan.cpp \
@@ -225,9 +225,10 @@ EXEC_AND_LIB_FILES := \
   $(SRC)/GPU/GPU.cpp \
   $(SRC)/GPU/GPUCommon.cpp \
   $(SRC)/GPU/GPUState.cpp \
+  $(SRC)/GPU/GeConstants.cpp \
   $(SRC)/GPU/GeDisasm.cpp \
   $(SRC)/GPU/Common/DepalettizeShaderCommon.cpp \
-  $(SRC)/GPU/Common/FramebufferCommon.cpp \
+  $(SRC)/GPU/Common/FramebufferManagerCommon.cpp \
   $(SRC)/GPU/Common/PresentationCommon.cpp \
   $(SRC)/GPU/Common/GPUDebugInterface.cpp \
   $(SRC)/GPU/Common/IndexGenerator.cpp.arm \
@@ -324,6 +325,7 @@ EXEC_AND_LIB_FILES := \
   $(SRC)/Core/Debugger/WebSocket/GPURecordSubscriber.cpp \
   $(SRC)/Core/Debugger/WebSocket/HLESubscriber.cpp \
   $(SRC)/Core/Debugger/WebSocket/LogBroadcaster.cpp \
+  $(SRC)/Core/Debugger/WebSocket/MemorySubscriber.cpp \
   $(SRC)/Core/Debugger/WebSocket/SteppingBroadcaster.cpp \
   $(SRC)/Core/Debugger/WebSocket/SteppingSubscriber.cpp \
   $(SRC)/Core/Debugger/WebSocket/WebSocketUtils.cpp \
@@ -498,8 +500,8 @@ LOCAL_SRC_FILES := \
   $(SRC)/android/jni/AndroidEGLContext.cpp \
   $(SRC)/android/jni/AndroidJavaGLContext.cpp \
   $(SRC)/android/jni/AndroidVulkanContext.cpp \
-  $(SRC)/android/jni/native_audio.cpp \
-  $(SRC)/android/jni/native-audio-so.cpp \
+  $(SRC)/android/jni/AndroidAudio.cpp \
+  $(SRC)/android/jni/OpenSLContext.cpp \
   $(SRC)/UI/BackgroundAudio.cpp \
   $(SRC)/UI/DiscordIntegration.cpp \
   $(SRC)/UI/ChatScreen.cpp \

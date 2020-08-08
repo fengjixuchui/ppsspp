@@ -97,6 +97,10 @@ inline bool connectInProgress(int errcode){ return (errcode == EAGAIN || errcode
 #define POLLPRI POLL_PRI
 #endif
 
+#ifndef SD_BOTH
+#define SD_BOTH 0x02
+#endif
+
 #define IsMatch(buf1, buf2)	(memcmp(&buf1, &buf2, sizeof(buf1)) == 0)
 
 // Server Listening Port
@@ -475,8 +479,8 @@ typedef struct SceNetAdhocMatchingContext {
   u64_le timeout;
 
   // Helper Thread (fake PSP Thread) needed to execute callback
-  HLEHelperThread *matchingThread;
-  SceUID matching_thid;
+  //HLEHelperThread *matchingThread;
+  int matching_thid;
 
   // Event Caller Thread
   std::thread eventThread;
@@ -789,13 +793,19 @@ public:
 	AfterAdhocMipsCall() {}
 	static PSPAction* Create() { return new AfterAdhocMipsCall(); }
 	void DoState(PointerWrap& p) override {
-		auto s = p.Section("AfterAdhocMipsCall", 4, 4);
+		auto s = p.Section("AfterAdhocMipsCall", 1, 4);
 		if (!s)
 			return;
-
-		p.Do(HandlerID);
-		p.Do(EventID);
-		p.Do(argsAddr);
+		if (s >= 3) {
+			p.Do(HandlerID);
+			p.Do(EventID);
+			p.Do(argsAddr);
+		}
+		else {
+			HandlerID = -1;
+			EventID = -1;
+			argsAddr = 0;
+		}
 	}
 	void run(MipsCall& call) override;
 	void SetData(int handlerID, int eventId, u32_le argsAddr);
@@ -814,13 +824,20 @@ public:
 		auto s = p.Section("AfterMatchingMipsCall", 1, 4);
 		if (!s)
 			return;
-
-		p.Do(EventID);
+		if (s >= 1) {
+			p.Do(EventID);
+		}
+		else {
+			EventID = -1;
+		}
 		if (s >= 4) {
 			p.Do(contextID);
 			p.Do(bufAddr);
 		}
-		//context = NULL;
+		else {
+			contextID = -1;
+			bufAddr = 0;
+		}
 	}
 	void run(MipsCall &call) override;
 	void SetData(int ContextID, int eventId, u32_le BufAddr);
@@ -889,8 +906,7 @@ bool isPDPPortInUse(uint16_t port);
  */
 bool isPTPPortInUse(uint16_t port);
 
-char* mac2str(SceNetEtherAddr* mac);
-char* mac2str(SceNetEtherAddr* mac, char* str, size_t size = 18);
+std::string mac2str(SceNetEtherAddr* mac);
 
 /*
  * Matching Members
@@ -1228,8 +1244,8 @@ u64 join32(u32 num1, u32 num2);
 void split64(u64 num, int buff[]);
 
 /**
- * Returns the local mac, TODO: Read from Config file
- * @param addr OUT: Local Mac
+ * Returns the local mac
+ * @param addr OUT: 6-bytes of Local Mac
  */
 void getLocalMac(SceNetEtherAddr * addr);
 

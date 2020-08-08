@@ -123,11 +123,12 @@ struct TexCacheEntry {
 
 	// Status, but int so we can zero initialize.
 	int status;
+
 	u32 addr;
 	u32 hash;
 	VirtualFramebuffer *framebuffer;  // if null, not sourced from an FBO. TODO: Collapse into texturePtr
 	u32 sizeInRAM;  // Could be computed
-	u8 format;
+	u8 format;  // GeTextureFormat
 	u8 maxLevel;
 	u16 dim;
 	u16 bufw;
@@ -198,7 +199,7 @@ public:
 
 	// FramebufferManager keeps TextureCache updated about what regions of memory are being rendered to.
 	void NotifyFramebuffer(u32 address, VirtualFramebuffer *framebuffer, FramebufferNotification msg);
-	void NotifyConfigChanged();
+	virtual void NotifyConfigChanged();
 	void NotifyVideoUpload(u32 addr, int size, int width, GEBufferFormat fmt);
 
 	int AttachedDrawingHeight();

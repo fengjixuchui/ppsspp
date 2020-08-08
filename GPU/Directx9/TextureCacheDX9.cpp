@@ -26,11 +26,11 @@
 #include "GPU/GPUState.h"
 #include "GPU/Directx9/PixelShaderGeneratorDX9.h"
 #include "GPU/Directx9/TextureCacheDX9.h"
-#include "GPU/Directx9/FramebufferDX9.h"
+#include "GPU/Directx9/FramebufferManagerDX9.h"
 #include "GPU/Directx9/ShaderManagerDX9.h"
 #include "GPU/Directx9/DepalettizeShaderDX9.h"
 #include "gfx/d3d9_state.h"
-#include "GPU/Common/FramebufferCommon.h"
+#include "GPU/Common/FramebufferManagerCommon.h"
 #include "GPU/Common/TextureDecoder.h"
 #include "Core/Config.h"
 #include "Core/Host.h"
@@ -87,7 +87,6 @@ void TextureCacheDX9::SetFramebufferManager(FramebufferManagerDX9 *fbManager) {
 }
 
 void TextureCacheDX9::ReleaseTexture(TexCacheEntry *entry, bool delete_them) {
-	DEBUG_LOG(G3D, "Deleting texture %p", entry->texturePtr);
 	LPDIRECT3DTEXTURE9 &texture = DxTex(entry);
 	if (texture) {
 		texture->Release();

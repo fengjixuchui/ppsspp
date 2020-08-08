@@ -3,7 +3,6 @@
 #include <string>
 #include <algorithm>
 #include <map>
-#include <cassert>
 
 #include "base/logging.h"
 #include "math/dataconv.h"
@@ -383,8 +382,8 @@ public:
 	void GetFramebufferDimensions(Framebuffer *fbo, int *w, int *h) override;
 
 	void BindSamplerStates(int start, int count, SamplerState **states) override {
-		if (boundSamplers_.size() < (size_t)(start + count)) {
-			boundSamplers_.resize(start + count);
+		if (start + count >= MAX_TEXTURE_SLOTS) {
+			return;
 		}
 		for (int i = 0; i < count; i++) {
 			int index = i + start;
@@ -488,9 +487,8 @@ private:
 
 	GLRenderManager renderManager_;
 
-	std::vector<OpenGLSamplerState *> boundSamplers_;
-	OpenGLTexture *boundTextures_[8]{};
-	int maxTextures_ = 0;
+	OpenGLSamplerState *boundSamplers_[MAX_TEXTURE_SLOTS]{};
+	OpenGLTexture *boundTextures_[MAX_TEXTURE_SLOTS]{};
 	DeviceCaps caps_{};
 
 	// Bound state
@@ -604,7 +602,6 @@ OpenGLContext::~OpenGLContext() {
 	for (int i = 0; i < GLRenderManager::MAX_INFLIGHT_FRAMES; i++) {
 		renderManager_.DeletePushBuffer(frameData_[i].push);
 	}
-	boundSamplers_.clear();
 }
 
 void OpenGLContext::BeginFrame() {
@@ -963,6 +960,15 @@ Pipeline *OpenGLContext::CreateGraphicsPipeline(const PipelineDesc &desc) {
 		ELOG("Pipeline requires at least one shader");
 		return nullptr;
 	}
+	if ((int)desc.prim >= (int)Primitive::PRIMITIVE_TYPE_COUNT) {
+		ELOG("Invalid primitive type");
+		return nullptr;
+	}
+	if (!desc.depthStencil || !desc.blend || !desc.raster || !desc.inputLayout) {
+		ELOG("Incomplete prim desciption");
+		return nullptr;
+	}
+
 	OpenGLPipeline *pipeline = new OpenGLPipeline(&renderManager_);
 	for (auto iter : desc.shaders) {
 		if (iter) {
@@ -998,7 +1004,9 @@ Pipeline *OpenGLContext::CreateGraphicsPipeline(const PipelineDesc &desc) {
 }
 
 void OpenGLContext::BindTextures(int start, int count, Texture **textures) {
-	maxTextures_ = std::max(maxTextures_, start + count);
+	if (start + count >= MAX_TEXTURE_SLOTS) {
+		return;
+	}
 	for (int i = start; i < start + count; i++) {
 		OpenGLTexture *glTex = static_cast<OpenGLTexture *>(textures[i - start]);
 		if (!glTex) {
@@ -1012,25 +1020,24 @@ void OpenGLContext::BindTextures(int start, int count, Texture **textures) {
 }
 
 void OpenGLContext::ApplySamplers() {
-	for (int i = 0; i < maxTextures_; i++) {
-		if ((int)boundSamplers_.size() > i && boundSamplers_[i]) {
-			const OpenGLSamplerState *samp = boundSamplers_[i];
-			const OpenGLTexture *tex = boundTextures_[i];
-			if (!tex)
-				continue;
-			GLenum wrapS;
-			GLenum wrapT;
-			if (tex->CanWrap()) {
-				wrapS = samp->wrapU;
-				wrapT = samp->wrapV;
-			} else {
-				wrapS = GL_CLAMP_TO_EDGE;
-				wrapT = GL_CLAMP_TO_EDGE;
-			}
-			GLenum magFilt = samp->magFilt;
-			GLenum minFilt = tex->HasMips() ? samp->mipMinFilt : samp->minFilt;
-			renderManager_.SetTextureSampler(i, wrapS, wrapT, magFilt, minFilt, 0.0f);
+	for (int i = 0; i < MAX_TEXTURE_SLOTS; i++) {
+		const OpenGLSamplerState *samp = boundSamplers_[i];
+		const OpenGLTexture *tex = boundTextures_[i];
+		if (!samp || !tex) {
+			continue;
 		}
+		GLenum wrapS;
+		GLenum wrapT;
+		if (tex->CanWrap()) {
+			wrapS = samp->wrapU;
+			wrapT = samp->wrapV;
+		} else {
+			wrapS = GL_CLAMP_TO_EDGE;
+			wrapT = GL_CLAMP_TO_EDGE;
+		}
+		GLenum magFilt = samp->magFilt;
+		GLenum minFilt = tex->HasMips() ? samp->mipMinFilt : samp->minFilt;
+		renderManager_.SetTextureSampler(i, wrapS, wrapT, magFilt, minFilt, 0.0f);
 	}
 }
 
@@ -1046,9 +1053,21 @@ ShaderModule *OpenGLContext::CreateShaderModule(ShaderStage stage, ShaderLanguag
 
 bool OpenGLPipeline::LinkShaders() {
 	std::vector<GLRShader *> linkShaders;
-	for (auto iter : shaders) {
-		linkShaders.push_back(iter->GetShader());
+	for (auto shaderModule : shaders) {
+		if (shaderModule) {
+			GLRShader *shader = shaderModule->GetShader();
+			if (shader) {
+				linkShaders.push_back(shader);
+			} else {
+				ELOG("LinkShaders: Bad shader module");
+				return false;
+			}
+		} else {
+			ELOG("LinkShaders: Bad shader in module");
+			return false;
+		}
 	}
+
 	std::vector<GLRProgram::Semantic> semantics;
 	// Bind all the common vertex data points. Mismatching ones will be ignored.
 	semantics.push_back({ SEM_POSITION, "Position" });
@@ -1132,7 +1151,6 @@ void OpenGLContext::DrawUP(const void *vdata, int vertexCount) {
 	size_t offset = frameData.push->Push(vdata, dataSize, &buf);
 
 	ApplySamplers();
-
 	renderManager_.BindVertexBuffer(curPipeline_->inputLayout->inputLayout_, buf, offset);
 	renderManager_.Draw(curPipeline_->prim, 0, vertexCount);
 }

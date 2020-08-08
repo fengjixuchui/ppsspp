@@ -52,7 +52,7 @@
 #include "Core/System.h"
 #include "GPU/GPUState.h"
 #include "GPU/GPUInterface.h"
-#include "GPU/Common/FramebufferCommon.h"
+#include "GPU/Common/FramebufferManagerCommon.h"
 #if !PPSSPP_PLATFORM(UWP)
 #include "GPU/Vulkan/DebugVisVulkan.h"
 #endif
@@ -77,7 +77,6 @@
 #include "UI/ControlMappingScreen.h"
 #include "UI/DisplayLayoutScreen.h"
 #include "UI/GameSettingsScreen.h"
-#include "UI/InstallZipScreen.h"
 #include "UI/ProfilerDraw.h"
 #include "UI/DiscordIntegration.h"
 #include "UI/ChatScreen.h"
@@ -194,7 +193,7 @@ void EmuScreen::bootGame(const std::string &filename) {
 		return;
 	}
 
-	SetBackgroundAudioGame("");
+	g_BackgroundAudio.SetGame("");
 
 	// Check permission status first, in case we came from a shortcut.
 	if (!bootAllowStorage(filename))
@@ -1163,14 +1162,6 @@ void EmuScreen::update() {
 	}
 
 	if (errorMessage_.size()) {
-		// Special handling for ZIP files. It's not very robust to check an error message but meh,
-		// at least it's pre-translation.
-		if (errorMessage_.find("ZIP") != std::string::npos) {
-			screenManager()->push(new InstallZipScreen(gamePath_));
-			errorMessage_ = "";
-			quit_ = true;
-			return;
-		}
 		auto err = GetI18NCategory("Error");
 		std::string errLoadingFile = gamePath_ + "\n";
 		errLoadingFile.append(err->T("Error loading file", "Could not load game"));
@@ -1448,13 +1439,15 @@ void EmuScreen::render() {
 		return;
 	}
 
+	// Freeze-frame functionality (loads a savestate on every frame).
 	if (PSP_CoreParameter().freezeNext) {
 		PSP_CoreParameter().frozen = true;
 		PSP_CoreParameter().freezeNext = false;
 		SaveState::SaveToRam(freezeState_);
 	} else if (PSP_CoreParameter().frozen) {
-		if (CChunkFileReader::ERROR_NONE != SaveState::LoadFromRam(freezeState_)) {
-			ERROR_LOG(SAVESTATE, "Failed to load freeze state. Unfreezing.");
+		std::string errorString;
+		if (CChunkFileReader::ERROR_NONE != SaveState::LoadFromRam(freezeState_, &errorString)) {
+			ERROR_LOG(SAVESTATE, "Failed to load freeze state (%s). Unfreezing.", errorString.c_str());
 			PSP_CoreParameter().frozen = false;
 		}
 	}
@@ -1512,23 +1505,6 @@ void EmuScreen::render() {
 		screenManager()->getUIContext()->BeginFrame();
 		renderUI();
 	}
-
-	// We have no use for backbuffer depth or stencil, so let tiled renderers discard them after tiling.
-	/*
-	if (gl_extensions.GLES3 && glInvalidateFramebuffer != nullptr) {
-		GLenum attachments[2] = { GL_DEPTH, GL_STENCIL };
-		glInvalidateFramebuffer(GL_FRAMEBUFFER, 2, attachments);
-	} else if (!gl_extensions.GLES3) {
-#ifdef USING_GLES2
-		// Tiled renderers like PowerVR should benefit greatly from this. However - seems I can't call it?
-		bool hasDiscard = gl_extensions.EXT_discard_framebuffer;  // TODO
-		if (hasDiscard) {
-			//const GLenum targets[3] = { GL_COLOR_EXT, GL_DEPTH_EXT, GL_STENCIL_EXT };
-			//glDiscardFramebufferEXT(GL_FRAMEBUFFER, 3, targets);
-		}
-#endif
-	}
-	*/
 }
 
 bool EmuScreen::hasVisibleUI() {
