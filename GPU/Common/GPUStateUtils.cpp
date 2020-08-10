@@ -531,14 +531,20 @@ float ToScaledDepthFromIntegerScale(float z) {
 	}
 }
 
-float FromScaledDepth(float z) {
+// See struct DepthScaleFactors for how to apply.
+DepthScaleFactors GetDepthScaleFactors() {
+	DepthScaleFactors factors;
 	if (!gstate_c.Supports(GPU_SUPPORTS_ACCURATE_DEPTH)) {
-		return z * 65535.0f;
+		factors.offset = 0;
+		factors.scale = 65535.0f;
+		return factors;
 	}
 
 	const float depthSliceFactor = DepthSliceFactor();
 	const float offset = 0.5f * (depthSliceFactor - 1.0f) * (1.0f / depthSliceFactor);
-	return (z - offset) * depthSliceFactor * 65535.0f;
+	factors.scale = depthSliceFactor * 65535.0f;
+	factors.offset = offset;
+	return factors;
 }
 
 void ConvertViewportAndScissor(bool useBufferedRendering, float renderWidth, float renderHeight, int bufferWidth, int bufferHeight, ViewportAndScissor &out) {
@@ -627,9 +633,6 @@ void ConvertViewportAndScissor(bool useBufferedRendering, float renderWidth, flo
 		float vpWidth = fabsf(gstate_c.vpWidth);
 		float vpHeight = fabsf(gstate_c.vpHeight);
 
-		// We used to apply the viewport here via glstate, but there are limits which vary by driver.
-		// This may mean some games won't work, or at least won't work at higher render resolutions.
-		// So we apply it in the shader instead.
 		float left = renderX + vpX0;
 		float top = renderY + vpY0;
 		float right = left + vpWidth;
