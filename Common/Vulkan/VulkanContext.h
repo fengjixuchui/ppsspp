@@ -1,11 +1,10 @@
 #pragma once
 
-#include <cassert>
+#include <cstring>
 #include <string>
 #include <vector>
 #include <utility>
 
-#include "base/logging.h"
 #include "Common/Vulkan/VulkanLoader.h"
 #include "Common/Vulkan/VulkanDebug.h"
 

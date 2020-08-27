@@ -20,7 +20,7 @@
 #include <thread>
 #include <mutex>
 
-#include "base/timeutil.h"
+#include "base/stringutil.h"
 #include "i18n/i18n.h"
 #include "thread/threadutil.h"
 #include "util/text/parsers.h"
@@ -28,6 +28,7 @@
 #include "Common/FileUtil.h"
 #include "Common/Serialize/Serializer.h"
 #include "Common/Serialize/SerializeFuncs.h"
+#include "Common/TimeUtil.h"
 
 #include "Core/SaveState.h"
 #include "Core/Config.h"
@@ -262,7 +263,7 @@ namespace SaveState
 	static StateRingbuffer rewindStates(REWIND_NUM_STATES);
 	// TODO: Any reason for this to be configurable?
 	const static float rewindMaxWallFrequency = 1.0f;
-	static float rewindLastTime = 0.0f;
+	static double rewindLastTime = 0.0f;
 	const int StateRingbuffer::BLOCK_SIZE = 8192;
 	const int StateRingbuffer::BASE_USAGE_INTERVAL = 15;
 
@@ -670,11 +671,11 @@ namespace SaveState
 
 		// For fast-forwarding, otherwise they may be useless and too close.
 		time_update();
-		float diff = time_now() - rewindLastTime;
+		float diff = time_now_d() - rewindLastTime;
 		if (diff < rewindMaxWallFrequency)
 			return;
 
-		rewindLastTime = time_now();
+		rewindLastTime = time_now_d();
 		DEBUG_LOG(BOOT, "saving rewind state");
 		rewindStates.Save();
 	}

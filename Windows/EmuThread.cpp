@@ -2,7 +2,6 @@
 #include <atomic>
 #include <thread>
 
-#include "base/timeutil.h"
 #include "base/NativeApp.h"
 #include "i18n/i18n.h"
 #include "input/input_state.h"
@@ -11,6 +10,7 @@
 #include "Common/Log.h"
 #include "Common/StringUtils.h"
 #include "Common/GraphicsContext.h"
+#include "Common/TimeUtil.h"
 #include "Windows/EmuThread.h"
 #include "Windows/W32Util/Misc.h"
 #include "Windows/MainWindow.h"
@@ -104,7 +104,7 @@ static void EmuThreadStop() {
 static void EmuThreadJoin() {
 	emuThread.join();
 	emuThread = std::thread();
-	ILOG("EmuThreadJoin - joined");
+	INFO_LOG(SYSTEM, "EmuThreadJoin - joined");
 }
 
 void MainThreadFunc() {
@@ -230,7 +230,6 @@ void MainThreadFunc() {
 	}
 
 	INFO_LOG(BOOT, "Done.");
-	_dbg_update_();
 
 	if (coreState == CORE_POWERDOWN) {
 		INFO_LOG(BOOT, "Exit before core loop.");

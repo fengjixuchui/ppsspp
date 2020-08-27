@@ -1,17 +1,10 @@
 #include "pch.h"
 #include "PPSSPP_UWPMain.h"
 
-#include <cassert>
 #include <mutex>
 
 #include "base/basictypes.h"
-#include "Common/FileUtil.h"
-#include "Common/Log.h"
-#include "Common/LogManager.h"
-#include "Core/System.h"
-#include "Core/Loaders.h"
 #include "base/NativeApp.h"
-#include "base/timeutil.h"
 #include "input/input_state.h"
 #include "file/vfs.h"
 #include "file/zip_read.h"
@@ -22,7 +15,17 @@
 #include "thread/threadutil.h"
 #include "thin3d/thin3d_create.h"
 #include "util/text/utf8.h"
+
 #include "Common/DirectXHelper.h"
+#include "Common/FileUtil.h"
+#include "Common/Log.h"
+#include "Common/LogManager.h"
+#include "Common/TimeUtil.h"
+
+#include "Core/System.h"
+#include "Core/Loaders.h"
+#include "Core/Config.h"
+
 #include "NKCodeFromWindowsSystem.h"
 #include "XAudioSoundStream.h"
 #include "UWPHost.h"
@@ -100,7 +103,7 @@ PPSSPP_UWPMain::PPSSPP_UWPMain(App ^app, const std::shared_ptr<DX::DeviceResourc
 	// because the next place it was called was in the EmuThread, and it's too late by then.
 	InitSysDirectories();
 
-	LogManager::Init();
+	LogManager::Init(&g_Config.bEnableLogging);
 
 	// Load config up here, because those changes below would be overwritten
 	// if it's not loaded here first.
@@ -320,7 +323,7 @@ UWPGraphicsContext::UWPGraphicsContext(std::shared_ptr<DX::DeviceResources> reso
 	draw_ = Draw::T3DCreateD3D11Context(
 		resources->GetD3DDevice(), resources->GetD3DDeviceContext(), resources->GetD3DDevice(), resources->GetD3DDeviceContext(), resources->GetDeviceFeatureLevel(), 0, adapterNames);
 	bool success = draw_->CreatePresets();
-	assert(success);
+	_assert_(success);
 }
 
 void UWPGraphicsContext::Shutdown() {
@@ -505,7 +508,7 @@ std::string GetCPUBrandString() {
 	}
 	catch (const std::exception & e) {
 		const char* what = e.what();
-		ILOG("%s", what);
+		INFO_LOG(SYSTEM, "%s", what);
 	}
 
 	if (cpu_id != nullptr) {
@@ -527,7 +530,7 @@ std::string GetCPUBrandString() {
 		}
 		catch (const std::exception & e) {
 			const char* what = e.what();
-			ILOG("%s", what);
+			INFO_LOG(SYSTEM, "%s", what);
 		}
 	}
 

@@ -24,7 +24,7 @@
 
 #include "base/NativeApp.h"
 #include "base/display.h"
-#include "base/timeutil.h"
+#include "Common/TimeUtil.h"
 #include "thread/threadutil.h"
 #include "profiler/profiler.h"
 
@@ -190,7 +190,7 @@ bool UpdateScreenScale(int width, int height) {
 		dp_yres = new_dp_yres;
 		pixel_xres = width;
 		pixel_yres = height;
-		ILOG("pixel_res: %dx%d. Calling NativeResized()", pixel_xres, pixel_yres);
+		INFO_LOG(G3D, "pixel_res: %dx%d. Calling NativeResized()", pixel_xres, pixel_yres);
 		NativeResized();
 		return true;
 	}

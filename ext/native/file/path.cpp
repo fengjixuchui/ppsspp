@@ -2,7 +2,7 @@
 #include <cstring>
 #include <set>
 #include "base/stringutil.h"
-#include "base/timeutil.h"
+#include "Common/TimeUtil.h"
 #include "file/path.h"
 #include "net/http_client.h"
 #include "net/url.h"
@@ -57,7 +57,7 @@ bool LoadRemoteFileList(const std::string &url, bool *cancel, std::vector<FileIn
 		// Try to extract from an automatic webserver directory listing...
 		GetQuotedStrings(listing, items);
 	} else {
-		ELOG("Unsupported Content-Type: %s", contentType.c_str());
+		ERROR_LOG(IO, "Unsupported Content-Type: %s", contentType.c_str());
 		return false;
 	}
 

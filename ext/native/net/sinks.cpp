@@ -1,4 +1,6 @@
-#ifdef _WIN32
+#include "ppsspp_config.h"
+
+#if PPSSPP_PLATFORM(WINDOWS)
 
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -19,11 +21,13 @@
 #endif
 
 #include <algorithm>
+#include <cerrno>
 #include <cstdarg>
 
-#include "base/logging.h"
 #include "net/sinks.h"
 #include "file/fd_util.h"
+
+#include "Common/Log.h"
 
 #ifndef MSG_NOSIGNAL
 // Default value to 0x00 (do nothing) in systems where it's not supported
@@ -182,7 +186,15 @@ bool InputSink::Block() {
 
 void InputSink::AccountFill(int bytes) {
 	if (bytes < 0) {
-		ELOG("Error reading from socket");
+#if PPSSPP_PLATFORM(WINDOWS)
+		int err = WSAGetLastError();
+		if (err == WSAEWOULDBLOCK)
+			return;
+#else
+		if (errno == EWOULDBLOCK || errno == EAGAIN)
+			return;
+#endif
+		ERROR_LOG(IO, "Error reading from socket");
 		return;
 	}
 
@@ -303,10 +315,10 @@ bool OutputSink::Printf(const char *fmt, ...) {
 	// Okay, did we actually write?
 	if (result >= (int)avail) {
 		// This means the result string was too big for the buffer.
-		ELOG("Not enough space to format output.");
+		ERROR_LOG(IO, "Not enough space to format output.");
 		return false;
 	} else if (result < 0) {
-		ELOG("vsnprintf failed.");
+		ERROR_LOG(IO, "vsnprintf failed.");
 		return false;
 	}
 
@@ -373,7 +385,7 @@ void OutputSink::AccountPush(size_t bytes) {
 
 void OutputSink::AccountDrain(int bytes) {
 	if (bytes < 0) {
-		ELOG("Error writing to socket");
+		ERROR_LOG(IO, "Error writing to socket");
 		return;
 	}
 

@@ -1,5 +1,3 @@
-#include <cassert>
-
 #include "AndroidJavaGLContext.h"
 #include "base/display.h"
 #include "base/NativeApp.h"
@@ -13,7 +11,7 @@ AndroidJavaEGLGraphicsContext::AndroidJavaEGLGraphicsContext() {
 }
 
 bool AndroidJavaEGLGraphicsContext::InitFromRenderThread(ANativeWindow *wnd, int desiredBackbufferSizeX, int desiredBackbufferSizeY, int backbufferFormat, int androidVersion) {
-	ILOG("AndroidJavaEGLGraphicsContext::InitFromRenderThread");
+	INFO_LOG(G3D, "AndroidJavaEGLGraphicsContext::InitFromRenderThread");
 	CheckGLExtensions();
 	// OpenGL handles rotated rendering in the driver.
 	g_display_rotation = DisplayRotation::ROTATE_0;
@@ -26,7 +24,7 @@ bool AndroidJavaEGLGraphicsContext::InitFromRenderThread(ANativeWindow *wnd, int
 }
 
 void AndroidJavaEGLGraphicsContext::ShutdownFromRenderThread() {
-	ILOG("AndroidJavaEGLGraphicsContext::Shutdown");
+	INFO_LOG(G3D, "AndroidJavaEGLGraphicsContext::Shutdown");
 	renderManager_->WaitUntilQueueIdle();
 	renderManager_ = nullptr;  // owned by draw_.
 	delete draw_;

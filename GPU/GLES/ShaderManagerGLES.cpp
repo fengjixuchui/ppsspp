@@ -24,8 +24,6 @@
 #include <map>
 
 #include "math/dataconv.h"
-#include "base/logging.h"
-#include "base/timeutil.h"
 #include "gfx/gl_debug_log.h"
 #include "gfx_es2/gpu_features.h"
 #include "i18n/i18n.h"
@@ -35,7 +33,9 @@
 #include "thin3d/thin3d.h"
 #include "thin3d/GLRenderManager.h"
 
+#include "Common/Log.h"
 #include "Common/FileUtil.h"
+#include "Common/TimeUtil.h"
 #include "Core/Config.h"
 #include "Core/Host.h"
 #include "Core/Reporting.h"

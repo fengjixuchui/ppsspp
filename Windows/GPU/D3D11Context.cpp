@@ -3,10 +3,9 @@
 #include "Common/CommonWindows.h"
 #include <d3d11.h>
 #include <WinError.h>
-#include <cassert>
 
-#include "base/logging.h"
-#include "Base/display.h"
+#include "Common/Log.h"
+#include "base/display.h"
 #include "util/text/utf8.h"
 #include "i18n/i18n.h"
 

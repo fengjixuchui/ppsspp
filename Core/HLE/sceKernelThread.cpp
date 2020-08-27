@@ -21,8 +21,6 @@
 #include <mutex>
 #include <set>
 
-#include "base/logging.h"
-
 #include "Common/CommonTypes.h"
 #include "Common/LogManager.h"
 #include "Common/Serialize/Serializer.h"
@@ -1531,7 +1529,7 @@ void __KernelWaitCurThread(WaitType type, SceUID waitID, u32 waitValue, u32 time
 	}
 
 	PSPThread *thread = __GetCurrentThread();
-	assert(thread != nullptr);
+	_assert_(thread != nullptr);
 	thread->nt.waitID = waitID;
 	thread->nt.waitType = type;
 	__KernelChangeThreadState(thread, ThreadStatus(THREADSTATUS_WAIT | (thread->nt.status & THREADSTATUS_SUSPEND)));
@@ -2150,11 +2148,16 @@ void __KernelReturnFromThread()
 	// The stack will be deallocated when the thread is deleted.
 }
 
-void sceKernelExitThread(int exitStatus) {
+int sceKernelExitThread(int exitStatus) {
+	if (!__KernelIsDispatchEnabled() && sceKernelGetCompiledSdkVersion() > 0x0307FFFF)
+		return hleLogError(SCEKERNEL, SCE_KERNEL_ERROR_CAN_NOT_WAIT);
 	PSPThread *thread = __GetCurrentThread();
 	_dbg_assert_msg_(thread != NULL, "Exited from a NULL thread.");
 
 	INFO_LOG(SCEKERNEL, "sceKernelExitThread(%d)", exitStatus);
+	if (exitStatus < 0) {
+		exitStatus = SCE_KERNEL_ERROR_ILLEGAL_ARGUMENT;
+	}
 	__KernelStopThread(currentThread, exitStatus, "thread exited");
 
 	hleReSchedule("thread exited");
@@ -2163,6 +2166,7 @@ void sceKernelExitThread(int exitStatus) {
 	__KernelThreadTriggerEvent((thread->nt.attr & PSP_THREAD_ATTR_KERNEL) != 0, thread->GetUID(), THREADEVENT_EXIT);
 
 	// The stack will be deallocated when the thread is deleted.
+	return 0;
 }
 
 void _sceKernelExitThread(int exitStatus) {
@@ -2180,7 +2184,9 @@ void _sceKernelExitThread(int exitStatus) {
 	// The stack will be deallocated when the thread is deleted.
 }
 
-void sceKernelExitDeleteThread(int exitStatus) {
+int sceKernelExitDeleteThread(int exitStatus) {
+	if (!__KernelIsDispatchEnabled() && sceKernelGetCompiledSdkVersion() > 0x0307FFFF)
+		return hleLogError(SCEKERNEL, SCE_KERNEL_ERROR_CAN_NOT_WAIT);
 	PSPThread *thread = __GetCurrentThread();
 	if (thread)
 	{
@@ -2198,6 +2204,7 @@ void sceKernelExitDeleteThread(int exitStatus) {
 	}
 	else
 		ERROR_LOG_REPORT(SCEKERNEL, "sceKernelExitDeleteThread(%d) ERROR - could not find myself!", exitStatus);
+	return 0;
 }
 
 u32 sceKernelSuspendDispatchThread()

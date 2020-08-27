@@ -4,7 +4,6 @@
 
 #include "base/display.h"
 #include "base/NativeApp.h"
-#include "base/logging.h"
 #include "ui/ui.h"
 #include "ui/view.h"
 #include "ui/ui_context.h"
@@ -12,6 +11,7 @@
 #include "gfx_es2/draw_text.h"
 
 #include "Common/Log.h"
+#include "UI/TextureUtil.h"
 
 UIContext::UIContext() {
 	fontStyle_ = new UI::FontStyle();

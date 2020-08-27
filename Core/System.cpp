@@ -32,13 +32,13 @@
 #include <mutex>
 #include <condition_variable>
 
-#include "base/timeutil.h"
 #include "base/NativeApp.h"
 #include "math/math_util.h"
 #include "thread/threadutil.h"
 #include "util/text/utf8.h"
 
 #include "Common/FileUtil.h"
+#include "Common/TimeUtil.h"
 #include "Common/GraphicsContext.h"
 #include "Core/MemFault.h"
 #include "Core/HDRemaster.h"
@@ -108,9 +108,9 @@ static GPUBackend gpuBackend;
 static std::string gpuBackendDevice;
 
 // Ugly!
-static bool pspIsInited = false;
-static bool pspIsIniting = false;
-static bool pspIsQuitting = false;
+static volatile bool pspIsInited = false;
+static volatile bool pspIsIniting = false;
+static volatile bool pspIsQuitting = false;
 
 void ResetUIState() {
 	globalUIState = UISTATE_MENU;

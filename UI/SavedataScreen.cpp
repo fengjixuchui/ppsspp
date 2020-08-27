@@ -19,7 +19,7 @@
 #include <functional>
 
 #include "base/colorutil.h"
-#include "base/timeutil.h"
+#include "base/stringutil.h"
 #include "gfx_es2/draw_buffer.h"
 #include "i18n/i18n.h"
 #include "math/curves.h"
@@ -34,6 +34,7 @@
 #include "UI/PauseScreen.h"
 
 #include "Common/FileUtil.h"
+#include "Common/TimeUtil.h"
 #include "Core/Host.h"
 #include "Core/Config.h"
 #include "Core/Loaders.h"
@@ -247,7 +248,7 @@ void SavedataButton::Draw(UIContext &dc) {
 		if (HasFocus()) {
 			dc.Draw()->Flush();
 			dc.RebindTexture();
-			float pulse = sinf(time_now() * 7.0f) * 0.25 + 0.8;
+			float pulse = sin(time_now_d() * 7.0) * 0.25 + 0.8;
 			dc.Draw()->DrawImage4Grid(dc.theme->dropShadow4Grid, x - dropsize*1.5f, y - dropsize*1.5f, x + w + dropsize*1.5f, y + h + dropsize*1.5f, alphaMul(color, pulse), 1.0f);
 			dc.Draw()->Flush();
 		} else {

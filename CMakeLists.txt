@@ -240,6 +240,18 @@ endif()
 if(ARM64)
 	message("Generating for ARMv8, ${CMAKE_BUILD_TYPE}")
 endif()
+
+# It looks like the flags for the selected build type are written to the cache after each run, which causes some of the operations
+# below to keep expanding them with the same flags over and over on every run, leading to a rebuild of the majority of the files.
+# To work around this, remember the initial state of the variables from the first run and reset the variables to that.
+# TODO: Setting the attributes per target would probably be a better solution.
+foreach (LANGUAGE C CXX)
+	foreach (BUILD_TYPE DEBUG MINSIZEREL RELEASE RELWITHDEBINFO)
+		set(_CMAKE_${LANGUAGE}_FLAGS_${BUILD_TYPE}_INITIAL ${CMAKE_${LANGUAGE}_FLAGS_${BUILD_TYPE}} CACHE STRING "")
+		set(CMAKE_${LANGUAGE}_FLAGS_${BUILD_TYPE} ${_CMAKE_${LANGUAGE}_FLAGS_${BUILD_TYPE}_INITIAL})
+	endforeach()
+endforeach()
+
 if(NOT MSVC)
 	if(ANDROID)
 		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=gnu++11")
@@ -311,7 +323,9 @@ if(NOT MSVC)
 else()
 	# Disable warnings about MS-specific _s variants of libc functions
 	add_definitions(-D_CRT_SECURE_NO_WARNINGS)
-	add_definitions(-MP)
+	if (NOT CLANG)
+		add_compile_options(-MP)
+	endif()
 	set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -D_DEBUG")
 	set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -D_NDEBUG")
 endif()
@@ -438,6 +452,8 @@ add_library(Common STATIC
 	Common/KeyMap.cpp
 	Common/KeyMap.h
 	Common/Hashmaps.h
+	Common/Log.h
+	Common/Log.cpp
 	Common/LogManager.cpp
 	Common/LogManager.h
 	Common/MakeUnique.h
@@ -449,8 +465,6 @@ add_library(Common STATIC
 	Common/MemoryUtil.cpp
 	Common/MemoryUtil.h
 	Common/Misc.cpp
-	Common/MsgHandler.cpp
-	Common/MsgHandler.h
 	Common/OSVersion.cpp
 	Common/OSVersion.h
 	Common/StringUtils.cpp
@@ -460,6 +474,8 @@ add_library(Common STATIC
 	Common/ThreadSafeList.h
 	Common/Timer.cpp
 	Common/Timer.h
+	Common/TimeUtil.cpp
+	Common/TimeUtil.h
 )
 
 add_subdirectory(ext)
@@ -822,7 +838,6 @@ elseif(WIN32)
 	else()
 		link_directories(dx9sdk/Lib/x86)
 	endif()
-	set(nativeExtra ${nativeExtra} ext/native/base/logging.cpp)
 elseif(TARGET SDL2::SDL2)
 	set(TargetBin PPSSPPSDL)
 	# Require SDL
@@ -915,6 +930,7 @@ if(WIN32)
 	set(THIN3D_PLATFORMS ${THIN3D_PLATFORMS}
 		ext/native/thin3d/thin3d_d3d9.cpp
 		ext/native/thin3d/thin3d_d3d11.cpp
+		ext/native/thin3d/d3d9_d3dcompiler_loader.cpp
 		ext/native/thin3d/d3dx9_loader.cpp
 		ext/native/thin3d/d3dx9_loader.h
 		ext/native/thin3d/d3d11_loader.cpp
@@ -934,11 +950,8 @@ add_library(native STATIC
 	ext/native/base/display.cpp
 	ext/native/base/display.h
 	ext/native/base/linked_ptr.h
-	ext/native/base/logging.h
 	ext/native/base/stringutil.cpp
 	ext/native/base/stringutil.h
-	ext/native/base/timeutil.cpp
-	ext/native/base/timeutil.h
 	ext/native/data/base64.cpp
 	ext/native/data/base64.h
 	ext/native/data/compression.cpp
@@ -1848,8 +1861,6 @@ if(USE_MINIUPNPC)
 	if (NOT WIN32)
 	  add_definitions (-DMINIUPNPC_SET_SOCKET_TIMEOUT)
 	  add_definitions (-D_BSD_SOURCE -D_DEFAULT_SOURCE -D_POSIX_C_SOURCE=200112L)
-	else()
-	  add_definitions (-D_WIN32_WINNT=0x0501) # XP or higher for getnameinfo and friends
 	endif()
 	if (MACOSX)
 	  add_definitions (-D_DARWIN_C_SOURCE)
@@ -1897,25 +1908,31 @@ if(USE_MINIUPNPC)
 	#  find_library (RESOLV_LIBRARY NAMES resolv)
 	#  set (LDLIBS ${SOCKET_LIBRARY} ${NSL_LIBRARY} ${RESOLV_LIBRARY} ${LDLIBS})
 	endif()
-	if (MSVC)
-		# Suppress noise warnings
-		target_compile_definitions(miniupnpc _CRT_SECURE_NO_WARNINGS _WINSOCK_DEPRECATED_NO_WARNINGS)
-	endif()
 	if (UPNPC_BUILD_STATIC)
 		add_library(miniupnpc STATIC ${MINIUPNPC_SOURCES})
 		target_link_libraries(${CoreLibName} miniupnpc ${LDLIBS})
 		set(UPNPC_LIBRARY miniupnpc)
+		if (MSVC)
+			# Suppress noise warnings
+			target_compile_definitions(miniupnpc PRIVATE _CRT_SECURE_NO_WARNINGS _WINSOCK_DEPRECATED_NO_WARNINGS)
+		endif()
 	endif()
 endif()
 
 setup_target_project(${CoreLibName} Core)
 
-# Generate git-version.cpp at build time.
-add_custom_target(GitVersion ALL
-	DEPENDS something_that_never_exists)
+# Generate git-version at build time.
+add_custom_target(GitVersion DEPENDS something_that_never_exists)
+
+set(WIN_VERSION_CMD "")
+if (WIN32)
+	set(WIN_VERSION_CMD COMMAND ${CMAKE_SOURCE_DIR}/Windows/git-version-gen.cmd PPSSPPWindows)
+endif()
+
 add_custom_command(OUTPUT something_that_never_exists
 	COMMAND ${CMAKE_COMMAND} -DSOURCE_DIR=${CMAKE_CURRENT_SOURCE_DIR}
-		-P ${CMAKE_CURRENT_SOURCE_DIR}/git-version.cmake)
+		-P ${CMAKE_CURRENT_SOURCE_DIR}/git-version.cmake
+	${WIN_VERSION_CMD})
 
 set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/git-version.cpp
 	PROPERTIES GENERATED TRUE

@@ -15,10 +15,10 @@
 // Official git repository and contact information can be found at
 // https://github.com/hrydgard/ppsspp and http://www.ppsspp.org/.
 
-#include "base/logging.h"
-
 #include "ext/native/thin3d/thin3d.h"
 #include "ext/native/thin3d/VulkanRenderManager.h"
+
+#include "Common/Log.h"
 #include "Core/Reporting.h"
 #include "GPU/Common/StencilCommon.h"
 #include "GPU/Vulkan/FramebufferManagerVulkan.h"
@@ -140,7 +140,9 @@ bool FramebufferManagerVulkan::NotifyStencilUpload(u32 addr, int size, StencilUp
 		values = 256;
 		break;
 	case GE_FORMAT_INVALID:
-		// Impossible.
+	case GE_FORMAT_DEPTH16:
+		// Inconceivable.
+		_assert_(false);
 		break;
 	}
 

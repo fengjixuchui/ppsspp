@@ -21,7 +21,6 @@
 #endif
 
 #include <algorithm>
-#include <cassert>
 #include <cstdlib>
 #include <cstring>
 #include <cmath>
@@ -31,7 +30,6 @@
 #include "Core/Config.h"
 #include "Common/Common.h"
 #include "Common/Log.h"
-#include "Common/MsgHandler.h"
 #include "Common/CommonFuncs.h"
 #include "Common/ThreadPools.h"
 #include "Common/CPUDetect.h"
@@ -47,7 +45,7 @@
 //#define DEBUG_SCALER_OUTPUT
 
 #ifdef SCALING_MEASURE_TIME
-#include "base/timeutil.h"
+#include "Common/TimeUtil.h"
 #endif
 
 /////////////////////////////////////// Helper Functions (mostly math for parallelization)

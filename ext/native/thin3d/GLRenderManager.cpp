@@ -1,14 +1,13 @@
-#include <cassert>
-
 #include "GLRenderManager.h"
 #include "gfx_es2/gpu_features.h"
 #include "thin3d/thin3d.h"
 #include "thread/threadutil.h"
-#include "base/logging.h"
+
+#include "Common/Log.h"
 #include "Common/MemoryUtil.h"
 
 #if 0 // def _DEBUG
-#define VLOG ILOG
+#define VLOG(...) INFO_LOG(G3D, __VA_ARGS__)
 #else
 #define VLOG(...)
 #endif
@@ -19,6 +18,24 @@ static bool OnRenderThread() {
 	return std::this_thread::get_id() == renderThreadId;
 }
 #endif
+
+void GLDeleter::Take(GLDeleter &other) {
+	_assert_msg_(IsEmpty(), "Deleter already has stuff");
+	shaders = std::move(other.shaders);
+	programs = std::move(other.programs);
+	buffers = std::move(other.buffers);
+	textures = std::move(other.textures);
+	inputLayouts = std::move(other.inputLayouts);
+	framebuffers = std::move(other.framebuffers);
+	pushBuffers = std::move(other.pushBuffers);
+	other.shaders.clear();
+	other.programs.clear();
+	other.buffers.clear();
+	other.textures.clear();
+	other.inputLayouts.clear();
+	other.framebuffers.clear();
+	other.pushBuffers.clear();
+}
 
 // Runs on the GPU thread.
 void GLDeleter::Perform(GLRenderManager *renderManager, bool skipGLCalls) {
@@ -95,7 +112,7 @@ void GLRenderManager::ThreadStart(Draw::DrawContext *draw) {
 	renderThreadId = std::this_thread::get_id();
 
 	if (newInflightFrames_ != -1) {
-		ILOG("Updating inflight frames to %d", newInflightFrames_);
+		INFO_LOG(G3D, "Updating inflight frames to %d", newInflightFrames_);
 		inflightFrames_ = newInflightFrames_;
 		newInflightFrames_ = -1;
 	}
@@ -135,7 +152,7 @@ void GLRenderManager::ThreadStart(Draw::DrawContext *draw) {
 }
 
 void GLRenderManager::ThreadEnd() {
-	ILOG("ThreadEnd");
+	INFO_LOG(G3D, "ThreadEnd");
 
 	// Wait for any shutdown to complete in StopThread().
 	std::unique_lock<std::mutex> lock(mutex_);
@@ -194,11 +211,11 @@ bool GLRenderManager::ThreadFrame() {
 
 			// Only increment next time if we're done.
 			nextFrame = frameData.type == GLRRunType::END;
-			assert(frameData.type == GLRRunType::END || frameData.type == GLRRunType::SYNC);
+			_assert_(frameData.type == GLRRunType::END || frameData.type == GLRRunType::SYNC);
 		}
 		VLOG("PULL: Running frame %d", threadFrame_);
 		if (firstFrame) {
-			ILOG("Running first frame (%d)", threadFrame_);
+			INFO_LOG(G3D, "Running first frame (%d)", threadFrame_);
 			firstFrame = false;
 		}
 		Run(threadFrame_);
@@ -227,7 +244,7 @@ void GLRenderManager::StopThread() {
 		// Wait until we've definitely stopped the threadframe.
 		std::unique_lock<std::mutex> lock(mutex_);
 
-		ILOG("GL submission thread paused. Frame=%d", curFrame_);
+		INFO_LOG(G3D, "GL submission thread paused. Frame=%d", curFrame_);
 
 		// Eat whatever has been queued up for this frame if anything.
 		Wipe();
@@ -255,12 +272,12 @@ void GLRenderManager::StopThread() {
 			}
 		}
 	} else {
-		ILOG("GL submission thread was already paused.");
+		INFO_LOG(G3D, "GL submission thread was already paused.");
 	}
 }
 
 void GLRenderManager::BindFramebufferAsRenderTarget(GLRFramebuffer *fb, GLRRenderPassAction color, GLRRenderPassAction depth, GLRRenderPassAction stencil, uint32_t clearColor, float clearDepth, uint8_t clearStencil, const char *tag) {
-	assert(insideFrame_);
+	_assert_(insideFrame_);
 #ifdef _DEBUG
 	curProgram_ = nullptr;
 #endif
@@ -435,7 +452,7 @@ void GLRenderManager::BeginFrame() {
 	// Must be after the fence - this performs deletes.
 	VLOG("PUSH: BeginFrame %d", curFrame);
 	if (!run_) {
-		WLOG("BeginFrame while !run_!");
+		WARN_LOG(G3D, "BeginFrame while !run_!");
 	}
 
 	// vulkan_->BeginFrame();
@@ -490,7 +507,7 @@ void GLRenderManager::Submit(int frame, bool triggerFence) {
 		VLOG("PULL: Frame %d.readyForFence = true", frame);
 
 		std::unique_lock<std::mutex> lock(frameData.push_mutex);
-		assert(frameData.readyForSubmit);
+		_assert_(frameData.readyForSubmit);
 		frameData.readyForFence = true;
 		frameData.readyForSubmit = false;
 		frameData.push_condVar.notify_all();
@@ -558,7 +575,7 @@ void GLRenderManager::Run(int frame) {
 		break;
 
 	default:
-		assert(false);
+		_assert_(false);
 	}
 
 	VLOG("PULL: Finished running frame %d", frame);
@@ -578,7 +595,7 @@ void GLRenderManager::FlushSync() {
 		frameData.steps = std::move(steps_);
 		steps_.clear();
 		frameData.readyForRun = true;
-		assert(frameData.readyForFence == false);
+		_assert_(frameData.readyForFence == false);
 		frameData.type = GLRRunType::SYNC;
 		frameData.pull_condVar.notify_all();
 	}
@@ -647,7 +664,7 @@ GLPushBuffer::~GLPushBuffer() {
 }
 
 void GLPushBuffer::Map() {
-	assert(!writePtr_);
+	_assert_(!writePtr_);
 	auto &info = buffers_[buf_];
 	writePtr_ = info.deviceMemory ? info.deviceMemory : info.localMemory;
 	info.flushOffset = 0;
@@ -657,11 +674,11 @@ void GLPushBuffer::Map() {
 		offset_++;
 		info.flushOffset++;
 	}
-	assert(writePtr_);
+	_assert_(writePtr_);
 }
 
 void GLPushBuffer::Unmap() {
-	assert(writePtr_);
+	_assert_(writePtr_);
 	if (!buffers_[buf_].deviceMemory) {
 		// Here we simply upload the data to the last buffer.
 		// Might be worth trying with size_ instead of offset_, so the driver can replace
@@ -681,7 +698,7 @@ void GLPushBuffer::Flush() {
 	if (!buffers_[buf_].deviceMemory && writePtr_) {
 		auto &info = buffers_[buf_];
 		if (info.flushOffset != 0) {
-			assert(info.buffer->buffer_);
+			_assert_(info.buffer->buffer_);
 			glBindBuffer(target_, info.buffer->buffer_);
 			glBufferSubData(target_, 0, info.flushOffset, info.localMemory);
 		}
@@ -747,7 +764,7 @@ void GLPushBuffer::NextBuffer(size_t minSize) {
 		}
 
 		bool res = AddBuffer();
-		assert(res);
+		_assert_(res);
 		if (!res) {
 			// Let's try not to crash at least?
 			buf_ = 0;
@@ -838,7 +855,7 @@ void GLPushBuffer::UnmapDevice() {
 }
 
 void *GLRBuffer::Map(GLBufferStrategy strategy) {
-	assert(buffer_ != 0);
+	_assert_(buffer_ != 0);
 
 	GLbitfield access = GL_MAP_WRITE_BIT;
 	if ((strategy & GLBufferStrategy::MASK_FLUSH) != 0) {

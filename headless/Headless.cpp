@@ -9,10 +9,13 @@
 #include <jni.h>
 #endif
 
+#include "base/NativeApp.h"
 #include "file/zip_read.h"
 #include "profiler/profiler.h"
+
 #include "Common/FileUtil.h"
 #include "Common/GraphicsContext.h"
+#include "Common/TimeUtil.h"
 #include "Core/Config.h"
 #include "Core/ConfigValues.h"
 #include "Core/Core.h"
@@ -24,8 +27,6 @@
 #include "GPU/Common/FramebufferManagerCommon.h"
 #include "Log.h"
 #include "LogManager.h"
-#include "base/NativeApp.h"
-#include "base/timeutil.h"
 
 #include "Compare.h"
 #include "StubHost.h"
@@ -174,7 +175,7 @@ bool RunAutoTest(HeadlessHost *headlessHost, CoreParameter &coreParameter, bool 
 	// TODO: We must have some kind of stack overflow or we're not following the ABI right.
 	// This gets trashed if it's not static.
 	static double deadline;
-	deadline = time_now() + timeout;
+	deadline = time_now_d() + timeout;
 
 	Core_UpdateDebugStats(g_Config.bShowDebugStats || g_Config.bLogFrameDrops);
 
@@ -335,7 +336,7 @@ int main(int argc, const char* argv[])
 	GraphicsContext *graphicsContext = nullptr;
 	bool glWorking = host->InitGraphics(&error_string, &graphicsContext);
 
-	LogManager::Init();
+	LogManager::Init(&g_Config.bEnableLogging);
 	LogManager *logman = LogManager::GetInstance();
 
 	PrintfLogger *printfLogger = new PrintfLogger();

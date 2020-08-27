@@ -12,7 +12,6 @@
 
 #include "Common/ColorConv.h"
 
-#include <cassert>
 #include <cfloat>
 #include <D3DCommon.h>
 #include <d3d11.h>
@@ -77,6 +76,8 @@ public:
 	uintptr_t GetFramebufferAPITexture(Framebuffer *fbo, int channelBit, int attachment) override;
 
 	void GetFramebufferDimensions(Framebuffer *fbo, int *w, int *h) override;
+
+	void InvalidateCachedState() override;
 
 	void BindTextures(int start, int count, Texture **textures) override;
 	void BindSamplerStates(int start, int count, SamplerState **states) override;
@@ -288,7 +289,7 @@ D3D11DrawContext::D3D11DrawContext(ID3D11Device *device, ID3D11DeviceContext *de
 	packDesc.SampleDesc.Count = 1;
 	packDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
 	hr = device_->CreateTexture2D(&packDesc, nullptr, &packTexture_);
-	assert(SUCCEEDED(hr));
+	_assert_(SUCCEEDED(hr));
 }
 
 D3D11DrawContext::~D3D11DrawContext() {
@@ -870,7 +871,7 @@ public:
 
 ShaderModule *D3D11DrawContext::CreateShaderModule(ShaderStage stage, ShaderLanguage language, const uint8_t *data, size_t dataSize, const std::string &tag) {
 	if (language != ShaderLanguage::HLSL_D3D11) {
-		ELOG("Unsupported shader language");
+		ERROR_LOG(G3D, "Unsupported shader language");
 		return nullptr;
 	}
 
@@ -915,7 +916,7 @@ ShaderModule *D3D11DrawContext::CreateShaderModule(ShaderStage stage, ShaderLang
 	}
 	if (errorMsgs) {
 		errors = std::string((const char *)errorMsgs->GetBufferPointer(), errorMsgs->GetBufferSize());
-		ELOG("Failed compiling:\n%s\n%s", data, errors.c_str());
+		ERROR_LOG(G3D, "Failed compiling:\n%s\n%s", data, errors.c_str());
 		errorMsgs->Release();
 	}
 
@@ -940,7 +941,7 @@ ShaderModule *D3D11DrawContext::CreateShaderModule(ShaderStage stage, ShaderLang
 		result = device_->CreateGeometryShader(data, dataSize, nullptr, &module->gs);
 		break;
 	default:
-		ELOG("Unsupported shader stage");
+		ERROR_LOG(G3D, "Unsupported shader stage");
 		result = S_FALSE;
 		break;
 	}
@@ -1020,19 +1021,20 @@ void D3D11DrawContext::UpdateDynamicUniformBuffer(const void *ub, size_t size) {
 	context_->Unmap(curPipeline_->dynamicUniforms, 0);
 }
 
-void D3D11DrawContext::BindPipeline(Pipeline *pipeline) {
-	if (pipeline == nullptr) {
-		// This is a signal to forget all our caching.
-		curBlend_ = nullptr;
-		curDepth_ = nullptr;
-		curRaster_ = nullptr;
-		curPS_ = nullptr;
-		curVS_ = nullptr;
-		curGS_ = nullptr;
-		curInputLayout_ = nullptr;
-		curTopology_ = D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED;
-	}
+void D3D11DrawContext::InvalidateCachedState() {
+	// This is a signal to forget all our state caching.
+	curBlend_ = nullptr;
+	curDepth_ = nullptr;
+	curRaster_ = nullptr;
+	curPS_ = nullptr;
+	curVS_ = nullptr;
+	curGS_ = nullptr;
+	curInputLayout_ = nullptr;
+	curTopology_ = D3D11_PRIMITIVE_TOPOLOGY_UNDEFINED;
+	curPipeline_ = nullptr;
+}
 
+void D3D11DrawContext::BindPipeline(Pipeline *pipeline) {
 	D3D11Pipeline *dPipeline = (D3D11Pipeline *)pipeline;
 	if (curPipeline_ == dPipeline)
 		return;
@@ -1420,7 +1422,7 @@ bool D3D11DrawContext::CopyFramebufferToMemorySync(Framebuffer *src, int channel
 	D3D11Framebuffer *fb = (D3D11Framebuffer *)src;
 
 	if (fb) {
-		assert(fb->colorFormat == DXGI_FORMAT_R8G8B8A8_UNORM);
+		_assert_(fb->colorFormat == DXGI_FORMAT_R8G8B8A8_UNORM);
 
 		// TODO: Figure out where the badness really comes from.
 		if (bx + bw > fb->width) {
@@ -1461,7 +1463,7 @@ bool D3D11DrawContext::CopyFramebufferToMemorySync(Framebuffer *src, int channel
 			packDesc.Format = fb->depthStencilFormat;
 			break;
 		default:
-			assert(false);
+			_assert_(false);
 		}
 		device_->CreateTexture2D(&packDesc, nullptr, &packTex);
 	} else {
@@ -1484,11 +1486,11 @@ bool D3D11DrawContext::CopyFramebufferToMemorySync(Framebuffer *src, int channel
 	case FB_DEPTH_BIT:
 	case FB_STENCIL_BIT:
 		// For depth/stencil buffers, we can't reliably copy subrectangles, so just copy the whole resource.
-		assert(fb);  // Can't copy depth/stencil from backbuffer. Shouldn't happen thanks to checks above.
+		_assert_(fb);  // Can't copy depth/stencil from backbuffer. Shouldn't happen thanks to checks above.
 		context_->CopyResource(packTex, fb->depthStencilTex);
 		break;
 	default:
-		assert(false);
+		_assert_(false);
 		break;
 	}
 

@@ -1,8 +1,7 @@
 #include <cstdio>
 
 #include "base/basictypes.h"
-#include "base/logging.h"
-#include "base/timeutil.h"
+#include "Common/TimeUtil.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -15,8 +14,9 @@
 #include <switch.h>
 #endif // HAVE_LIBNX
 
+#include "Common/Log.h"
+
 static double curtime = 0;
-static float curtime_f = 0;
 
 #ifdef _WIN32
 
@@ -57,19 +57,6 @@ double real_time_now() {
 
 void time_update() {
 	curtime = real_time_now();
-	curtime_f = (float)curtime;
-
-	//printf("curtime: %f %f\n", curtime, curtime_f);
-	// also smooth time.
-	//curtime+=float((double) (time-_starttime) / (double) _frequency);
-	//curtime*=0.5f;
-	//curtime+=1.0f/60.0f;
-	//lastTime=curtime;
-	//curtime_f = (float)curtime;
-}
-
-float time_now() {
-	return curtime_f;
 }
 
 double time_now_d() {
@@ -107,7 +94,7 @@ bool LoggingDeadline::End() {
 	if (time_now_d() > endTime_) {
 		double late = (time_now_d() - endTime_);
 		double totalTime = late + totalTime_;
-		ELOG("===== %0.2fms DEADLINE PASSED FOR %s at %0.2fms - %0.2fms late =====", totalTime_ * 1000.0, name_, 1000.0 * totalTime, 1000.0 * late);
+		ERROR_LOG(SYSTEM, "===== %0.2fms DEADLINE PASSED FOR %s at %0.2fms - %0.2fms late =====", totalTime_ * 1000.0, name_, 1000.0 * totalTime, 1000.0 * late);
 		return false;
 	}
 	return true;

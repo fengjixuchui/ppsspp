@@ -43,14 +43,16 @@
 #include <fcntl.h>
 #include <errno.h>
 //#include <sqlite3.h>
+
+#include "i18n/i18n.h"
 #include "thread/threadutil.h"
+
 #include "Common/FileUtil.h"
+#include "Common/TimeUtil.h"
 #include "Core/Util/PortManager.h"
 #include "Core/Core.h"
 #include "Core/Host.h"
 #include "Core/HLE/proAdhocServer.h"
-#include "i18n/i18n.h"
-
 
 // User Count
 uint32_t _db_user_count = 0;
@@ -1826,7 +1828,7 @@ int create_listen_socket(uint16_t port)
 		//Should only bind to specific IP for the 2nd or more instance of PPSSPP to prevent communication interference issue when sharing the same port. Doesn't work well when PPSSPP_ID reseted everytime emulation restarted.
 		/*
 		if (PPSSPP_ID > 1) {
-			local.sin_addr = ((sockaddr_in *)&LocalhostIP)->sin_addr;
+			local.sin_addr = g_localhostIP.in.sin_addr;
 		}
 		*/
 

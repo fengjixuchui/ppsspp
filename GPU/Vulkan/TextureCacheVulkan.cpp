@@ -111,7 +111,7 @@ uint readColoru(uvec2 p) {
 			uint a = ((data >> 15) & 0x01) == 0 ? 0x00 : 0xFF;
 			return (a << 24) | (b << 16) | (g << 8) | r;
 		} else if (params.fmt == 4) {
-			uint r = (data & 0x0F) | ((data << 4) & 0x0F);
+			uint r = (data & 0x0F) | ((data << 4) & 0xF0);
 			uint g = (data & 0xF0) | ((data >> 4) & 0x0F);
 			uint b = ((data >> 8) & 0x0F) | ((data >> 4) & 0xF0);
 			uint a = ((data >> 12) & 0x0F) | ((data >> 8) & 0xF0);
@@ -188,7 +188,7 @@ uint readColoru(uvec2 p) {
 			uint a = ((data >> 15) & 0x01) == 0 ? 0x00 : 0xFF;
 			return (a << 24) | (b << 16) | (g << 8) | r;
 		} else if (params.fmt == 4) {
-			uint r = (data & 0x0F) | ((data << 4) & 0x0F);
+			uint r = (data & 0x0F) | ((data << 4) & 0xF0);
 			uint g = (data & 0xF0) | ((data >> 4) & 0x0F);
 			uint b = ((data >> 8) & 0x0F) | ((data >> 4) & 0xF0);
 			uint a = ((data >> 12) & 0x0F) | ((data >> 8) & 0xF0);
@@ -254,7 +254,7 @@ VkSampler SamplerCache::GetOrCreateSampler(const SamplerCacheKey &key) {
 	samp.mipLodBias = (float)(int32_t)key.lodBias * (1.0f / 256.0f);
 
 	VkResult res = vkCreateSampler(vulkan_->GetDevice(), &samp, nullptr, &sampler);
-	assert(res == VK_SUCCESS);
+	_assert_(res == VK_SUCCESS);
 	cache_.Insert(key, sampler);
 	return sampler;
 }
@@ -351,7 +351,7 @@ void TextureCacheVulkan::DeviceRestore(VulkanContext *vulkan, Draw::DrawContext 
 	vulkan_ = vulkan;
 	draw_ = draw;
 
-	assert(!allocator_);
+	_assert_(!allocator_);
 
 	allocator_ = new VulkanDeviceAllocator(vulkan_, TEXCACHE_MIN_SLAB_SIZE, TEXCACHE_MAX_SLAB_SIZE);
 	samplerCache_.DeviceRestore(vulkan);
@@ -1124,7 +1124,7 @@ void TextureCacheVulkan::LoadTextureLevel(TexCacheEntry &entry, uint8_t *writePt
 			dstFmt = (VkFormat)fmt;
 
 			// We always end up at 8888.  Other parts assume this.
-			assert(dstFmt == VULKAN_8888_FORMAT);
+			_assert_(dstFmt == VULKAN_8888_FORMAT);
 			bpp = sizeof(u32);
 			decPitch = w * bpp;
 

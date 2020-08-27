@@ -4,7 +4,6 @@
 #include <algorithm>
 #include <map>
 
-#include "base/logging.h"
 #include "math/dataconv.h"
 #include "math/math_util.h"
 #include "math/lin/matrix4x4.h"
@@ -230,7 +229,7 @@ GLuint ShaderStageToOpenGL(ShaderStage stage) {
 class OpenGLShaderModule : public ShaderModule {
 public:
 	OpenGLShaderModule(GLRenderManager *render, ShaderStage stage, const std::string &tag) : render_(render), stage_(stage), tag_(tag) {
-		DLOG("Shader module created (%p)", this);
+		DEBUG_LOG(G3D, "Shader module created (%p)", this);
 		glstage_ = ShaderStageToOpenGL(stage);
 	}
 
@@ -482,16 +481,19 @@ public:
 		return renderManager_.GetCurrentStepId();
 	}
 
+	void InvalidateCachedState() override;
+
 private:
 	void ApplySamplers();
 
 	GLRenderManager renderManager_;
 
-	OpenGLSamplerState *boundSamplers_[MAX_TEXTURE_SLOTS]{};
-	OpenGLTexture *boundTextures_[MAX_TEXTURE_SLOTS]{};
 	DeviceCaps caps_{};
 
 	// Bound state
+	OpenGLSamplerState *boundSamplers_[MAX_TEXTURE_SLOTS]{};
+	OpenGLTexture *boundTextures_[MAX_TEXTURE_SLOTS]{};
+
 	OpenGLPipeline *curPipeline_ = nullptr;
 	OpenGLBuffer *curVBuffers_[4]{};
 	int curVBufferOffsets_[4]{};
@@ -615,6 +617,10 @@ void OpenGLContext::EndFrame() {
 	renderManager_.EndPushBuffer(frameData.push);  // upload the data!
 	renderManager_.Finish();
 
+	InvalidateCachedState();
+}
+
+void OpenGLContext::InvalidateCachedState() {
 	// Unbind stuff.
 	for (auto &texture : boundTextures_) {
 		texture = nullptr;
@@ -644,7 +650,7 @@ GLuint TypeToTarget(TextureType type) {
 #endif
 	case TextureType::ARRAY2D: return GL_TEXTURE_2D_ARRAY;
 	default:
-		ELOG("Bad texture type %d", (int)type);
+		ERROR_LOG(G3D,  "Bad texture type %d", (int)type);
 		return GL_NONE;
 	}
 }
@@ -664,6 +670,9 @@ public:
 	void Bind(int stage) {
 		render_->BindTexture(stage, tex_);
 	}
+	int NumMipmaps() const {
+		return mipLevels_;
+	}
 
 private:
 	void SetImageData(int x, int y, int z, int width, int height, int depth, int level, int stride, const uint8_t *data, TextureCallback callback);
@@ -680,7 +689,6 @@ private:
 
 OpenGLTexture::OpenGLTexture(GLRenderManager *render, const TextureDesc &desc) : render_(render) {
 	generatedMips_ = false;
-	canWrap_ = true;
 	width_ = desc.width;
 	height_ = desc.height;
 	depth_ = desc.depth;
@@ -791,30 +799,30 @@ static void LogReadPixelsError(GLenum error) {
 	case GL_NO_ERROR:
 		break;
 	case GL_INVALID_ENUM:
-		ERROR_LOG(FRAMEBUF, "glReadPixels: GL_INVALID_ENUM");
+		ERROR_LOG(G3D, "glReadPixels: GL_INVALID_ENUM");
 		break;
 	case GL_INVALID_VALUE:
-		ERROR_LOG(FRAMEBUF, "glReadPixels: GL_INVALID_VALUE");
+		ERROR_LOG(G3D, "glReadPixels: GL_INVALID_VALUE");
 		break;
 	case GL_INVALID_OPERATION:
-		ERROR_LOG(FRAMEBUF, "glReadPixels: GL_INVALID_OPERATION");
+		ERROR_LOG(G3D, "glReadPixels: GL_INVALID_OPERATION");
 		break;
 	case GL_INVALID_FRAMEBUFFER_OPERATION:
-		ERROR_LOG(FRAMEBUF, "glReadPixels: GL_INVALID_FRAMEBUFFER_OPERATION");
+		ERROR_LOG(G3D, "glReadPixels: GL_INVALID_FRAMEBUFFER_OPERATION");
 		break;
 	case GL_OUT_OF_MEMORY:
-		ERROR_LOG(FRAMEBUF, "glReadPixels: GL_OUT_OF_MEMORY");
+		ERROR_LOG(G3D, "glReadPixels: GL_OUT_OF_MEMORY");
 		break;
 #ifndef USING_GLES2
 	case GL_STACK_UNDERFLOW:
-		ERROR_LOG(FRAMEBUF, "glReadPixels: GL_STACK_UNDERFLOW");
+		ERROR_LOG(G3D, "glReadPixels: GL_STACK_UNDERFLOW");
 		break;
 	case GL_STACK_OVERFLOW:
-		ERROR_LOG(FRAMEBUF, "glReadPixels: GL_STACK_OVERFLOW");
+		ERROR_LOG(G3D, "glReadPixels: GL_STACK_OVERFLOW");
 		break;
 #endif
 	default:
-		ERROR_LOG(FRAMEBUF, "glReadPixels: %08x", error);
+		ERROR_LOG(G3D, "glReadPixels: %08x", error);
 		break;
 	}
 }
@@ -957,15 +965,15 @@ void OpenGLContext::UpdateBuffer(Buffer *buffer, const uint8_t *data, size_t off
 
 Pipeline *OpenGLContext::CreateGraphicsPipeline(const PipelineDesc &desc) {
 	if (!desc.shaders.size()) {
-		ELOG("Pipeline requires at least one shader");
+		ERROR_LOG(G3D,  "Pipeline requires at least one shader");
 		return nullptr;
 	}
 	if ((int)desc.prim >= (int)Primitive::PRIMITIVE_TYPE_COUNT) {
-		ELOG("Invalid primitive type");
+		ERROR_LOG(G3D,  "Invalid primitive type");
 		return nullptr;
 	}
 	if (!desc.depthStencil || !desc.blend || !desc.raster || !desc.inputLayout) {
-		ELOG("Incomplete prim desciption");
+		ERROR_LOG(G3D,  "Incomplete prim desciption");
 		return nullptr;
 	}
 
@@ -975,7 +983,7 @@ Pipeline *OpenGLContext::CreateGraphicsPipeline(const PipelineDesc &desc) {
 			iter->AddRef();
 			pipeline->shaders.push_back(static_cast<OpenGLShaderModule *>(iter));
 		} else {
-			ELOG("ERROR: Tried to create graphics pipeline with a null shader module");
+			ERROR_LOG(G3D,  "ERROR: Tried to create graphics pipeline with a null shader module");
 			delete pipeline;
 			return nullptr;
 		}
@@ -997,7 +1005,7 @@ Pipeline *OpenGLContext::CreateGraphicsPipeline(const PipelineDesc &desc) {
 		pipeline->inputLayout->AddRef();
 		return pipeline;
 	} else {
-		ELOG("Failed to create pipeline - shaders failed to link");
+		ERROR_LOG(G3D,  "Failed to create pipeline - shaders failed to link");
 		delete pipeline;
 		return nullptr;
 	}
@@ -1023,7 +1031,9 @@ void OpenGLContext::ApplySamplers() {
 	for (int i = 0; i < MAX_TEXTURE_SLOTS; i++) {
 		const OpenGLSamplerState *samp = boundSamplers_[i];
 		const OpenGLTexture *tex = boundTextures_[i];
-		if (!samp || !tex) {
+		if (tex) {
+			_assert_(samp);
+		} else {
 			continue;
 		}
 		GLenum wrapS;
@@ -1038,6 +1048,7 @@ void OpenGLContext::ApplySamplers() {
 		GLenum magFilt = samp->magFilt;
 		GLenum minFilt = tex->HasMips() ? samp->mipMinFilt : samp->minFilt;
 		renderManager_.SetTextureSampler(i, wrapS, wrapT, magFilt, minFilt, 0.0f);
+		renderManager_.SetTextureLod(i, 0.0, (float)(tex->NumMipmaps() - 1), 0.0);
 	}
 }
 
@@ -1059,11 +1070,11 @@ bool OpenGLPipeline::LinkShaders() {
 			if (shader) {
 				linkShaders.push_back(shader);
 			} else {
-				ELOG("LinkShaders: Bad shader module");
+				ERROR_LOG(G3D,  "LinkShaders: Bad shader module");
 				return false;
 			}
 		} else {
-			ELOG("LinkShaders: Bad shader in module");
+			ERROR_LOG(G3D,  "LinkShaders: Bad shader in module");
 			return false;
 		}
 	}
@@ -1094,12 +1105,13 @@ bool OpenGLPipeline::LinkShaders() {
 
 void OpenGLContext::BindPipeline(Pipeline *pipeline) {
 	curPipeline_ = (OpenGLPipeline *)pipeline;
-	if (curPipeline_) {
-		curPipeline_->blend->Apply(&renderManager_);
-		curPipeline_->depthStencil->Apply(&renderManager_, stencilRef_);
-		curPipeline_->raster->Apply(&renderManager_);
-		renderManager_.BindProgram(curPipeline_->program_);
+	if (!curPipeline_) {
+		return;
 	}
+	curPipeline_->blend->Apply(&renderManager_);
+	curPipeline_->depthStencil->Apply(&renderManager_, stencilRef_);
+	curPipeline_->raster->Apply(&renderManager_);
+	renderManager_.BindProgram(curPipeline_->program_);
 }
 
 void OpenGLContext::UpdateDynamicUniformBuffer(const void *ub, size_t size) {
@@ -1213,7 +1225,7 @@ void OpenGLInputLayout::Compile(const InputLayoutDesc &desc) {
 			break;
 		case DataFormat::UNDEFINED:
 		default:
-			ELOG("Thin3DGLVertexFormat: Invalid or unknown component type applied.");
+			ERROR_LOG(G3D,  "Thin3DGLVertexFormat: Invalid or unknown component type applied.");
 			break;
 		}
 

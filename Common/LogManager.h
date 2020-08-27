@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "file/ini_file.h"
+#include "Common/CommonFuncs.h"
 #include "Common/Log.h"
 
 #define	MAX_MESSAGES 8000   
@@ -105,7 +106,7 @@ class ConsoleListener;
 
 class LogManager {
 private:
-	LogManager();
+	LogManager(bool *enabledSetting);
 	~LogManager();
 
 	// Prevent copies.
@@ -122,6 +123,7 @@ private:
 	std::mutex log_lock_;
 	std::mutex listeners_lock_;
 	std::vector<LogListener*> listeners_;
+
 public:
 	void AddListener(LogListener *listener);
 	void RemoveListener(LogListener *listener);
@@ -175,11 +177,11 @@ public:
 		logManager_ = logManager;
 	}
 
-	static void Init();
+	static void Init(bool *enabledSetting);
 	static void Shutdown();
 
 	void ChangeFileLog(const char *filename);
 
-	void SaveConfig(IniFile::Section *section);
-	void LoadConfig(IniFile::Section *section, bool debugDefaults);
+	void SaveConfig(Section *section);
+	void LoadConfig(Section *section, bool debugDefaults);
 };

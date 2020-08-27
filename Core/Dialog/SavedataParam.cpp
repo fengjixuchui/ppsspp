@@ -16,7 +16,7 @@
 // https://github.com/hrydgard/ppsspp and http://www.ppsspp.org/.
 
 #include "i18n/i18n.h"
-#include "base/logging.h"
+#include "Common/Log.h"
 #include "Common/Serialize/Serializer.h"
 #include "Common/Serialize/SerializeFuncs.h"
 #include "Common/StringUtils.h"
@@ -213,7 +213,7 @@ void SavedataParam::Init()
 	if (handle >= 0) {
 		pspFileSystem.CloseFile(handle);
 	} else {
-		ELOG("Failed to create .nomedia file");
+		ERROR_LOG(IO, "Failed to create .nomedia file");
 	}
 #endif
 }
@@ -263,7 +263,11 @@ std::string SavedataParam::GetSaveFilePath(const SceUtilitySavedataParam *param,
 
 inline static std::string FixedToString(const char *str, size_t n)
 {
-	return std::string(str, strnlen(str, n));
+	if (!str) {
+		return std::string("");
+	} else {
+		return std::string(str, strnlen(str, n));
+	}
 }
 
 std::string SavedataParam::GetGameName(const SceUtilitySavedataParam *param) const

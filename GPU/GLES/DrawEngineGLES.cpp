@@ -15,10 +15,8 @@
 // Official git repository and contact information can be found at
 // https://github.com/hrydgard/ppsspp and http://www.ppsspp.org/.
 
-#include "base/logging.h"
-#include "base/timeutil.h"
-
 #include "Common/MemoryUtil.h"
+#include "Common/TimeUtil.h"
 #include "Core/MemMap.h"
 #include "Core/System.h"
 #include "Core/Reporting.h"
@@ -316,6 +314,7 @@ void DrawEngineGLES::DoFlush() {
 	if (lastRenderStepId_ != curRenderStepId) {
 		// Dirty everything that has dynamic state that will need re-recording.
 		gstate_c.Dirty(DIRTY_VIEWPORTSCISSOR_STATE | DIRTY_DEPTHSTENCIL_STATE | DIRTY_BLEND_STATE | DIRTY_RASTER_STATE);
+		textureCache_->ForgetLastTexture();
 		lastRenderStepId_ = curRenderStepId;
 	}
 

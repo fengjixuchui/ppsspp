@@ -17,7 +17,6 @@
 
 #include <map>
 #include <algorithm>
-#include <cassert>
 #include <cstring>
 
 #include <d3d11.h>
@@ -390,7 +389,9 @@ void TextureCacheD3D11::ApplyTextureFramebuffer(TexCacheEntry *entry, VirtualFra
 
 		Draw::Framebuffer *depalFBO = framebufferManagerD3D11_->GetTempFBO(TempFBO::DEPAL, framebuffer->renderWidth, framebuffer->renderHeight, Draw::FBO_8888);
 		shaderManager_->DirtyLastShader();
-		draw_->BindPipeline(nullptr);
+
+		// Not sure why or if we need this here - we're not about to actually draw using draw_, just use its framebuffer binds.
+		draw_->InvalidateCachedState();
 
 		float xoff = -0.5f / framebuffer->renderWidth;
 		float yoff = 0.5f / framebuffer->renderHeight;
@@ -730,7 +731,7 @@ void TextureCacheD3D11::LoadTextureLevel(TexCacheEntry &entry, ReplacedTexture &
 			pixelData = (u32 *)mapData;
 
 			// We always end up at 8888.  Other parts assume this.
-			assert(scaleFmt == DXGI_FORMAT_B8G8R8A8_UNORM);
+			_assert_(scaleFmt == DXGI_FORMAT_B8G8R8A8_UNORM);
 			bpp = sizeof(u32);
 			decPitch = w * bpp;
 

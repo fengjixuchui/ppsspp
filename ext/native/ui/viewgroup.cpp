@@ -1,10 +1,9 @@
+#include <algorithm>
 #include <functional>
 #include <set>
 #include <mutex>
 
-#include "base/logging.h"
 #include "base/stringutil.h"
-#include "base/timeutil.h"
 #include "input/keycodes.h"
 #include "math/curves.h"
 #include "ui/ui_context.h"
@@ -14,7 +13,8 @@
 #include "ui/viewgroup.h"
 #include "gfx_es2/draw_buffer.h"
 
-#include <algorithm>
+#include "Common/Log.h"
+#include "Common/TimeUtil.h"
 
 namespace UI {
 
@@ -236,7 +236,7 @@ float GetDirectionScore(View *origin, View *destination, FocusDirection directio
 	float horizOverlap = HorizontalOverlap(origin->GetBounds(), destination->GetBounds());
 	float vertOverlap = VerticalOverlap(origin->GetBounds(), destination->GetBounds());
 	if (horizOverlap == 1.0f && vertOverlap == 1.0f) {
-		ILOG("Contain overlap");
+		INFO_LOG(SYSTEM, "Contain overlap");
 		return 0.0;
 	}
 	float originSize = 0.0f;
@@ -273,7 +273,7 @@ float GetDirectionScore(View *origin, View *destination, FocusDirection directio
 		break;
 	case FOCUS_PREV:
 	case FOCUS_NEXT:
-		ELOG("Invalid focus direction");
+		ERROR_LOG(SYSTEM, "Invalid focus direction");
 		break;
 	}
 
@@ -1078,6 +1078,12 @@ void AnchorLayout::Layout() {
 		views_[i]->SetBounds(vBounds);
 		views_[i]->Layout();
 	}
+}
+
+GridLayout::GridLayout(GridLayoutSettings settings, LayoutParams *layoutParams)
+	: ViewGroup(layoutParams), settings_(settings), numColumns_(1) {
+	if (settings.orientation != ORIENT_HORIZONTAL)
+		ERROR_LOG(SYSTEM, "GridLayout: Vertical layouts not yet supported");
 }
 
 void GridLayout::Measure(const UIContext &dc, MeasureSpec horiz, MeasureSpec vert) {

@@ -26,13 +26,6 @@
 #pragma warning (disable:4100)
 #endif
 
-// Force enable logging in the right modes. For some reason, something had changed
-// so that debugfast no longer logged.
-#if defined(_DEBUG) || defined(DEBUGFAST)
-#undef LOGGING
-#define LOGGING 1
-#endif
-
 #include "Log.h"
 #include "CommonTypes.h"
 #include "CommonFuncs.h"
@@ -70,18 +63,16 @@
 #define __forceinline inline __attribute__((always_inline))
 #endif
 
-#if !defined(__GNUC__) && (defined(_M_X64) || defined(_M_IX86))
+#if defined __SSE4_2__
 # define _M_SSE 0x402
-#else
-# if defined __SSE4_2__
-#  define _M_SSE 0x402
-# elif defined __SSE4_1__
-#  define _M_SSE 0x401
-# elif defined __SSSE3__
-#  define _M_SSE 0x301
-# elif defined __SSE3__
-#  define _M_SSE 0x300
-# elif defined __SSE2__
-#  define _M_SSE 0x200
-# endif
+#elif defined __SSE4_1__
+# define _M_SSE 0x401
+#elif defined __SSSE3__
+# define _M_SSE 0x301
+#elif defined __SSE3__
+# define _M_SSE 0x300
+#elif defined __SSE2__
+# define _M_SSE 0x200
+#elif !defined(__GNUC__) && (defined(_M_X64) || defined(_M_IX86))
+# define _M_SSE 0x402
 #endif

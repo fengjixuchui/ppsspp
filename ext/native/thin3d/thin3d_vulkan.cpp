@@ -19,11 +19,7 @@
 #include <vector>
 #include <string>
 #include <map>
-#include <cassert>
 
-#include "Core/Config.h"
-
-#include "base/logging.h"
 #include "base/display.h"
 #include "base/stringutil.h"
 #include "image/zim_load.h"
@@ -32,9 +28,12 @@
 #include "thin3d/thin3d.h"
 #include "thin3d/VulkanRenderManager.h"
 
+#include "Common/Log.h"
 #include "Common/Vulkan/VulkanContext.h"
 #include "Common/Vulkan/VulkanImage.h"
 #include "Common/Vulkan/VulkanMemory.h"
+
+#include "Core/Config.h"
 
 // We use a simple descriptor set for all rendering: 1 sampler, 1 texture, 1 UBO binding point.
 // binding 0 - uniform data
@@ -409,10 +408,6 @@ public:
 
 	void BindPipeline(Pipeline *pipeline) override {
 		curPipeline_ = (VKPipeline *)pipeline;
-
-		if (!pipeline) {
-			UnbindBoundState();
-		}
 	}
 
 	// TODO: Make VKBuffers proper buffers, and do a proper binding model. This is just silly.
@@ -498,8 +493,9 @@ public:
 		return renderManager_.GetCurrentStepId();
 	}
 
+	void InvalidateCachedState() override;
+
 private:
-	void UnbindBoundState();
 
 	VulkanTexture *GetNullTexture();
 	VulkanContext *vulkan_ = nullptr;
@@ -704,7 +700,7 @@ bool VKTexture::Create(VkCommandBuffer cmd, VulkanPushBuffer *push, const Textur
 	// Zero-sized textures not allowed.
 	_assert_(desc.width * desc.height * desc.depth > 0);  // remember to set depth to 1!
 	if (desc.width * desc.height * desc.depth <= 0) {
-		ELOG("Bad texture dimensions %dx%dx%d", desc.width, desc.height, desc.depth);
+		ERROR_LOG(G3D,  "Bad texture dimensions %dx%dx%d", desc.width, desc.height, desc.depth);
 		return false;
 	}
 	_assert_(push);
@@ -727,7 +723,7 @@ bool VKTexture::Create(VkCommandBuffer cmd, VulkanPushBuffer *push, const Textur
 	}
 
 	if (!vkTex_->CreateDirect(cmd, alloc, width_, height_, mipLevels_, vulkanFormat, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, usageBits)) {
-		ELOG("Failed to create VulkanTexture: %dx%dx%d fmt %d, %d levels", width_, height_, depth_, (int)vulkanFormat, mipLevels_);
+		ERROR_LOG(G3D,  "Failed to create VulkanTexture: %dx%dx%d fmt %d, %d levels", width_, height_, depth_, (int)vulkanFormat, mipLevels_);
 		return false;
 	}
 	if (desc.initData.size()) {
@@ -858,7 +854,7 @@ VKContext::VKContext(VulkanContext *vulkan, bool splitSubmit)
 	dsl.bindingCount = ARRAY_SIZE(bindings);
 	dsl.pBindings = bindings;
 	VkResult res = vkCreateDescriptorSetLayout(device_, &dsl, nullptr, &descriptorSetLayout_);
-	assert(VK_SUCCESS == res);
+	_assert_(VK_SUCCESS == res);
 
 	VkPipelineLayoutCreateInfo pl = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
 	pl.pPushConstantRanges = nullptr;
@@ -866,11 +862,11 @@ VKContext::VKContext(VulkanContext *vulkan, bool splitSubmit)
 	pl.setLayoutCount = 1;
 	pl.pSetLayouts = &descriptorSetLayout_;
 	res = vkCreatePipelineLayout(device_, &pl, nullptr, &pipelineLayout_);
-	assert(VK_SUCCESS == res);
+	_assert_(VK_SUCCESS == res);
 
 	VkPipelineCacheCreateInfo pc{ VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO };
 	res = vkCreatePipelineCache(vulkan_->GetDevice(), &pc, nullptr, &pipelineCache_);
-	assert(VK_SUCCESS == res);
+	_assert_(VK_SUCCESS == res);
 
 	renderManager_.SetSplitSubmit(splitSubmit);
 
@@ -924,10 +920,10 @@ void VKContext::EndFrame() {
 	push_ = nullptr;
 
 	// Unbind stuff, to avoid accidentally relying on it across frames (and provide some protection against forgotten unbinds of deleted things).
-	UnbindBoundState();
+	InvalidateCachedState();
 }
 
-void VKContext::UnbindBoundState() {
+void VKContext::InvalidateCachedState() {
 	curPipeline_ = nullptr;
 
 	for (auto &view : boundImageView_) {
@@ -1038,7 +1034,7 @@ Pipeline *VKContext::CreateGraphicsPipeline(const PipelineDesc &desc) {
 	for (auto &iter : desc.shaders) {
 		VKShaderModule *vkshader = (VKShaderModule *)iter;
 		if (!vkshader) {
-			ELOG("CreateGraphicsPipeline got passed a null shader");
+			ERROR_LOG(G3D,  "CreateGraphicsPipeline got passed a null shader");
 			return nullptr;
 		}
 		VkPipelineShaderStageCreateInfo &stage = stages[i++];
@@ -1100,7 +1096,7 @@ Pipeline *VKContext::CreateGraphicsPipeline(const PipelineDesc &desc) {
 	VkPipeline pipelines[2]{};
 	VkResult result = vkCreateGraphicsPipelines(device_, pipelineCache_, 2, createInfo, nullptr, pipelines);
 	if (result != VK_SUCCESS) {
-		ELOG("Failed to create graphics pipeline");
+		ERROR_LOG(G3D,  "Failed to create graphics pipeline");
 		delete pipeline;
 		return nullptr;
 	}
@@ -1177,14 +1173,14 @@ Texture *VKContext::CreateTexture(const TextureDesc &desc) {
 	VkCommandBuffer initCmd = renderManager_.GetInitCmd();
 	if (!push_ || !initCmd) {
 		// Too early! Fail.
-		ELOG("Can't create textures before the first frame has started.");
+		ERROR_LOG(G3D,  "Can't create textures before the first frame has started.");
 		return nullptr;
 	}
 	VKTexture *tex = new VKTexture(vulkan_, initCmd, push_, desc);
 	if (tex->Create(initCmd, push_, desc, allocator_)) {
 		return tex;
 	} else {
-		ELOG("Failed to create texture");
+		ERROR_LOG(G3D,  "Failed to create texture");
 		delete tex;
 		return nullptr;
 	}
@@ -1271,7 +1267,7 @@ ShaderModule *VKContext::CreateShaderModule(ShaderStage stage, ShaderLanguage la
 	if (shader->Compile(vulkan_, language, data, size)) {
 		return shader;
 	} else {
-		ELOG("Failed to compile shader: %s", (const char *)data);
+		ERROR_LOG(G3D,  "Failed to compile shader: %s", (const char *)data);
 		shader->Release();
 		return nullptr;
 	}
@@ -1580,7 +1576,7 @@ void VKContext::HandleEvent(Event ev, int width, int height, void *param1, void 
 		renderManager_.CreateBackbuffers();
 		break;
 	default:
-		assert(false);
+		_assert_(false);
 		break;
 	}
 }

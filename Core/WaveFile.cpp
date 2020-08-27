@@ -5,15 +5,12 @@
 #include <string>
 
 #include "Core/WaveFile.h"
-#include "Common/CommonTypes.h"
-#include "Common/MsgHandler.h"
+#include "Common/Log.h"
 #include "Core/Config.h"
 
 constexpr size_t WaveFileWriter::BUFFER_SIZE;
 
-WaveFileWriter::WaveFileWriter()
-{
-}
+WaveFileWriter::WaveFileWriter() {}
 
 WaveFileWriter::~WaveFileWriter()
 {
@@ -30,7 +27,7 @@ bool WaveFileWriter::Start(const std::string& filename, unsigned int HLESampleRa
 
 	file.Open(filename, "wb");
 	if (!file) {
-		ERROR_LOG(SYSTEM, "The file %s could not be opened for writing. Please check if it's already opened by another program.", filename.c_str());
+		ERROR_LOG(IO, "The file %s could not be opened for writing. Please check if it's already opened by another program.", filename.c_str());
 		return false;
 	}
 

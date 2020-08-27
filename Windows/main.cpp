@@ -31,8 +31,9 @@
 #include <ShlObj.h>
 #include <mmsystem.h>
 
-#include "base/NativeApp.h"
 #include "base/display.h"
+#include "base/stringutil.h"
+#include "base/NativeApp.h"
 #include "file/vfs.h"
 #include "file/zip_read.h"
 #include "i18n/i18n.h"
@@ -508,12 +509,28 @@ int WINAPI WinMain(HINSTANCE _hInstance, HINSTANCE hPrevInstance, LPSTR szCmdLin
 		}
 	}
 
-	LogManager::Init();
+	LogManager::Init(&g_Config.bEnableLogging);
 
 	// On Win32 it makes more sense to initialize the system directories here
 	// because the next place it was called was in the EmuThread, and it's too late by then.
 	g_Config.internalDataDirectory = W32Util::UserDocumentsPath();
 	InitSysDirectories();
+
+	// Check for the Vulkan workaround before any serious init.
+	for (size_t i = 1; i < wideArgs.size(); ++i) {
+		if (wideArgs[i][0] == L'-') {
+			// This should only be called by DetectVulkanInExternalProcess().
+			if (wideArgs[i] == L"--vulkan-available-check") {
+				// Just call it, this way it will crash here if it doesn't work.
+				// (this is an external process.)
+				bool result = VulkanMayBeAvailable();
+
+				LogManager::Shutdown();
+				WinMainCleanup();
+				return result ? EXIT_CODE_VULKAN_WORKS : EXIT_FAILURE;
+			}
+		}
+	}
 
 	// Load config up here, because those changes below would be overwritten
 	// if it's not loaded here first.
@@ -573,17 +590,6 @@ int WINAPI WinMain(HINSTANCE _hInstance, HINSTANCE hPrevInstance, LPSTR szCmdLin
 					g_Config.bSoftwareRendering = true;
 				}
 			}
-
-			// This should only be called by DetectVulkanInExternalProcess().
-			if (wideArgs[i] == L"--vulkan-available-check") {
-				// Just call it, this way it will crash here if it doesn't work.
-				// (this is an external process.)
-				bool result = VulkanMayBeAvailable();
-
-				LogManager::Shutdown();
-				WinMainCleanup();
-				return result ? EXIT_CODE_VULKAN_WORKS : EXIT_FAILURE;
-			}
 		}
 	}
 #ifdef _DEBUG
@@ -609,8 +615,9 @@ int WINAPI WinMain(HINSTANCE _hInstance, HINSTANCE hPrevInstance, LPSTR szCmdLin
 	//   - It should be possible to log to a file without showing the console.
 	LogManager::GetInstance()->GetConsoleListener()->Init(showLog, 150, 120, "PPSSPP Debug Console");
 
-	if (debugLogLevel)
+	if (debugLogLevel) {
 		LogManager::GetInstance()->SetAllLogLevels(LogTypes::LDEBUG);
+	}
 
 	timeBeginPeriod(1);  // TODO: Evaluate if this makes sense to keep.
 
