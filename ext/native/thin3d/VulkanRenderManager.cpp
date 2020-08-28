@@ -19,8 +19,54 @@
 #define UINT64_MAX 0xFFFFFFFFFFFFFFFFULL
 #endif
 
+VKRFramebuffer::VKRFramebuffer(VulkanContext *vk, VkCommandBuffer initCmd, VkRenderPass renderPass, int _width, int _height, const char *tag) : vulkan_(vk) {
+	width = _width;
+	height = _height;
 
-void CreateImage(VulkanContext *vulkan, VkCommandBuffer cmd, VKRImage &img, int width, int height, VkFormat format, VkImageLayout initialLayout, bool color) {
+	CreateImage(vulkan_, initCmd, color, width, height, VK_FORMAT_R8G8B8A8_UNORM, VK_IMAGE_LAYOUT_COLOR_ATTACHMENT_OPTIMAL, true, tag);
+	CreateImage(vulkan_, initCmd, depth, width, height, vulkan_->GetDeviceInfo().preferredDepthStencilFormat, VK_IMAGE_LAYOUT_DEPTH_STENCIL_ATTACHMENT_OPTIMAL, false, tag);
+
+	VkFramebufferCreateInfo fbci{ VK_STRUCTURE_TYPE_FRAMEBUFFER_CREATE_INFO };
+	VkImageView views[2]{};
+
+	fbci.renderPass = renderPass;
+	fbci.attachmentCount = 2;
+	fbci.pAttachments = views;
+	views[0] = color.imageView;
+	views[1] = depth.imageView;
+	fbci.width = width;
+	fbci.height = height;
+	fbci.layers = 1;
+
+	vkCreateFramebuffer(vulkan_->GetDevice(), &fbci, nullptr, &framebuf);
+	if (tag && vk->Extensions().EXT_debug_utils) {
+		vk->SetDebugName(color.image, VK_OBJECT_TYPE_IMAGE, StringFromFormat("fb_color_%s", tag).c_str());
+		vk->SetDebugName(depth.image, VK_OBJECT_TYPE_IMAGE, StringFromFormat("fb_depth_%s", tag).c_str());
+		vk->SetDebugName(framebuf, VK_OBJECT_TYPE_FRAMEBUFFER, StringFromFormat("fb_%s", tag).c_str());
+		this->tag = tag;
+	}
+}
+
+VKRFramebuffer::~VKRFramebuffer() {
+	if (color.image)
+		vulkan_->Delete().QueueDeleteImage(color.image);
+	if (depth.image)
+		vulkan_->Delete().QueueDeleteImage(depth.image);
+	if (color.imageView)
+		vulkan_->Delete().QueueDeleteImageView(color.imageView);
+	if (depth.imageView)
+		vulkan_->Delete().QueueDeleteImageView(depth.imageView);
+	if (depth.depthSampleView)
+		vulkan_->Delete().QueueDeleteImageView(depth.depthSampleView);
+	if (color.memory)
+		vulkan_->Delete().QueueDeleteDeviceMemory(color.memory);
+	if (depth.memory)
+		vulkan_->Delete().QueueDeleteDeviceMemory(depth.memory);
+	if (framebuf)
+		vulkan_->Delete().QueueDeleteFramebuffer(framebuf);
+}
+
+void CreateImage(VulkanContext *vulkan, VkCommandBuffer cmd, VKRImage &img, int width, int height, VkFormat format, VkImageLayout initialLayout, bool color, const char *tag) {
 	VkImageCreateInfo ici{ VK_STRUCTURE_TYPE_IMAGE_CREATE_INFO };
 	ici.arrayLayers = 1;
 	ici.mipLevels = 1;
@@ -62,7 +108,6 @@ void CreateImage(VulkanContext *vulkan, VkCommandBuffer cmd, VKRImage &img, int 
 	res = vkBindImageMemory(vulkan->GetDevice(), img.image, img.memory, 0);
 	_dbg_assert_(res == VK_SUCCESS);
 
-	VkImageAspectFlags viewAspects = color ? VK_IMAGE_ASPECT_COLOR_BIT : VK_IMAGE_ASPECT_DEPTH_BIT;
 	VkImageAspectFlags aspects = color ? VK_IMAGE_ASPECT_COLOR_BIT : (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT);
 
 	VkImageViewCreateInfo ivci{ VK_STRUCTURE_TYPE_IMAGE_VIEW_CREATE_INFO };
@@ -70,11 +115,20 @@ void CreateImage(VulkanContext *vulkan, VkCommandBuffer cmd, VKRImage &img, int 
 	ivci.format = ici.format;
 	ivci.image = img.image;
 	ivci.viewType = VK_IMAGE_VIEW_TYPE_2D;
-	ivci.subresourceRange.aspectMask = viewAspects;
+	ivci.subresourceRange.aspectMask = aspects;
 	ivci.subresourceRange.layerCount = 1;
 	ivci.subresourceRange.levelCount = 1;
 	res = vkCreateImageView(vulkan->GetDevice(), &ivci, nullptr, &img.imageView);
 	_dbg_assert_(res == VK_SUCCESS);
+
+	// Separate view for texture sampling that only exposes depth.
+	if (!color) {
+		ivci.subresourceRange.aspectMask = VK_IMAGE_ASPECT_DEPTH_BIT;
+		res = vkCreateImageView(vulkan->GetDevice(), &ivci, nullptr, &img.depthSampleView);
+		_dbg_assert_(res == VK_SUCCESS);
+	} else {
+		img.depthSampleView = VK_NULL_HANDLE;
+	}
 
 	VkPipelineStageFlags dstStage;
 	VkAccessFlagBits dstAccessMask;
@@ -103,6 +157,7 @@ void CreateImage(VulkanContext *vulkan, VkCommandBuffer cmd, VKRImage &img, int 
 	img.layout = initialLayout;
 
 	img.format = format;
+	img.tag = tag ? tag : "N/A";
 }
 
 VulkanRenderManager::VulkanRenderManager(VulkanContext *vulkan) : vulkan_(vulkan), queueRunner_(vulkan) {
@@ -985,7 +1040,7 @@ VkImageView VulkanRenderManager::BindFramebufferAsTexture(VKRFramebuffer *fb, in
 
 	for (int i = (int)steps_.size() - 1; i >= 0; i--) {
 		if (steps_[i]->stepType == VKRStepType::RENDER && steps_[i]->render.framebuffer == fb) {
-			if (aspectBit & VK_IMAGE_ASPECT_COLOR_BIT) {
+			if (aspectBit == VK_IMAGE_ASPECT_COLOR_BIT) {
 				// If this framebuffer was rendered to earlier in this frame, make sure to pre-transition it to the correct layout.
 				if (steps_[i]->render.finalColorLayout == VK_IMAGE_LAYOUT_UNDEFINED) {
 					steps_[i]->render.finalColorLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -994,8 +1049,7 @@ VkImageView VulkanRenderManager::BindFramebufferAsTexture(VKRFramebuffer *fb, in
 					_assert_msg_(false, "Unexpected color layout %d", (int)steps_[i]->render.finalColorLayout);
 					// May need to shadow the framebuffer if we re-order passes later.
 				}
-			}
-			if (aspectBit & (VK_IMAGE_ASPECT_DEPTH_BIT | VK_IMAGE_ASPECT_STENCIL_BIT)) {
+			} else if (aspectBit == VK_IMAGE_ASPECT_DEPTH_BIT) {
 				// If this framebuffer was rendered to earlier in this frame, make sure to pre-transition it to the correct layout.
 				if (steps_[i]->render.finalDepthStencilLayout == VK_IMAGE_LAYOUT_UNDEFINED) {
 					steps_[i]->render.finalDepthStencilLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
@@ -1004,7 +1058,7 @@ VkImageView VulkanRenderManager::BindFramebufferAsTexture(VKRFramebuffer *fb, in
 					_assert_msg_(false, "Unexpected depth layout %d", (int)steps_[i]->render.finalDepthStencilLayout);
 					// May need to shadow the framebuffer if we re-order passes later.
 				}
-			}
+			}  // We don't (yet?) support texturing from stencil images.
 			steps_[i]->render.numReads++;
 			break;
 		}
@@ -1014,13 +1068,13 @@ VkImageView VulkanRenderManager::BindFramebufferAsTexture(VKRFramebuffer *fb, in
 	curRenderStep_->dependencies.insert(fb);
 
 	if (!curRenderStep_->preTransitions.empty() &&
-			curRenderStep_->preTransitions.back().fb == fb &&
-			curRenderStep_->preTransitions.back().targetLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
+		curRenderStep_->preTransitions.back().fb == fb &&
+		curRenderStep_->preTransitions.back().targetLayout == VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL) {
 		// We're done.
-		return aspectBit == VK_IMAGE_ASPECT_COLOR_BIT ? fb->color.imageView : fb->depth.imageView;
+		return aspectBit == VK_IMAGE_ASPECT_COLOR_BIT ? fb->color.imageView : fb->depth.depthSampleView;
 	} else {
 		curRenderStep_->preTransitions.push_back({ aspectBit, fb, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL });
-		return aspectBit == VK_IMAGE_ASPECT_COLOR_BIT ? fb->color.imageView : fb->depth.imageView;
+		return aspectBit == VK_IMAGE_ASPECT_COLOR_BIT ? fb->color.imageView : fb->depth.depthSampleView;
 	}
 }
 
@@ -1199,7 +1253,8 @@ void VulkanRenderManager::Run(int frame) {
 	FrameData &frameData = frameData_[frame];
 	auto &stepsOnThread = frameData_[frame].steps;
 	VkCommandBuffer cmd = frameData.mainCmd;
-	// queueRunner_.LogSteps(stepsOnThread);
+	queueRunner_.PreprocessSteps(stepsOnThread);
+	//queueRunner_.LogSteps(stepsOnThread, false);
 	queueRunner_.RunSteps(cmd, stepsOnThread, frameData.profilingEnabled_ ? &frameData.profile : nullptr);
 	stepsOnThread.clear();
 
