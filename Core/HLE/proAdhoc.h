@@ -49,7 +49,6 @@
 #include "Core/MemMap.h"
 #include "Core/HLE/HLE.h"
 #include "Core/HLE/HLEHelperThread.h"
-#include "Core/HLE/sceNetAdhoc.h"
 #include "Core/HLE/sceKernelThread.h"
 #include "Core/HLE/sceKernel.h"
 #include "Core/HLE/sceKernelMutex.h"
@@ -253,14 +252,16 @@ typedef struct SceNetAdhocctlParameter {
   SceNetAdhocctlNickname nickname;
 } PACK SceNetAdhocctlParameter;
 
-// Peer Information
+// Peer Information (internal use only)
 typedef struct SceNetAdhocctlPeerInfo {
   SceNetAdhocctlPeerInfo * next;
   SceNetAdhocctlNickname nickname;
   SceNetEtherAddr mac_addr;
-  u32_le ip_addr;
-  uint8_t padding[2];
+  u16_le padding;
+  u32_le flags;
   u64_le last_recv; // Need to use the same method with sceKernelGetSystemTimeWide (ie. CoreTiming::GetGlobalTimeUsScaled) to prevent timing issue (ie. in game timeout)
+  
+  u32_le ip_addr; // internal use only
 } PACK SceNetAdhocctlPeerInfo;
 
 // Peer Information with u32 pointers
@@ -268,8 +269,8 @@ typedef struct SceNetAdhocctlPeerInfoEmu {
   u32_le next; // Changed the pointer to u32
   SceNetAdhocctlNickname nickname;
   SceNetEtherAddr mac_addr;
-  u32_le ip_addr; //jpcsp wrote 6bytes of 0x11 for this & padding
-  u16 padding; // Changed the padding to u16
+  u16_le padding; //00 00
+  u32_le flags; //00 04 00 00 // State of the peer? Or related to sceNetAdhocAuth_CF4D9BED ?
   u64_le last_recv; // Need to use the same method with sceKernelGetSystemTimeWide (ie. CoreTiming::GetGlobalTimeUsScaled) to prevent timing issue (ie. in game timeout)
 } PACK SceNetAdhocctlPeerInfoEmu;
 
@@ -646,10 +647,10 @@ enum {
 #define PSP_ADHOC_MATCHING_EVENT_DENY			4
 #define PSP_ADHOC_MATCHING_EVENT_CANCEL			5
 #define PSP_ADHOC_MATCHING_EVENT_ACCEPT			6
-#define PSP_ADHOC_MATCHING_EVENT_ESTABLISHED	7
-#define PSP_ADHOC_MATCHING_EVENT_TIMEOUT		8
+#define PSP_ADHOC_MATCHING_EVENT_ESTABLISHED	7	// Should only be triggered on Parent/P2P mode and for Parent/P2P peer ?
+#define PSP_ADHOC_MATCHING_EVENT_TIMEOUT		8	// Should only be triggered on Parent/P2P mode and for Parent/P2P peer ?
 #define PSP_ADHOC_MATCHING_EVENT_ERROR			9
-#define PSP_ADHOC_MATCHING_EVENT_BYE			10
+#define PSP_ADHOC_MATCHING_EVENT_BYE			10	// Should only be triggered on Parent/P2P mode and for Parent/P2P peer ?
 #define PSP_ADHOC_MATCHING_EVENT_DATA			11
 #define PSP_ADHOC_MATCHING_EVENT_DATA_ACK		12
 #define PSP_ADHOC_MATCHING_EVENT_DATA_TIMEOUT	13
@@ -827,6 +828,7 @@ extern std::thread friendFinderThread;
 extern std::recursive_mutex peerlock;
 extern SceNetAdhocPdpStat * pdp[255];
 extern SceNetAdhocPtpStat * ptp[255];
+extern std::map<int, int> ptpConnectCount;
 
 union SockAddrIN4 {
 	sockaddr addr;
@@ -846,9 +848,18 @@ extern SceNetAdhocMatchingContext * contexts;
 extern int one;                 
 extern bool friendFinderRunning;
 extern SceNetAdhocctlPeerInfo * friends;
-extern SceNetAdhocctlScanInfo * networks; 
-extern int threadStatus;
+extern SceNetAdhocctlScanInfo * networks;
+extern u64 adhocctlStartTime;
+extern int adhocctlState;
+extern int adhocConnectionType;
 // End of Aux vars
+
+enum AdhocConnectionType : int
+{
+	ADHOC_CONNECT = 0,
+	ADHOC_CREATE = 1,
+	ADHOC_JOIN = 2,
+};
 
 // Check if Matching callback is running
 bool IsMatchingInCallback(SceNetAdhocMatchingContext * context);
@@ -858,9 +869,16 @@ int IsAdhocctlInCallback();
 int SetAdhocctlInCallback(bool IsInCB);
 
 /**
+ * Compare MAC Addresses
+ * @param addr1 & addr2 To-be-compared MAC Address
+ * @return True if both matched
+ */
+bool isMacMatch(const SceNetEtherAddr* addr1, const SceNetEtherAddr* addr2);
+
+/**
  * Local MAC Check
  * @param saddr To-be-checked MAC Address
- * @return 1 if valid or... 0
+ * @return True if it's local mac
  */
 bool isLocalMAC(const SceNetEtherAddr * addr);
 
@@ -909,6 +927,14 @@ extern int newChat;
  * Find a Peer/Friend by MAC address
  */
 SceNetAdhocctlPeerInfo * findFriend(SceNetEtherAddr * MAC);
+
+/**
+ * Get the Readability(ie. recv) and/or Writability(ie. send) of a socket
+ * @param fd File Descriptor of the socket
+ * @param timeout in usec (micro seconds), 0 = non-blocking
+ * @return > 0 = ready, 0 = timeout, -1 = error (errorcode only represent error of select and doesn't represent error of the socket)
+ */
+int IsSocketReady(int fd, bool readfd, bool writefd, int* errorcode = nullptr, int timeoutUS = 0);
 
 /**
  * Changes the Blocking Mode of the socket
@@ -1245,6 +1271,13 @@ int getPTPSocketCount();
  * @return 0 on success or... -1
  */
 int initNetwork(SceNetAdhocctlAdhocId *adhocid);
+
+/**
+ * Zero MAC Check
+ * @param addr To-be-checked MAC Address
+ * @return true if MAC is all zeroes
+ */
+bool isZeroMAC(const SceNetEtherAddr* addr);
 
 /**
  * Broadcast MAC Check

@@ -162,7 +162,7 @@ void __NetInit() {
 
 	SceNetEtherAddr mac;
 	getLocalMac(&mac);
-	INFO_LOG(SCENET, "LocalHost IP will be %s [%s]", inet_ntoa(g_localhostIP.in.sin_addr), mac2str(&mac).c_str());
+	NOTICE_LOG(SCENET, "LocalHost IP will be %s [%s]", inet_ntoa(g_localhostIP.in.sin_addr), mac2str(&mac).c_str());
 	
 	// TODO: May be we should initialize & cleanup somewhere else than here for PortManager to be used as general purpose for whatever port forwarding PPSSPP needed
 	__UPnPInit();
@@ -198,6 +198,15 @@ static void __UpdateApctlHandlers(u32 oldState, u32 newState, u32 flag, u32 erro
 // Make sure MIPS calls have been fully executed before the next notifyApctlHandlers
 void notifyApctlHandlers(int oldState, int newState, int flag, int error) {
 	__UpdateApctlHandlers(oldState, newState, flag, error);
+}
+
+void netValidateLoopMemory() {
+	// Allocate Memory if it wasn't valid/allocated after loaded from old SaveState
+	if (!apctlThreadHackAddr || (apctlThreadHackAddr && strcmp("apctlThreadHack", kernelMemory.GetBlockTag(apctlThreadHackAddr)) != 0)) {
+		u32 blockSize = sizeof(apctlThreadCode);
+		apctlThreadHackAddr = kernelMemory.Alloc(blockSize, false, "apctlThreadHack");
+		if (apctlThreadHackAddr) Memory::Memcpy(apctlThreadHackAddr, apctlThreadCode, sizeof(apctlThreadCode));
+	}
 }
 
 // This feels like a dubious proposition, mostly...
@@ -244,19 +253,15 @@ void __NetDoState(PointerWrap &p) {
 		apctlThreadHackAddr = 0;
 		apctlThreadID = 0;
 	}
-	// Let's not change "Inited" value when Loading SaveState in the middle of multiplayer to prevent memory & port leaks
+	
 	if (p.mode == p.MODE_READ) {
+		// Let's not change "Inited" value when Loading SaveState in the middle of multiplayer to prevent memory & port leaks
 		netApctlInited = cur_netApctlInited;
 		netInetInited = cur_netInetInited;
 		netInited = cur_netInited;
 
-		// Previously, this wasn't being saved.  It needs its own space.
-		if (!apctlThreadHackAddr || (apctlThreadHackAddr && strcmp("apctlThreadHack", kernelMemory.GetBlockTag(apctlThreadHackAddr)) != 0)) {
-			u32 blockSize = sizeof(apctlThreadCode);
-			apctlThreadHackAddr = kernelMemory.Alloc(blockSize, false, "apctlThreadHack");
-		}
-		// Restore Apctl Loop MIPS code to prevent crashes after loading from SaveState
-		if (apctlThreadHackAddr) Memory::Memcpy(apctlThreadHackAddr, apctlThreadCode, sizeof(apctlThreadCode));
+		// Discard leftover events
+		apctlEvents.clear();
 	}
 }
 
@@ -468,7 +473,8 @@ void __NetApctlCallbacks()
 	}
 
 	// Must be delayed long enough whenever there is a pending callback.
-	hleDelayResult(0, "Prevent Apctl thread from blocking", delayus);
+	sceKernelDelayThread(delayus);
+	hleSkipDeadbeef();
 }
 
 static inline u32 AllocUser(u32 size, bool fromTop, const char *name) {
@@ -581,6 +587,7 @@ static int sceNetInit(u32 poolSize, u32 calloutPri, u32 calloutStack, u32 netini
 	// Clear Socket Translator Memory
 	memset(&pdp, 0, sizeof(pdp));
 	memset(&ptp, 0, sizeof(ptp));
+	ptpConnectCount.clear();
 	
 	return hleLogSuccessI(SCENET, 0);
 }
@@ -609,6 +616,8 @@ static u32 sceWlanGetEtherAddr(u32 addrAddr) {
 	u8 *addr = Memory::GetPointer(addrAddr);
 	if (PPSSPP_ID > 1) {
 		Memory::Memset(addrAddr, PPSSPP_ID, 6);
+		// Making sure the 1st 2-bits on the 1st byte of OUI are zero to prevent issue with some games (ie. Gran Turismo)
+		addr[0] &= 0xfc;
 	}
 	else
 	// Read MAC Address from config
@@ -756,6 +765,9 @@ static int sceNetApctlInit(int stackSize, int initPriority) {
 	if (netApctlInited)
 		return ERROR_NET_APCTL_ALREADY_INITIALIZED;
 
+	apctlEvents.clear();
+	netApctlState = PSP_NET_APCTL_STATE_DISCONNECTED;
+
 	// Set default value before connected to an AP
 	memset(&netApctlInfo, 0, sizeof(netApctlInfo)); // NetApctl_InitInfo();
 	std::string APname = "Wifi"; // fake AP/hotspot
@@ -770,13 +782,13 @@ static int sceNetApctlInit(int stackSize, int initPriority) {
 	truncate_cpy(netApctlInfo.subNetMask, sizeof(netApctlInfo.subNetMask), "0.0.0.0");
 
 	// Create APctl fake-Thread
+	netValidateLoopMemory();
 	apctlThreadID = __KernelCreateThread("ApctlThread", __KernelGetCurThreadModuleId(), apctlThreadHackAddr, initPriority, stackSize, PSP_THREAD_ATTR_USER, 0, true);
 	if (apctlThreadID > 0) {
 		__KernelStartThread(apctlThreadID, 0, 0);
 	}
 
 	netApctlInited = true;
-	netApctlState = PSP_NET_APCTL_STATE_DISCONNECTED;
 
 	return 0;
 }

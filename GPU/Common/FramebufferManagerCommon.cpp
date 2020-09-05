@@ -489,7 +489,7 @@ void FramebufferManagerCommon::NotifyRenderFramebufferCreated(VirtualFramebuffer
 void FramebufferManagerCommon::NotifyRenderFramebufferUpdated(VirtualFramebuffer *vfb, bool vfbFormatChanged) {
 	if (vfbFormatChanged) {
 		textureCache_->NotifyFramebuffer(vfb->fb_address, vfb, NOTIFY_FB_UPDATED, NOTIFY_FB_COLOR);
-		textureCache_->NotifyFramebuffer(vfb->fb_address, vfb, NOTIFY_FB_UPDATED, NOTIFY_FB_DEPTH);
+		textureCache_->NotifyFramebuffer(vfb->z_address, vfb, NOTIFY_FB_UPDATED, NOTIFY_FB_DEPTH);
 		if (vfb->drawnFormat != vfb->format) {
 			ReformatFramebufferFrom(vfb, vfb->drawnFormat);
 		}
@@ -1292,7 +1292,7 @@ void FramebufferManagerCommon::FindTransferFramebuffers(VirtualFramebuffer *&dst
 		}
 	}
 
-	if (!dstBuffer && PSP_CoreParameter().compat.flags().BlockTransferAllowCreateFB) {
+	if (srcBuffer && !dstBuffer && PSP_CoreParameter().compat.flags().BlockTransferAllowCreateFB) {
 		GEBufferFormat ramFormat;
 		// Try to guess the appropriate format. We only know the bpp from the block transfer command (16 or 32 bit).
 		if (bpp == 4) {
