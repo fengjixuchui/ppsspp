@@ -30,6 +30,11 @@
 #include <ifaddrs.h>
 #endif
 
+#ifndef MSG_NOSIGNAL
+// Default value to 0x00 (do nothing) in systems where it's not supported.
+#define MSG_NOSIGNAL 0x00
+#endif
+
 #include <cstring>
 
 #include "i18n/i18n.h"
@@ -71,8 +76,7 @@ SceNetAdhocctlParameter parameter;
 SceNetAdhocctlAdhocId product_code;
 std::thread friendFinderThread;
 std::recursive_mutex peerlock;
-SceNetAdhocPdpStat * pdp[255];
-SceNetAdhocPtpStat * ptp[255];
+AdhocSocket* adhocSockets[MAX_SOCKET];
 std::map<int, int> ptpConnectCount;
 std::vector<std::string> chatLog;
 std::string name = "";
@@ -85,7 +89,7 @@ bool isOriPort = false;
 bool isLocalServer = false;
 SockAddrIN4 g_localhostIP;
 sockaddr LocalIP;
-int defaultWlanChannel = PSP_SYSTEMPARAM_ADHOC_CHANNEL_1; // Don't put 0(Auto) here, it needed to be a valid/actual channel number
+int defaultWlanChannel = PSP_SYSTEMPARAM_ADHOC_CHANNEL_11; // Don't put 0(Auto) here, it needed to be a valid/actual channel number
 
 bool isMacMatch(const SceNetEtherAddr* addr1, const SceNetEtherAddr* addr2) {
 	// Ignoring the 1st byte since there are games (ie. Gran Turismo) who tamper with the 1st byte of OUI to change the unicast/multicast bit
@@ -101,16 +105,24 @@ bool isLocalMAC(const SceNetEtherAddr * addr) {
 
 bool isPDPPortInUse(uint16_t port) {
 	// Iterate Elements
-	for (int i = 0; i < 255; i++) if (pdp[i] != NULL && pdp[i]->lport == port) return true;
-
+	for (int i = 0; i < MAX_SOCKET; i++) {
+		auto sock = adhocSockets[i];
+		if (sock != NULL && sock->type == SOCK_PDP)
+			if (sock->data.pdp.lport == port)
+				return true;
+	}
 	// Unused Port
 	return false;
 }
 
 bool isPTPPortInUse(uint16_t port) {
 	// Iterate Sockets
-	for(int i = 0; i < 255; i++) if(ptp[i] != NULL && ptp[i]->lport == port) return true;
-	
+	for (int i = 0; i < MAX_SOCKET; i++) {
+		auto sock = adhocSockets[i];
+		if (sock != NULL && sock->type == SOCK_PTP)
+			if (sock->data.ptp.lport == port)
+				return true;
+	}
 	// Unused Port
 	return false;
 }
@@ -316,37 +328,29 @@ void freeGroupsRecursive(SceNetAdhocctlScanInfo * node) {
 	node = NULL;
 }
 
-void deleteAllPDP() {
+void deleteAllAdhocSockets() {
 	// Iterate Element
-	for (int i = 0; i < 255; i++) {
+	for (int i = 0; i < MAX_SOCKET; i++) {
 		// Active Socket
-		if (pdp[i] != NULL) {
-			// Close Socket
-			closesocket(pdp[i]->id);
+		if (adhocSockets[i] != NULL) {
+			auto sock = adhocSockets[i];
+			int fd = -1;
 
+			if (sock->type == SOCK_PTP)
+				fd = sock->data.ptp.id;
+			else if (sock->type == SOCK_PDP)
+				fd = sock->data.pdp.id;
+
+			if (fd > 0) {
+				// Close Socket
+				shutdown(fd, SD_BOTH);
+				closesocket(fd);
+			}
 			// Free Memory
-			free(pdp[i]);
+			free(adhocSockets[i]);
 
 			// Delete Reference
-			pdp[i] = NULL;
-		}
-	}
-}
-
-void deleteAllPTP() {
-	// Iterate Element
-	for (int i = 0; i < 255; i++) {
-		// Active Socket
-		if (ptp[i] != NULL) {
-			// Close Socket
-			closesocket(ptp[i]->id);
-
-			// Free Memory
-			free(ptp[i]);
-
-			// Delete Reference
-			ptp[i] = NULL;
-			ptpConnectCount.erase(i);
+			adhocSockets[i] = NULL;
 		}
 	}
 }
@@ -1201,7 +1205,7 @@ void sendChat(std::string chatString) {
 			strcpy(chat.message, message.c_str());
 			//Send Chat Messages
 			if (IsSocketReady(metasocket, false, true) > 0) {
-				int chatResult = send(metasocket, (const char*)&chat, sizeof(chat), 0);
+				int chatResult = send(metasocket, (const char*)&chat, sizeof(chat), MSG_NOSIGNAL);
 				NOTICE_LOG(SCENET, "Send Chat %s to Adhoc Server", chat.message);
 				name = g_Config.sNickName.c_str();
 				chatLog.push_back(name.substr(0, 8) + ": " + chat.message);
@@ -1230,6 +1234,7 @@ std::vector<std::string> getChatLog() {
 
 int friendFinder(){
 	setCurrentThreadName("FriendFinder");
+	auto n = GetI18NCategory("Networking");
 	// Receive Buffer
 	int rxpos = 0;
 	uint8_t rx[1024];
@@ -1280,7 +1285,7 @@ int friendFinder(){
 
 				// Send Ping to Server, may failed with socket error 10054/10053 if someone else with the same IP already connected to AdHoc Server (the server might need to be modified to differentiate MAC instead of IP)
 				if (IsSocketReady(metasocket, false, true) > 0) {
-					int iResult = send(metasocket, (const char*)&opcode, 1, 0);
+					int iResult = send(metasocket, (const char*)&opcode, 1, MSG_NOSIGNAL);
 					int error = errno;
 					// KHBBS seems to be getting error 10053 often
 					if (iResult == SOCKET_ERROR) {
@@ -1290,6 +1295,7 @@ int friendFinder(){
 							shutdown(metasocket, SD_BOTH);
 							closesocket(metasocket);
 							metasocket = (int)INVALID_SOCKET;
+							host->NotifyUserMessage(std::string(n->T("Disconnected from AdhocServer")) + " (" + std::string(n->T("Error")) + ": " + std::to_string(error) + ")", 2.0, 0x0000ff);
 						}
 					}
 					else {
@@ -1302,7 +1308,7 @@ int friendFinder(){
 
 			// Check for Incoming Data
 			if (IsSocketReady(metasocket, true, false) > 0) {
-				int received = recv(metasocket, (char*)(rx + rxpos), sizeof(rx) - rxpos, 0);
+				int received = recv(metasocket, (char*)(rx + rxpos), sizeof(rx) - rxpos, MSG_NOSIGNAL);
 
 				// Free Network Lock
 				//_freeNetworkLock();
@@ -1803,6 +1809,15 @@ int setSockNoDelay(int tcpsock, int flag) {
 	return setsockopt(tcpsock, IPPROTO_TCP, TCP_NODELAY, (char*)&opt, sizeof(opt));
 }
 
+int setSockNoSIGPIPE(int sock, int flag) {
+	// Set SIGPIPE when supported (ie. BSD/MacOS X)
+	int opt = flag;
+#if defined(SO_NOSIGPIPE)
+	return setsockopt(sock, SOL_SOCKET, SO_NOSIGPIPE, (void*)&opt, sizeof(opt));
+#endif
+	return -1;
+}
+
 #if !defined(TCP_KEEPIDLE)
 #define TCP_KEEPIDLE	TCP_KEEPALIVE //TCP_KEEPIDLE on Linux is equivalent to TCP_KEEPALIVE on macOS
 #endif
@@ -1861,7 +1876,9 @@ int getPDPSocketCount()
 	int counter = 0;
 
 	// Count Sockets
-	for (int i = 0; i < 255; i++) if (pdp[i] != NULL) counter++;
+	for (int i = 0; i < MAX_SOCKET; i++) 
+		if (adhocSockets[i] != NULL && adhocSockets[i]->type == SOCK_PDP) 
+			counter++;
 
 	// Return Socket Count
 	return counter;
@@ -1872,7 +1889,9 @@ int getPTPSocketCount() {
 	int counter = 0;
 
 	// Count Sockets
-	for (int i = 0; i < 255; i++) if (ptp[i] != NULL) counter++;
+	for (int i = 0; i < MAX_SOCKET; i++)
+		if (adhocSockets[i] != NULL && adhocSockets[i]->type == SOCK_PTP)
+			counter++;
 
 	// Return Socket Count
 	return counter;
@@ -1974,7 +1993,7 @@ int initNetwork(SceNetAdhocctlAdhocId *adhoc_id){
 	memcpy(packet.game.data, adhoc_id->data, ADHOCCTL_ADHOCID_LEN);
 
 	IsSocketReady(metasocket, false, true, nullptr, adhocDefaultTimeout * 1000);
-	int sent = send(metasocket, (char*)&packet, sizeof(packet), 0);
+	int sent = send(metasocket, (char*)&packet, sizeof(packet), MSG_NOSIGNAL);
 	if (sent > 0) {
 		socklen_t addrLen = sizeof(LocalIP);
 		memset(&LocalIP, 0, addrLen);

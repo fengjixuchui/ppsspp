@@ -244,7 +244,9 @@ void __NetDoState(PointerWrap &p) {
 		Do(p, netApctlState);
 		Do(p, netApctlInfo);
 		Do(p, actionAfterApctlMipsCall);
-		__KernelRestoreActionType(actionAfterApctlMipsCall, AfterApctlMipsCall::Create);
+		if (actionAfterApctlMipsCall != -1) {
+			__KernelRestoreActionType(actionAfterApctlMipsCall, AfterApctlMipsCall::Create);
+		}
 		Do(p, apctlThreadHackAddr);
 		Do(p, apctlThreadID);
 	}
@@ -501,11 +503,8 @@ u32 Net_Term() {
 
 	// Library is initialized
 	if (netInited) {
-		// Delete PDP Sockets
-		deleteAllPDP();
-
-		// Delete PTP Sockets
-		deleteAllPTP();
+		// Delete Adhoc Sockets
+		deleteAllAdhocSockets();
 
 		// Delete GameMode Buffer
 		//deleteAllGMB();
@@ -585,8 +584,7 @@ static int sceNetInit(u32 poolSize, u32 calloutPri, u32 calloutStack, u32 netini
 	netMallocStat.free = poolSize - netMallocStat.maximum;
 
 	// Clear Socket Translator Memory
-	memset(&pdp, 0, sizeof(pdp));
-	memset(&ptp, 0, sizeof(ptp));
+	memset(&adhocSockets, 0, sizeof(adhocSockets));
 	ptpConnectCount.clear();
 	
 	return hleLogSuccessI(SCENET, 0);
@@ -645,7 +643,7 @@ static u32 sceWlanGetSwitchState() {
 
 // Probably a void function, but often returns a useful value.
 static void sceNetEtherNtostr(u32 macPtr, u32 bufferPtr) {
-	DEBUG_LOG(SCENET, "sceNetEtherNtostr(%08x, %08x)", macPtr, bufferPtr);
+	DEBUG_LOG(SCENET, "sceNetEtherNtostr(%08x, %08x) at %08x", macPtr, bufferPtr, currentMIPS->pc);
 
 	if (Memory::IsValidAddress(bufferPtr) && Memory::IsValidAddress(macPtr)) {
 		char *buffer = (char *)Memory::GetPointer(bufferPtr);
@@ -710,7 +708,7 @@ static void sceNetEtherStrton(u32 bufferPtr, u32 macPtr) {
 
 // Write static data since we don't actually manage any memory for sceNet* yet.
 static int sceNetGetMallocStat(u32 statPtr) {
-	WARN_LOG(SCENET, "UNTESTED sceNetGetMallocStat(%x)", statPtr);
+	DEBUG_LOG(SCENET, "UNTESTED sceNetGetMallocStat(%x)", statPtr);
 	if(Memory::IsValidAddress(statPtr))
 		Memory::WriteStruct(statPtr, &netMallocStat);
 	else

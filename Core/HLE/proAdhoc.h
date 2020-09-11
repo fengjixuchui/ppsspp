@@ -248,8 +248,8 @@ typedef struct SceNetAdhocctlNickname {
 typedef struct SceNetAdhocctlParameter {
   s32_le channel;
   SceNetAdhocctlGroupName group_name; // This group name is probably similar to SSID name on AP
-  SceNetAdhocctlBSSId bssid;
-  SceNetAdhocctlNickname nickname;
+  SceNetAdhocctlNickname nickname; // According to the old PSPSDK this is the bssid, but according to the dumped content when using newer firmware this is the nickname (this is also the nickname on VitaSDK)
+  SceNetAdhocctlBSSId bssid; // FIXME: bssid and nickname position might be swapped on older/newer firmware?
 } PACK SceNetAdhocctlParameter;
 
 // Peer Information (internal use only)
@@ -270,7 +270,7 @@ typedef struct SceNetAdhocctlPeerInfoEmu {
   SceNetAdhocctlNickname nickname;
   SceNetEtherAddr mac_addr;
   u16_le padding; //00 00
-  u32_le flags; //00 04 00 00 // State of the peer? Or related to sceNetAdhocAuth_CF4D9BED ?
+  u32_le flags; //00 04 00 00 on KHBBS and FF FF FF FF on Ys vs. Sora no Kiseki // State of the peer? Or related to sceNetAdhocAuth_CF4D9BED ?
   u64_le last_recv; // Need to use the same method with sceKernelGetSystemTimeWide (ie. CoreTiming::GetGlobalTimeUsScaled) to prevent timing issue (ie. in game timeout)
 } PACK SceNetAdhocctlPeerInfoEmu;
 
@@ -303,26 +303,36 @@ typedef struct SceNetAdhocPollSd{
 } PACK SceNetAdhocPollSd;
 
 // PDP Socket Status
-typedef struct SceNetAdhocPdpStat{
-  u32_le next; // struct SceNetAdhocPdpStat * next;
-  s32_le id;
-  SceNetEtherAddr laddr;
-  u16_le lport;
-  u32_le rcv_sb_cc;
+typedef struct SceNetAdhocPdpStat {
+	u32_le next; 
+	s32_le id;
+	SceNetEtherAddr laddr;
+	u16_le lport;
+	u32_le rcv_sb_cc;
 } PACK SceNetAdhocPdpStat;
 
 // PTP Socket Status
 typedef struct SceNetAdhocPtpStat {
-  u32_le next; // Changed the pointer to u32
-  s32_le id;
-  SceNetEtherAddr laddr;
-  SceNetEtherAddr paddr;
-  u16_le lport;
-  u16_le pport;
-  s32_le snd_sb_cc;
-  s32_le rcv_sb_cc;
-  s32_le state;
+	u32_le next; // Changed the pointer to u32
+	s32_le id;
+	SceNetEtherAddr laddr;
+	SceNetEtherAddr paddr;
+	u16_le lport;
+	u16_le pport;
+	s32_le snd_sb_cc;
+	s32_le rcv_sb_cc;
+	s32_le state;
 } PACK SceNetAdhocPtpStat;
+
+// PDP & PTP Socket Union (Internal use only)
+typedef struct AdhocSocket {
+	s32_le type;
+	s32_le flags; // Socket Alert Flags
+	union {
+		SceNetAdhocPdpStat pdp;
+		SceNetAdhocPtpStat ptp;
+	} data;
+} PACK AdhocSocket;
 
 // Gamemode Optional Peer Buffer Data
 typedef struct SceNetAdhocGameModeOptData {
@@ -820,14 +830,16 @@ private:
 extern int actionAfterAdhocMipsCall;
 extern int actionAfterMatchingMipsCall;
 
+#define MAX_SOCKET	255 // FIXME: PSP might not allows more than 255 sockets? Hotshots Tennis doesn't seems to works with socketId > 255
+#define SOCK_PDP	1
+#define SOCK_PTP	2
 // Aux vars
 extern int metasocket;
 extern SceNetAdhocctlParameter parameter;
 extern SceNetAdhocctlAdhocId product_code;
 extern std::thread friendFinderThread;
 extern std::recursive_mutex peerlock;
-extern SceNetAdhocPdpStat * pdp[255];
-extern SceNetAdhocPtpStat * ptp[255];
+extern AdhocSocket* adhocSockets[MAX_SOCKET];
 extern std::map<int, int> ptpConnectCount;
 
 union SockAddrIN4 {
@@ -960,14 +972,9 @@ SceNetAdhocctlScanInfo * findGroup(SceNetEtherAddr * MAC);
 void freeGroupsRecursive(SceNetAdhocctlScanInfo * node);
 
 /**
- * Closes & Deletes all PDP Sockets
+ * Closes & Deletes all PDP & PTP Sockets
  */
-void deleteAllPDP();
-
-/**
- * Closes & Deletes all PTP sockets
- */
-void deleteAllPTP();
+void deleteAllAdhocSockets();
 
 /**
  * Delete Friend from Local List
@@ -1210,6 +1217,11 @@ int getSockNoDelay(int tcpsock);
 * Set TCP Socket TCP_NODELAY (Nagle Algo)
 */
 int setSockNoDelay(int tcpsock, int flag);
+
+/*
+* Set Socket SO_NOSIGPIPE when supported
+*/
+int setSockNoSIGPIPE(int sock, int flag);
 
 /*
 * Set Socket KeepAlive (opt = SO_KEEPALIVE)

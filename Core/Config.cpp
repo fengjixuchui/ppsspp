@@ -501,6 +501,7 @@ static ConfigSetting generalSettings[] = {
 	ConfigSetting("FullscreenOnDoubleclick", &g_Config.bFullscreenOnDoubleclick, true, false, false),
 
 	ReportedConfigSetting("MemStickInserted", &g_Config.bMemStickInserted, true, true, true),
+	ConfigSetting("LoadPlugins", &g_Config.bLoadPlugins, false, true, true),
 
 	ConfigSetting(false),
 };
@@ -817,6 +818,8 @@ static ConfigSetting graphicsSettings[] = {
 
 	ConfigSetting("InflightFrames", &g_Config.iInflightFrames, 3, true, false),
 	ConfigSetting("RenderDuplicateFrames", &g_Config.bRenderDuplicateFrames, false, true, true),
+
+	ConfigSetting("ClearFramebuffersOnFirstUseHack", &g_Config.bClearFramebuffersOnFirstUseHack, false, true, true),
 
 	ConfigSetting(false),
 };
