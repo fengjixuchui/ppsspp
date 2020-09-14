@@ -63,7 +63,6 @@ public:
 		}
 	}
 
-	void SetFramebufferSamplingParams(u16 bufferWidth, u16 bufferHeight, bool forcePoint);
 	bool GetCurrentTextureDebug(GPUDebugBuffer &buffer, int level) override;
 
 	void DeviceLost();
@@ -75,13 +74,13 @@ protected:
 	void ReleaseTexture(TexCacheEntry *entry, bool delete_them) override;
 
 private:
-	void UpdateSamplingParams(TexCacheEntry &entry, bool force);
+	void ApplySamplingParams(const SamplerCacheKey &key);
 	void LoadTextureLevel(TexCacheEntry &entry, ReplacedTexture &replaced, int level, int scaleFactor, Draw::DataFormat dstFmt);
 	Draw::DataFormat GetDestFormat(GETextureFormat format, GEPaletteFormat clutFormat) const;
 
 	TexCacheEntry::TexStatus CheckAlpha(const uint8_t *pixelData, Draw::DataFormat dstFmt, int stride, int w, int h);
 	void UpdateCurrentClut(GEPaletteFormat clutFormat, u32 clutBase, bool clutIndexIsSimple) override;
-	void ApplyTextureFramebuffer(TexCacheEntry *entry, VirtualFramebuffer *framebuffer) override;
+	void ApplyTextureFramebuffer(VirtualFramebuffer *framebuffer, GETextureFormat texFormat, FramebufferNotificationChannel channel) override;
 
 	void BuildTexture(TexCacheEntry *const entry) override;
 

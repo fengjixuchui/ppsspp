@@ -393,7 +393,7 @@ int DoBlockingPtpRecv(int uid, AdhocSocketRequest& req, s64& result) {
 	int ret = recv(uid, (char*)req.buffer, *req.length, MSG_NOSIGNAL);
 	int sockerr = errno;
 
-	// Received Data
+	// Received Data. POSIX: May received 0 bytes when the remote peer already closed the connection.
 	if (ret > 0) {
 		DEBUG_LOG(SCENET, "sceNetAdhocPtpRecv[%i:%u]: Received %u bytes from %s:%u\n", req.id, ptpsocket.lport, ret, mac2str(&ptpsocket.paddr).c_str(), ptpsocket.pport);
 		// Save Length
@@ -966,7 +966,7 @@ static int sceNetAdhocPdpCreate(const char *mac, int port, int bufferSize, u32 u
 					setSockNoSIGPIPE(usocket, 1);
 
 					// Enable Port Re-use, this will allow binding to an already used port, but only one of them can read the data (shared receive buffer?)
-					setsockopt(usocket, SOL_SOCKET, SO_REUSEADDR, (const char*)&one, sizeof(one));
+					setSockReuseAddrPort(usocket);
 
 					// Binding Information for local Port
 					sockaddr_in addr;
@@ -1413,7 +1413,7 @@ static int sceNetAdhocPdpRecv(int id, void *addr, void * port, void *buf, void *
 				received = recvfrom(pdpsocket.id, (char*)buf, *len, MSG_NOSIGNAL, (sockaddr*)&sin, &sinlen);
 				error = errno;
 
-				if (received == SOCKET_ERROR) {
+				if (received == SOCKET_ERROR && (error == EAGAIN || error == EWOULDBLOCK)) {
 					if (flag == 0) {
 						// Simulate blocking behaviour with non-blocking socket
 						u64 threadSocketId = ((u64)__KernelGetCurThread()) << 32 | pdpsocket.id;
@@ -1553,10 +1553,8 @@ int PollAdhocSocket(SceNetAdhocPollSd* sds, int count, int timeout) {
 	if (affectedsockets > 0) {
 		affectedsockets = 0;
 		for (int i = 0; i < count; i++) {
-			s32_le* fd_flags;
 			if (sds[i].id > 0 && sds[i].id <= MAX_SOCKET && adhocSockets[sds[i].id - 1] != NULL) {
 				auto sock = adhocSockets[sds[i].id - 1];
-				fd_flags = &sock->flags;
 				if (sock->type == SOCK_PTP) {
 					fd = sock->data.ptp.id;					
 				}
@@ -1572,10 +1570,10 @@ int PollAdhocSocket(SceNetAdhocPollSd* sds, int count, int timeout) {
 					sds[i].revents |= ADHOC_EV_ALERT; // Does Alert can be raised on revents regardless of events bitmask?
 				if (sds[i].revents) affectedsockets++;
 
-				if (*fd_flags & ADHOC_F_ALERTPOLL) {
+				if (sock->flags & ADHOC_F_ALERTPOLL) {
 					affectedsockets = ERROR_NET_ADHOC_SOCKET_ALERTED;
 					// FIXME: Should we clear the flag after alert signaled?
-					*fd_flags &= ~ADHOC_F_ALERTPOLL;
+                    sock->flags &= ~ADHOC_F_ALERTPOLL;
 					break;
 				}
 			}
@@ -2605,130 +2603,120 @@ static int sceNetAdhocPtpOpen(const char *srcmac, int sport, const char *dstmac,
 			// Random Port required
 			if (sport == 0) {
 				isClient = true;
-				// Find unused Port
-				// while (sport == 0 || _IsPTPPortInUse(sport)) {
-				// 	// Generate Port Number
-				// 	sport = (uint16_t)_getRandomNumber(65535);
-				// }
-			}
-			
-			// Valid Ports
-			if (!isPTPPortInUse(sport) /*&& dport != 0*/) {
 				//sport 0 should be shifted back to 0 when using offset Phantasy Star Portable 2 use this
-				if (sport == 0) sport = -(int)portOffset;
-				// Valid Arguments
-				if (bufsize > 0 && rexmt_int > 0 && rexmt_cnt > 0) {
-					// Create Infrastructure Socket
-					int tcpsocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-					
-					// Valid Socket produced
-					if (tcpsocket > 0) {
-						// Change socket buffer size when necessary
-						if (getSockBufferSize(tcpsocket, SO_SNDBUF) < bufsize) setSockBufferSize(tcpsocket, SO_SNDBUF, bufsize);
-						if (getSockBufferSize(tcpsocket, SO_RCVBUF) < bufsize) setSockBufferSize(tcpsocket, SO_RCVBUF, bufsize);
-
-						// Enable KeepAlive
-						setSockKeepAlive(tcpsocket, true, rexmt_int / 1000000L, rexmt_cnt);
-
-						// Ignore SIGPIPE when supported (ie. BSD/MacOS)
-						setSockNoSIGPIPE(tcpsocket, 1);
-
-						// Enable Port Re-use
-						setsockopt(tcpsocket, SOL_SOCKET, SO_REUSEADDR, (const char*)&one, sizeof(one));
-
-						// Apply Default Send Timeout Settings to Socket
-						setSockTimeout(tcpsocket, SO_SNDTIMEO, rexmt_int);
-
-						// Disable Nagle Algo to send immediately. Or may be we shouldn't disable Nagle since there is PtpFlush function?
-						if (g_Config.bTCPNoDelay) setSockNoDelay(tcpsocket, 1);
-						
-						// Binding Information for local Port
-						sockaddr_in addr;
-						// addr.sin_len = sizeof(addr);
-						addr.sin_family = AF_INET;
-						addr.sin_addr.s_addr = INADDR_ANY;
-						if (isLocalServer) {
-							getLocalIp(&addr);
-						}
-						addr.sin_port = htons(sport + portOffset);
-						
-						// Bound Socket to local Port
-						if (bind(tcpsocket, (sockaddr *)&addr, sizeof(addr)) == 0) {
-							// Update sport with the port assigned internal->lport = ntohs(local.sin_port)
-							socklen_t len = sizeof(addr);
-							if (getsockname(tcpsocket, (sockaddr *)&addr, &len) == 0) {
-								sport = ntohs(addr.sin_port) - portOffset;
-							}
-							
-							// Allocate Memory
-							AdhocSocket * internal = (AdhocSocket*)malloc(sizeof(AdhocSocket));
-							
-							// Allocated Memory
-							if (internal != NULL) {
-								// Find Free Translator ID
-								int i = 0; 
-								for (; i < MAX_SOCKET; i++) if (adhocSockets[i] == NULL) break;
-								
-								// Found Free Translator ID
-								if (i < MAX_SOCKET) {
-									// Clear Memory
-									memset(internal, 0, sizeof(AdhocSocket));
-									
-									// Socket Type
-									internal->type = SOCK_PTP;
-
-									// Copy Infrastructure Socket ID
-									internal->data.ptp.id = tcpsocket;
-									
-									// Copy Address Information
-									internal->data.ptp.laddr = *saddr;
-									internal->data.ptp.paddr = *daddr;
-									internal->data.ptp.lport = sport;
-									internal->data.ptp.pport = dport;
-									
-									// Set Buffer Size
-									internal->data.ptp.rcv_sb_cc = bufsize;
-									
-									// Link PTP Socket
-									adhocSockets[i] = internal;
-									ptpConnectCount[i] = 0;
-									
-									// Add Port Forward to Router. We may not even need to forward this local port, since PtpOpen usually have port 0 (any port) as source port and followed by PtpConnect (which mean acting as Client), right?
-									//sceNetPortOpen("TCP", sport);
-									if (!isClient)
-										UPnP_Add(IP_PROTOCOL_TCP, isOriPort ? sport : sport + portOffset, sport + portOffset); // g_PortManager.Add(IP_PROTOCOL_TCP, isOriPort ? sport : sport + portOffset, sport + portOffset);
-									
-									// Switch to non-blocking for futher usage
-									changeBlockingMode(tcpsocket, 1);
-
-									// Return PTP Socket Pointer
-									return i + 1;
-								}
-								
-								// Free Memory
-								free(internal);
-							}
-						}
-						else {
-							ERROR_LOG(SCENET, "Socket error (%i) when binding port %u", errno, ntohs(addr.sin_port));
-							auto n = GetI18NCategory("Networking");
-							host->NotifyUserMessage(std::string(n->T("Failed to Bind Port")) + " " + std::to_string(sport + portOffset) + "\n" + std::string(n->T("Please change your Port Offset")), 3.0, 0x0000ff);
-						}
-						
-						// Close Socket
-						closesocket(tcpsocket);
-
-						// Port not available (exclusively in use?)
-						return ERROR_NET_ADHOC_PORT_IN_USE; // ERROR_NET_ADHOC_PORT_NOT_AVAIL;
-					}
-				}
-				
-				// Invalid Arguments
-				return ERROR_NET_ADHOC_INVALID_ARG;
+				sport = -(int)portOffset;
 			}
 			
-			// Invalid Ports
-			return ERROR_NET_ADHOC_PORT_IN_USE; // ERROR_NET_ADHOC_INVALID_PORT;
+			// Valid Arguments
+			if (bufsize > 0 && rexmt_int > 0 && rexmt_cnt > 0) {
+				// Create Infrastructure Socket
+				int tcpsocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+
+				// Valid Socket produced
+				if (tcpsocket > 0) {
+					// Change socket buffer size when necessary
+					if (getSockBufferSize(tcpsocket, SO_SNDBUF) < bufsize) setSockBufferSize(tcpsocket, SO_SNDBUF, bufsize);
+					if (getSockBufferSize(tcpsocket, SO_RCVBUF) < bufsize) setSockBufferSize(tcpsocket, SO_RCVBUF, bufsize);
+
+					// Enable KeepAlive
+					setSockKeepAlive(tcpsocket, true, rexmt_int / 1000000L, rexmt_cnt);
+
+					// Ignore SIGPIPE when supported (ie. BSD/MacOS)
+					setSockNoSIGPIPE(tcpsocket, 1);
+
+					// Enable Port Re-use
+					setSockReuseAddrPort(tcpsocket);
+
+					// Apply Default Send Timeout Settings to Socket
+					setSockTimeout(tcpsocket, SO_SNDTIMEO, rexmt_int);
+
+					// Disable Nagle Algo to send immediately. Or may be we shouldn't disable Nagle since there is PtpFlush function?
+					if (g_Config.bTCPNoDelay) 
+						setSockNoDelay(tcpsocket, 1);
+
+					// Binding Information for local Port
+					sockaddr_in addr;
+					// addr.sin_len = sizeof(addr);
+					addr.sin_family = AF_INET;
+					addr.sin_addr.s_addr = INADDR_ANY;
+					if (isLocalServer) {
+						getLocalIp(&addr);
+					}
+					addr.sin_port = htons(sport + portOffset);
+
+					// Bound Socket to local Port
+					if (bind(tcpsocket, (sockaddr*)&addr, sizeof(addr)) == 0) {
+						// Update sport with the port assigned internal->lport = ntohs(local.sin_port)
+						socklen_t len = sizeof(addr);
+						if (getsockname(tcpsocket, (sockaddr*)&addr, &len) == 0) {
+							sport = ntohs(addr.sin_port) - portOffset;
+						}
+
+						// Allocate Memory
+						AdhocSocket* internal = (AdhocSocket*)malloc(sizeof(AdhocSocket));
+
+						// Allocated Memory
+						if (internal != NULL) {
+							// Find Free Translator ID
+							int i = 0;
+							for (; i < MAX_SOCKET; i++) if (adhocSockets[i] == NULL) break;
+
+							// Found Free Translator ID
+							if (i < MAX_SOCKET) {
+								// Clear Memory
+								memset(internal, 0, sizeof(AdhocSocket));
+
+								// Socket Type
+								internal->type = SOCK_PTP;
+								internal->send_timeout = rexmt_int;
+
+								// Copy Infrastructure Socket ID
+								internal->data.ptp.id = tcpsocket;
+
+								// Copy Address Information
+								internal->data.ptp.laddr = *saddr;
+								internal->data.ptp.paddr = *daddr;
+								internal->data.ptp.lport = sport;
+								internal->data.ptp.pport = dport;
+
+								// Set Buffer Size
+								internal->data.ptp.rcv_sb_cc = bufsize;
+
+								// Link PTP Socket
+								adhocSockets[i] = internal;
+
+								// Add Port Forward to Router. We may not even need to forward this local port, since PtpOpen usually have port 0 (any port) as source port and followed by PtpConnect (which mean acting as Client), right?
+								//sceNetPortOpen("TCP", sport);
+								if (!isClient)
+									UPnP_Add(IP_PROTOCOL_TCP, isOriPort ? sport : sport + portOffset, sport + portOffset); 
+
+								// Switch to non-blocking for futher usage
+								changeBlockingMode(tcpsocket, 1);
+
+								// Return PTP Socket Pointer
+								return i + 1;
+							}
+
+							// Free Memory
+							free(internal);
+						}
+					}
+					else {
+						ERROR_LOG(SCENET, "Socket error (%i) when binding port %u", errno, ntohs(addr.sin_port));
+						auto n = GetI18NCategory("Networking");
+						host->NotifyUserMessage(std::string(n->T("Failed to Bind Port")) + " " + std::to_string(sport + portOffset) + "\n" + std::string(n->T("Please change your Port Offset")), 3.0, 0x0000ff);
+					}
+
+					// Close Socket
+					closesocket(tcpsocket);
+
+					// Port not available (exclusively in use?)
+					return ERROR_NET_ADHOC_INVALID_PORT; // ERROR_NET_ADHOC_PORT_IN_USE; // ERROR_NET_ADHOC_PORT_NOT_AVAIL;
+				}
+			}
+
+			// Invalid Arguments
+			return ERROR_NET_ADHOC_INVALID_ARG;
 		}
 		
 		// Invalid Addresses
@@ -2747,10 +2735,11 @@ int AcceptPtpSocket(int ptpId, int newsocket, sockaddr_in& peeraddr, SceNetEther
 	setSockNoSIGPIPE(newsocket, 1);
 
 	// Enable Port Re-use
-	setsockopt(newsocket, SOL_SOCKET, SO_REUSEADDR, (const char*)&one, sizeof(one));
+	setSockReuseAddrPort(newsocket);
 
 	// Disable Nagle Algo to send immediately. Or may be we shouldn't disable Nagle since there is PtpFlush function?
-	if (g_Config.bTCPNoDelay) setSockNoDelay(newsocket, 1);
+	if (g_Config.bTCPNoDelay) 
+		setSockNoDelay(newsocket, 1);
 
 	// Local Address Information
 	sockaddr_in local;
@@ -2807,7 +2796,6 @@ int AcceptPtpSocket(int ptpId, int newsocket, sockaddr_in& peeraddr, SceNetEther
 
 					// Link PTP Socket
 					adhocSockets[i] = internal;
-					ptpConnectCount[i] = 0;
 
 					// Add Port Forward to Router. Or may be doesn't need to be forwarded since local port already accessible from outside if others were able to connect & get accepted at this point, right?
 					//sceNetPortOpen("TCP", internal->lport);
@@ -2881,7 +2869,7 @@ static int sceNetAdhocPtpAccept(int id, u32 peerMacAddrPtr, u32 peerPortPtr, int
 					int newsocket = accept(ptpsocket.id, (sockaddr*)&peeraddr, &peeraddrlen);
 					int error = errno;
 
-					if (newsocket == SOCKET_ERROR) {
+					if (newsocket == SOCKET_ERROR && (error == EAGAIN || error == EWOULDBLOCK)) {
 						if (flag == 0) {
 							// Simulate blocking behaviour with non-blocking socket
 							u64 threadSocketId = ((u64)__KernelGetCurThread()) << 32 | ptpsocket.id;
@@ -2983,7 +2971,7 @@ static int sceNetAdhocPtpConnect(int id, int timeout, int flag) {
 
 					// Instant Connection (Lucky!)
 					if (connectresult != SOCKET_ERROR || errorcode == EISCONN) {
-						ptpConnectCount[id - 1]++;
+						socket->connectCount++;
 						// Set Connected State
 						ptpsocket.state = ADHOC_PTP_STATE_ESTABLISHED;
 						
@@ -2994,9 +2982,9 @@ static int sceNetAdhocPtpConnect(int id, int timeout, int flag) {
 					
 					// Connection in Progress
 					else if (connectresult == SOCKET_ERROR && connectInProgress(errorcode)) {
-						ptpConnectCount[id - 1]++;
+						socket->connectCount++;
 						// Nonblocking Mode. First attempt need to be blocking for GvG Next Plus to work, even though it used non-blocking flag but only try to connect once per socket, which mean treating it just like blocking socket instead of non-blocking :(
-						if (flag && ptpConnectCount[id - 1] > 1) {
+						if (flag && socket->connectCount > 1) {
 							//if (errorcode == EALREADY) return ERROR_NET_ADHOC_BUSY;
 							return ERROR_NET_ADHOC_WOULD_BLOCK;
 						}
@@ -3004,7 +2992,7 @@ static int sceNetAdhocPtpConnect(int id, int timeout, int flag) {
 						else {
 							// Simulate blocking behaviour with non-blocking socket
 							u64 threadSocketId = ((u64)__KernelGetCurThread()) << 32 | ptpsocket.id;
-							return WaitBlockingAdhocSocket(threadSocketId, PTP_CONNECT, id, nullptr, nullptr, timeout, nullptr, nullptr, "ptp connect");
+							return WaitBlockingAdhocSocket(threadSocketId, PTP_CONNECT, id, nullptr, nullptr, (flag)? socket->send_timeout: timeout, nullptr, nullptr, "ptp connect");
 						}
 					}
 				}
@@ -3051,7 +3039,6 @@ int NetAdhocPtp_Close(int id, int unknown) {
 
 				// Free Reference
 				adhocSockets[id - 1] = NULL;
-				ptpConnectCount.erase(id - 1);
 
 				// Success
 				return 0;
@@ -3111,141 +3098,130 @@ static int sceNetAdhocPtpListen(const char *srcmac, int sport, int bufsize, int 
 		if (saddr != NULL && isLocalMAC(saddr)) {
 			// Random Port required
 			if (sport == 0) {
-				// Find unused Port
-				// while (sport == 0 || __IsPTPPortInUse(sport))
-				// {
-				// 	// Generate Port Number
-				// 	sport = (uint16_t)_getRandomNumber(65535);
-				// }
-			}
-			
-			// Valid Ports
-			if (!isPTPPortInUse(sport)) {
 				//sport 0 should be shifted back to 0 when using offset Phantasy Star Portable 2 use this
-				if (sport == 0) sport = -(int)portOffset;
-				// Valid Arguments
-				if (bufsize > 0 && rexmt_int > 0 && rexmt_cnt > 0 && backlog > 0)
-				{
-					// Create Infrastructure Socket
-					int tcpsocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-					
-					// Valid Socket produced
-					if (tcpsocket > 0) {
-						// Change socket buffer size when necessary
-						if (getSockBufferSize(tcpsocket, SO_SNDBUF) < bufsize) setSockBufferSize(tcpsocket, SO_SNDBUF, bufsize);
-						if (getSockBufferSize(tcpsocket, SO_RCVBUF) < bufsize) setSockBufferSize(tcpsocket, SO_RCVBUF, bufsize);
-
-						// Enable KeepAlive
-						setSockKeepAlive(tcpsocket, true, rexmt_int / 1000000L, rexmt_cnt);
-
-						// Ignore SIGPIPE when supported (ie. BSD/MacOS)
-						setSockNoSIGPIPE(tcpsocket, 1);
-
-						// Enable Port Re-use
-						setsockopt(tcpsocket, SOL_SOCKET, SO_REUSEADDR, (const char*)&one, sizeof(one));
-
-						// Apply Default Receive Timeout Settings to Socket
-						setSockTimeout(tcpsocket, SO_RCVTIMEO, rexmt_int);
-
-						// Disable Nagle Algo to send immediately. Or may be we shouldn't disable Nagle since there is PtpFlush function?
-						if (g_Config.bTCPNoDelay) setSockNoDelay(tcpsocket, 1);
-						
-						// Binding Information for local Port
-						sockaddr_in addr;
-						addr.sin_family = AF_INET;
-						addr.sin_addr.s_addr = INADDR_ANY;
-						if (isLocalServer) {
-							getLocalIp(&addr);
-						}
-						addr.sin_port = htons(sport + portOffset);
-						
-						int iResult = 0;
-						// Bound Socket to local Port
-						if ((iResult = bind(tcpsocket, (sockaddr *)&addr, sizeof(addr))) == 0) {
-							// Update sport with the port assigned internal->lport = ntohs(local.sin_port)
-							socklen_t len = sizeof(addr);
-							if (getsockname(tcpsocket, (sockaddr*)&addr, &len) == 0) {
-								sport = ntohs(addr.sin_port) - portOffset;
-							}
-							// Switch into Listening Mode
-							if ((iResult = listen(tcpsocket, backlog)) == 0) {
-								// Allocate Memory
-								AdhocSocket * internal = (AdhocSocket*)malloc(sizeof(AdhocSocket));
-								
-								// Allocated Memory
-								if (internal != NULL) {
-									// Find Free Translator ID
-									int i = 0; 
-									for (; i < MAX_SOCKET; i++) if (adhocSockets[i] == NULL) break;
-									
-									// Found Free Translator ID
-									if (i < MAX_SOCKET) {
-										// Clear Memory
-										memset(internal, 0, sizeof(AdhocSocket));
-										
-										// Socket Type
-										internal->type = SOCK_PTP;
-
-										// Copy Infrastructure Socket ID
-										internal->data.ptp.id = tcpsocket;
-										
-										// Copy Address Information
-										internal->data.ptp.laddr = *saddr;
-										internal->data.ptp.lport = sport;
-										
-										// Flag Socket as Listener
-										internal->data.ptp.state = ADHOC_PTP_STATE_LISTEN;
-										
-										// Set Buffer Size
-										internal->data.ptp.rcv_sb_cc = bufsize;
-										
-										// Link PTP Socket
-										adhocSockets[i] = internal;
-										ptpConnectCount[i] = 0;
-										
-										// Add Port Forward to Router
-										//sceNetPortOpen("TCP", sport);
-										UPnP_Add(IP_PROTOCOL_TCP, isOriPort ? sport : sport + portOffset, sport + portOffset); // g_PortManager.Add(IP_PROTOCOL_TCP, isOriPort ? sport : sport + portOffset, sport + portOffset);
-										
-										// Switch to non-blocking for futher usage
-										changeBlockingMode(tcpsocket, 1);
-
-										// Return PTP Socket Pointer
-										return i + 1;
-									}
-									
-									// Free Memory
-									free(internal);
-								}
-							}
-						}
-						else {
-							auto n = GetI18NCategory("Networking");
-							host->NotifyUserMessage(std::string(n->T("Failed to Bind Port")) + " " + std::to_string(sport + portOffset) + "\n" + std::string(n->T("Please change your Port Offset")), 3.0, 0x0000ff);
-						}
-						
-						if (iResult == SOCKET_ERROR) {
-							int error = errno;
-							ERROR_LOG(SCENET, "sceNetAdhocPtpListen[%i]: Socket Error (%i)", sport, error);
-						}
-
-						// Close Socket
-						closesocket(tcpsocket);
-
-						// Port not available (exclusively in use?)
-						return ERROR_NET_ADHOC_PORT_IN_USE; // ERROR_NET_ADHOC_PORT_NOT_AVAIL;
-					}
-					
-					// Socket not available
-					return ERROR_NET_ADHOC_SOCKET_ID_NOT_AVAIL;
-				}
-				
-				// Invalid Arguments
-				return ERROR_NET_ADHOC_INVALID_ARG;
+				sport = -(int)portOffset;
 			}
 			
-			// Invalid Ports
-			return ERROR_NET_ADHOC_PORT_IN_USE;
+			// Valid Arguments
+			if (bufsize > 0 && rexmt_int > 0 && rexmt_cnt > 0 && backlog > 0)
+			{
+				// Create Infrastructure Socket
+				int tcpsocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+
+				// Valid Socket produced
+				if (tcpsocket > 0) {
+					// Change socket buffer size when necessary
+					if (getSockBufferSize(tcpsocket, SO_SNDBUF) < bufsize) setSockBufferSize(tcpsocket, SO_SNDBUF, bufsize);
+					if (getSockBufferSize(tcpsocket, SO_RCVBUF) < bufsize) setSockBufferSize(tcpsocket, SO_RCVBUF, bufsize);
+
+					// Enable KeepAlive
+					setSockKeepAlive(tcpsocket, true, rexmt_int / 1000000L, rexmt_cnt);
+
+					// Ignore SIGPIPE when supported (ie. BSD/MacOS)
+					setSockNoSIGPIPE(tcpsocket, 1);
+
+					// Enable Port Re-use
+					setSockReuseAddrPort(tcpsocket);
+
+					// Apply Default Receive Timeout Settings to Socket
+					setSockTimeout(tcpsocket, SO_RCVTIMEO, rexmt_int);
+
+					// Disable Nagle Algo to send immediately. Or may be we shouldn't disable Nagle since there is PtpFlush function?
+					if (g_Config.bTCPNoDelay) 
+						setSockNoDelay(tcpsocket, 1);
+
+					// Binding Information for local Port
+					sockaddr_in addr;
+					addr.sin_family = AF_INET;
+					addr.sin_addr.s_addr = INADDR_ANY;
+					if (isLocalServer) {
+						getLocalIp(&addr);
+					}
+					addr.sin_port = htons(sport + portOffset);
+
+					int iResult = 0;
+					// Bound Socket to local Port
+					if ((iResult = bind(tcpsocket, (sockaddr*)&addr, sizeof(addr))) == 0) {
+						// Update sport with the port assigned internal->lport = ntohs(local.sin_port)
+						socklen_t len = sizeof(addr);
+						if (getsockname(tcpsocket, (sockaddr*)&addr, &len) == 0) {
+							sport = ntohs(addr.sin_port) - portOffset;
+						}
+						// Switch into Listening Mode
+						if ((iResult = listen(tcpsocket, backlog)) == 0) {
+							// Allocate Memory
+							AdhocSocket* internal = (AdhocSocket*)malloc(sizeof(AdhocSocket));
+
+							// Allocated Memory
+							if (internal != NULL) {
+								// Find Free Translator ID
+								int i = 0;
+								for (; i < MAX_SOCKET; i++) if (adhocSockets[i] == NULL) break;
+
+								// Found Free Translator ID
+								if (i < MAX_SOCKET) {
+									// Clear Memory
+									memset(internal, 0, sizeof(AdhocSocket));
+
+									// Socket Type
+									internal->type = SOCK_PTP;
+									internal->recv_timeout = rexmt_int;
+
+									// Copy Infrastructure Socket ID
+									internal->data.ptp.id = tcpsocket;
+
+									// Copy Address Information
+									internal->data.ptp.laddr = *saddr;
+									internal->data.ptp.lport = sport;
+
+									// Flag Socket as Listener
+									internal->data.ptp.state = ADHOC_PTP_STATE_LISTEN;
+
+									// Set Buffer Size
+									internal->data.ptp.rcv_sb_cc = bufsize;
+
+									// Link PTP Socket
+									adhocSockets[i] = internal;
+
+									// Add Port Forward to Router
+									//sceNetPortOpen("TCP", sport);
+									UPnP_Add(IP_PROTOCOL_TCP, isOriPort ? sport : sport + portOffset, sport + portOffset);
+
+									// Switch to non-blocking for futher usage
+									changeBlockingMode(tcpsocket, 1);
+
+									// Return PTP Socket Pointer
+									return i + 1;
+								}
+
+								// Free Memory
+								free(internal);
+							}
+						}
+					}
+					else {
+						auto n = GetI18NCategory("Networking");
+						host->NotifyUserMessage(std::string(n->T("Failed to Bind Port")) + " " + std::to_string(sport + portOffset) + "\n" + std::string(n->T("Please change your Port Offset")), 3.0, 0x0000ff);
+					}
+
+					if (iResult == SOCKET_ERROR) {
+						int error = errno;
+						ERROR_LOG(SCENET, "sceNetAdhocPtpListen[%i]: Socket Error (%i)", sport, error);
+					}
+
+					// Close Socket
+					closesocket(tcpsocket);
+
+					// Port not available (exclusively in use?)
+					return ERROR_NET_ADHOC_INVALID_PORT; //ERROR_NET_ADHOC_PORT_IN_USE; // ERROR_NET_ADHOC_PORT_NOT_AVAIL;
+				}
+
+				// Socket not available
+				return ERROR_NET_ADHOC_SOCKET_ID_NOT_AVAIL;
+			}
+
+			// Invalid Arguments
+			return ERROR_NET_ADHOC_INVALID_ARG;
 		}
 		
 		// Invalid Addresses
@@ -3387,11 +3363,11 @@ static int sceNetAdhocPtpRecv(int id, u32 dataAddr, u32 dataSizeAddr, int timeou
 					int received = 0;
 					int error = 0;
 
-					// Receive Data
+					// Receive Data. POSIX: May received 0 bytes when the remote peer already closed the connection.
 					received = recv(ptpsocket.id, (char*)buf, *len, MSG_NOSIGNAL);
 					error = errno;
 
-					if (received == SOCKET_ERROR) {
+					if (received == SOCKET_ERROR && (error == EAGAIN || error == EWOULDBLOCK)) {
 						if (flag == 0) {
 							// Simulate blocking behaviour with non-blocking socket
 							u64 threadSocketId = ((u64)__KernelGetCurThread()) << 32 | ptpsocket.id;

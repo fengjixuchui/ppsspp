@@ -77,7 +77,6 @@ SceNetAdhocctlAdhocId product_code;
 std::thread friendFinderThread;
 std::recursive_mutex peerlock;
 AdhocSocket* adhocSockets[MAX_SOCKET];
-std::map<int, int> ptpConnectCount;
 std::vector<std::string> chatLog;
 std::string name = "";
 std::string incoming = "";
@@ -229,6 +228,10 @@ SceNetAdhocctlPeerInfo * findFriend(SceNetEtherAddr * MAC) {
 int IsSocketReady(int fd, bool readfd, bool writefd, int* errorcode, int timeoutUS) {
 	fd_set readfds, writefds;
 	timeval tval;
+
+	// Avoid getting Fatal signal 6 (SIGABRT) on linux/android
+	if (fd < 0)
+	    return SOCKET_ERROR;
 
 	FD_ZERO(&readfds);
 	writefds = readfds;
@@ -1318,12 +1321,14 @@ int friendFinder(){
 							closesocket(metasocket);
 							metasocket = (int)INVALID_SOCKET;
 							host->NotifyUserMessage(std::string(n->T("Disconnected from AdhocServer")) + " (" + std::string(n->T("Error")) + ": " + std::to_string(error) + ")", 2.0, 0x0000ff);
+							// Mark all friends as timedout since we won't be able to detects disconnected friends anymore without being connected to Adhoc Server
+							timeoutFriendsRecursive(friends);
 						}
 					}
 					else {
 						// Update Ping Time
 						lastping = now;
-						DEBUG_LOG(SCENET, "FriendFinder: Sending OPCODE_PING (%llu)", now);
+						DEBUG_LOG(SCENET, "FriendFinder: Sending OPCODE_PING (%llu)", static_cast<unsigned long long>(now));
 					}
 				}
 			}
@@ -1840,6 +1845,16 @@ int setSockNoSIGPIPE(int sock, int flag) {
 	return -1;
 }
 
+int setSockReuseAddrPort(int sock) {
+	int opt = 1;
+	// Should we set SO_BROADCAST too for SO_REUSEADDR to works like SO_REUSEPORT ?
+	// Set SO_REUSEPORT also when supported (ie. Android)
+#if defined(SO_REUSEPORT)
+	setsockopt(sock, SOL_SOCKET, SO_REUSEPORT, (const char*)&opt, sizeof(opt));
+#endif
+	return setsockopt(sock, SOL_SOCKET, SO_REUSEADDR, (const char*)&opt, sizeof(opt));
+}
+
 #if !defined(TCP_KEEPIDLE)
 #define TCP_KEEPIDLE	TCP_KEEPALIVE //TCP_KEEPIDLE on Linux is equivalent to TCP_KEEPALIVE on macOS
 #endif
@@ -1938,8 +1953,8 @@ int initNetwork(SceNetAdhocctlAdhocId *adhoc_id){
 	// (may not works in WinXP/2003 for IPv4 due to "Weak End System" model)
 	if (((uint8_t*)&g_adhocServerIP.in.sin_addr.s_addr)[0] == 0x7f) { // (serverIp.S_un.S_un_b.s_b1 == 0x7f) 
 		int on = 1;
-		setsockopt(metasocket, SOL_SOCKET, SO_REUSEADDR, (const char*)&on, sizeof(on));
 		setsockopt(metasocket, SOL_SOCKET, SO_DONTROUTE, (const char*)&on, sizeof(on));
+		setSockReuseAddrPort(metasocket);
 
 		g_localhostIP.in.sin_port = 0;
 		// Bind Local Address to Socket
