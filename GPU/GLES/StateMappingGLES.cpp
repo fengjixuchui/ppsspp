@@ -21,9 +21,9 @@
 
 
 #include "StateMappingGLES.h"
-#include "profiler/profiler.h"
-#include "gfx/gl_debug_log.h"
-#include "thin3d/GLRenderManager.h"
+#include "Common/Profiler/Profiler.h"
+#include "Common/GPU/OpenGL/GLDebugLog.h"
+#include "Common/GPU/OpenGL/GLRenderManager.h"
 
 #include "GPU/Math3D.h"
 #include "GPU/GPUState.h"

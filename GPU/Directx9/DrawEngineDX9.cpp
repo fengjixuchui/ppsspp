@@ -26,7 +26,7 @@
 #include "Core/Config.h"
 #include "Core/CoreTiming.h"
 
-#include "gfx/d3d9_state.h"
+#include "Common/GPU/D3D9/D3D9StateCache.h"
 
 #include "GPU/Math3D.h"
 #include "GPU/GPUState.h"
@@ -315,7 +315,7 @@ void DrawEngineDX9::DoFlush() {
 	int curRenderStepId = draw_->GetCurrentStepId();
 	if (lastRenderStepId_ != curRenderStepId) {
 		// Dirty everything that has dynamic state that will need re-recording.
-		gstate_c.Dirty(DIRTY_VIEWPORTSCISSOR_STATE);
+		gstate_c.Dirty(DIRTY_VIEWPORTSCISSOR_STATE | DIRTY_TEXTURE_IMAGE | DIRTY_TEXTURE_PARAMS);
 		lastRenderStepId_ = curRenderStepId;
 	}
 

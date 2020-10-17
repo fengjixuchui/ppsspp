@@ -27,14 +27,14 @@
 #include "GPU/Directx9/FramebufferManagerDX9.h"
 #include "GPU/Directx9/ShaderManagerDX9.h"
 #include "GPU/Directx9/DepalettizeShaderDX9.h"
-#include "gfx/d3d9_state.h"
+#include "Common/GPU/D3D9/D3D9StateCache.h"
 #include "GPU/Common/FramebufferManagerCommon.h"
 #include "GPU/Common/TextureDecoder.h"
 #include "Core/Config.h"
 #include "Core/Host.h"
 
 #include "ext/xxhash.h"
-#include "math/math_util.h"
+#include "Common/Math/math_util.h"
 
 
 namespace DX9 {
@@ -92,15 +92,8 @@ void TextureCacheDX9::ReleaseTexture(TexCacheEntry *entry, bool delete_them) {
 	}
 }
 
-void TextureCacheDX9::ForgetLastTexture() {
-	InvalidateLastTexture();
-	gstate_c.Dirty(DIRTY_TEXTURE_PARAMS);
-}
-
-void TextureCacheDX9::InvalidateLastTexture(TexCacheEntry *entry) {
-	if (!entry || entry->texturePtr == lastBoundTexture) {
-		lastBoundTexture = INVALID_TEX;
-	}
+void TextureCacheDX9::InvalidateLastTexture() {
+	lastBoundTexture = INVALID_TEX;
 }
 
 D3DFORMAT getClutDestFormat(GEPaletteFormat format) {
@@ -690,7 +683,7 @@ void TextureCacheDX9::LoadTextureLevel(TexCacheEntry &entry, ReplacedTexture &re
 }
 
 bool TextureCacheDX9::GetCurrentTextureDebug(GPUDebugBuffer &buffer, int level) {
-	SetTexture(true);
+	SetTexture();
 	ApplyTexture();
 	int w = gstate.getTextureWidth(level);
 	int h = gstate.getTextureHeight(level);

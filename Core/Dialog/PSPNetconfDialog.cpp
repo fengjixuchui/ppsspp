@@ -19,7 +19,7 @@
 #include "Common/CommonWindows.h"
 #endif
 #include <TimeUtil.h>
-#include "i18n/i18n.h"
+#include "Common/Data/Text/I18n.h"
 #include "Common/Serialize/Serializer.h"
 #include "Common/Serialize/SerializeFuncs.h"
 #include "Core/Config.h"
@@ -31,7 +31,7 @@
 #include "Core/HLE/sceNet.h"
 #include "Core/HLE/sceNetAdhoc.h"
 #include "Core/Dialog/PSPNetconfDialog.h"
-#include "ext/native/util/text/utf8.h"
+#include "Common/Data/Encoding/Utf8.h"
 
 
 #define NETCONF_CONNECT_APNET 0
@@ -44,9 +44,8 @@
 static const float FONT_SCALE = 0.65f;
 
 // Needs testing.
-const static int NET_INIT_DELAY_US = 300000;
-const static int NET_SHUTDOWN_DELAY_US = 260000;
-const static int NET_RUNNING_DELAY_US = 1000000; // KHBBS is showing adhoc dialog for about 3-4 seconds, but feels too long, so we're faking it to 1 sec instead to let players read the text
+const static int NET_INIT_DELAY_US = 200000; 
+const static int NET_SHUTDOWN_DELAY_US = 200000; 
 const static int NET_CONNECT_TIMEOUT = 15000000; // Using 15 secs to match the timeout on Adhoc Server side (SERVER_USER_TIMEOUT)
 
 struct ScanInfos {
@@ -91,7 +90,7 @@ int PSPNetconfDialog::Init(u32 paramAddr) {
 	connResult = -1;
 	scanInfosAddr = 0;
 	scanStep = 0;
-	startTime = (u64)(real_time_now() * 1000000.0);
+	startTime = (u64)(time_now_d() * 1000000.0);
 
 	StartFade(true);
 	return 0;
@@ -252,7 +251,7 @@ int PSPNetconfDialog::Update(int animSpeed) {
 	UpdateButtons();
 	auto di = GetI18NCategory("Dialog");
 	auto err = GetI18NCategory("Error");
-	u64 now = (u64)(real_time_now() * 1000000.0);
+	u64 now = (u64)(time_now_d() * 1000000.0);
 	
 	// It seems JPCSP doesn't check for NETCONF_STATUS_APNET
 	if (request.netAction == NETCONF_CONNECT_APNET || request.netAction == NETCONF_STATUS_APNET || request.netAction == NETCONF_CONNECT_APNET_LAST) {
@@ -306,27 +305,24 @@ int PSPNetconfDialog::Update(int animSpeed) {
 			}
 			DisplayButtons(DS_BUTTON_CANCEL, di->T("Cancel"));
 
-			// The Netconf dialog stays visible until the network reaches
-			// the state PSP_NET_APCTL_STATE_GOT_IP.			
+			// The Netconf dialog stays visible until the network reaches the state PSP_NET_APCTL_STATE_GOT_IP.			
 			if (state == PSP_NET_APCTL_STATE_GOT_IP) {
 				if (pendingStatus != SCE_UTILITY_STATUS_FINISHED) {
-					ChangeStatus(SCE_UTILITY_STATUS_FINISHED, NET_RUNNING_DELAY_US);
-				}
-				else if (GetStatus() == SCE_UTILITY_STATUS_FINISHED) {
-					// We are done!
 					StartFade(false);
+					ChangeStatus(SCE_UTILITY_STATUS_FINISHED, NET_SHUTDOWN_DELAY_US);
 				}
 			}
 
-			else if (state == PSP_NET_APCTL_STATE_GETTING_IP) {
+			else if (state == PSP_NET_APCTL_STATE_JOINING) {
 				// Switch to the next message
 				StartFade(true);
 			}
 
 			else if (state == PSP_NET_APCTL_STATE_DISCONNECTED) {
-				// When connecting with infrastructure, simulate a connection
-				// using the first network configuration entry.
-				connResult = sceNetApctlConnect(1);
+				// When connecting with infrastructure, simulate a connection using the first network configuration entry.
+				if (connResult < 0) {
+					connResult = sceNetApctlConnect(1);
+				}
 			}
 		}
 
@@ -442,17 +438,14 @@ int PSPNetconfDialog::Update(int animSpeed) {
 			}
 		}
 
-		// The Netconf dialog stays visible until the network reaches
-		// the state ADHOCCTL_STATE_CONNECTED.
+		// The Netconf dialog stays visible until the network reaches the state ADHOCCTL_STATE_CONNECTED.
 		if (state == ADHOCCTL_STATE_CONNECTED) {
 			// Checking pendingStatus to make sure ChangeStatus not to continously extending the delay ticks on every call for eternity
 			if (pendingStatus != SCE_UTILITY_STATUS_FINISHED) {
-				ChangeStatus(SCE_UTILITY_STATUS_FINISHED, NET_RUNNING_DELAY_US);
-			}
-			// Start fading only when the actual status has changed
-			else if (GetStatus() == SCE_UTILITY_STATUS_FINISHED) {
 				StartFade(false);
+				ChangeStatus(SCE_UTILITY_STATUS_FINISHED, NET_SHUTDOWN_DELAY_US);
 			}
+
 			// Let's not leaks any memory
 			if (Memory::IsValidAddress(scanInfosAddr))
 				userMemory.Free(scanInfosAddr);

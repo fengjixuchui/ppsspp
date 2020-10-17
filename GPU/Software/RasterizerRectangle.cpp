@@ -3,8 +3,7 @@
 #include <algorithm>
 #include <cmath>
 
-#include "base/basictypes.h"
-#include "profiler/profiler.h"
+#include "Common/Profiler/Profiler.h"
 
 #include "Core/System.h"
 

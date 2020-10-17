@@ -32,12 +32,12 @@
 #include <mutex>
 #include <condition_variable>
 
-#include "base/NativeApp.h"
-#include "math/math_util.h"
-#include "thread/threadutil.h"
-#include "util/text/utf8.h"
+#include "Common/System/System.h"
+#include "Common/Math/math_util.h"
+#include "Common/Thread/ThreadUtil.h"
+#include "Common/Data/Encoding/Utf8.h"
 
-#include "Common/FileUtil.h"
+#include "Common/File/FileUtil.h"
 #include "Common/TimeUtil.h"
 #include "Common/GraphicsContext.h"
 #include "Core/MemFault.h"

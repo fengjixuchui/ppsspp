@@ -26,13 +26,14 @@
 
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <thread>
 #include "Common/TimeUtil.h"
-#include "i18n/i18n.h"
-#include "net/resolve.h"
-#include "thread/threadutil.h"
+#include "Common/Data/Text/I18n.h"
+#include "Common/Net/Resolve.h"
+#include "Common/Thread/ThreadUtil.h"
 #include "Common/Log.h"
 #include "Core/System.h"
 #include "Core/Host.h"

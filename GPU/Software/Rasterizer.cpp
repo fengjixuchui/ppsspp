@@ -18,10 +18,9 @@
 #include <algorithm>
 #include <cmath>
 
-#include "base/basictypes.h"
-#include "profiler/profiler.h"
+#include "Common/Profiler/Profiler.h"
 
-#include "Common/ThreadPools.h"
+#include "Core/ThreadPools.h"
 #include "Common/ColorConv.h"
 #include "Core/Config.h"
 #include "Core/MemMap.h"

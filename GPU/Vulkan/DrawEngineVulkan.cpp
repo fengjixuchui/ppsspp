@@ -17,9 +17,9 @@
 
 #include <algorithm>
 
-#include "math/dataconv.h"
-#include "profiler/profiler.h"
-#include "thin3d/VulkanRenderManager.h"
+#include "Common/Data/Convert/SmallDataConvert.h"
+#include "Common/Profiler/Profiler.h"
+#include "Common/GPU/Vulkan/VulkanRenderManager.h"
 
 #include "Common/Log.h"
 #include "Common/MemoryUtil.h"
@@ -34,8 +34,8 @@
 #include "GPU/GPUState.h"
 #include "GPU/ge_constants.h"
 
-#include "Common/Vulkan/VulkanContext.h"
-#include "Common/Vulkan/VulkanMemory.h"
+#include "Common/GPU/Vulkan/VulkanContext.h"
+#include "Common/GPU/Vulkan/VulkanMemory.h"
 
 #include "GPU/Common/SplineCommon.h"
 #include "GPU/Common/TransformCommon.h"
@@ -388,6 +388,10 @@ VkResult DrawEngineVulkan::RecreateDescriptorPool(FrameData &frame, int newSize)
 }
 
 VkDescriptorSet DrawEngineVulkan::GetOrCreateDescriptorSet(VkImageView imageView, VkSampler sampler, VkBuffer base, VkBuffer light, VkBuffer bone, bool tess) {
+	_dbg_assert_(base != VK_NULL_HANDLE);
+	_dbg_assert_(light != VK_NULL_HANDLE);
+	_dbg_assert_(bone != VK_NULL_HANDLE);
+
 	DescriptorSetKey key;
 	key.imageView_ = imageView;
 	key.sampler_ = sampler;
@@ -396,9 +400,6 @@ VkDescriptorSet DrawEngineVulkan::GetOrCreateDescriptorSet(VkImageView imageView
 	key.base_ = base;
 	key.light_ = light;
 	key.bone_ = bone;
-	_dbg_assert_(base != VK_NULL_HANDLE);
-	_dbg_assert_(light != VK_NULL_HANDLE);
-	_dbg_assert_(bone != VK_NULL_HANDLE);
 
 	FrameData &frame = frame_[vulkan_->GetCurFrame()];
 	// See if we already have this descriptor set cached.
@@ -438,16 +439,14 @@ VkDescriptorSet DrawEngineVulkan::GetOrCreateDescriptorSet(VkImageView imageView
 	_assert_msg_(result == VK_SUCCESS, "Ran out of descriptor space in pool. sz=%d res=%d", (int)frame.descSets.size(), (int)result);
 
 	// We just don't write to the slots we don't care about, which is fine.
-	VkWriteDescriptorSet writes[7]{};
+	VkWriteDescriptorSet writes[9]{};
 	// Main texture
 	int n = 0;
 	VkDescriptorImageInfo tex[3]{};
 	if (imageView) {
-#ifdef VULKAN_USE_GENERAL_LAYOUT_FOR_COLOR
-		tex[0].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-#else
+		_dbg_assert_(sampler != VK_NULL_HANDLE);
+
 		tex[0].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-#endif
 		tex[0].imageView = imageView;
 		tex[0].sampler = sampler;
 		writes[n].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -461,11 +460,7 @@ VkDescriptorSet DrawEngineVulkan::GetOrCreateDescriptorSet(VkImageView imageView
 	}
 
 	if (boundSecondary_) {
-#ifdef VULKAN_USE_GENERAL_LAYOUT_FOR_COLOR
-		tex[1].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-#else
 		tex[1].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-#endif
 		tex[1].imageView = boundSecondary_;
 		tex[1].sampler = samplerSecondary_;
 		writes[n].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -479,11 +474,7 @@ VkDescriptorSet DrawEngineVulkan::GetOrCreateDescriptorSet(VkImageView imageView
 	}
 
 	if (boundDepal_) {
-#ifdef VULKAN_USE_GENERAL_LAYOUT_FOR_COLOR
-		tex[2].imageLayout = VK_IMAGE_LAYOUT_GENERAL;
-#else
 		tex[2].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-#endif
 		tex[2].imageView = boundDepal_;
 		tex[2].sampler = samplerSecondary_;  // doesn't matter, we use load
 		writes[n].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
@@ -600,7 +591,8 @@ void DrawEngineVulkan::DoFlush() {
 	int curRenderStepId = renderManager->GetCurrentStepId();
 	if (lastRenderStepId_ != curRenderStepId) {
 		// Dirty everything that has dynamic state that will need re-recording.
-		gstate_c.Dirty(DIRTY_VIEWPORTSCISSOR_STATE | DIRTY_DEPTHSTENCIL_STATE | DIRTY_BLEND_STATE);
+		gstate_c.Dirty(DIRTY_VIEWPORTSCISSOR_STATE | DIRTY_DEPTHSTENCIL_STATE | DIRTY_BLEND_STATE | DIRTY_TEXTURE_IMAGE | DIRTY_TEXTURE_PARAMS);
+		textureCache_->ForgetLastTexture();
 		lastRenderStepId_ = curRenderStepId;
 	}
 
@@ -847,7 +839,7 @@ void DrawEngineVulkan::DoFlush() {
 				lastRenderStepId_ = curRenderStepId;
 			}
 
-			renderManager->BindPipeline(pipeline->pipeline);
+			renderManager->BindPipeline(pipeline->pipeline, (PipelineFlags)pipeline->flags);
 			if (pipeline != lastPipeline_) {
 				if (lastPipeline_ && !(lastPipeline_->UsesBlendConstant() && pipeline->UsesBlendConstant())) {
 					gstate_c.Dirty(DIRTY_BLEND_STATE);
@@ -972,7 +964,7 @@ void DrawEngineVulkan::DoFlush() {
 					lastRenderStepId_ = curRenderStepId;
 				}
 
-				renderManager->BindPipeline(pipeline->pipeline);
+				renderManager->BindPipeline(pipeline->pipeline, (PipelineFlags)pipeline->flags);
 				if (pipeline != lastPipeline_) {
 					if (lastPipeline_ && !lastPipeline_->UsesBlendConstant() && pipeline->UsesBlendConstant()) {
 						gstate_c.Dirty(DIRTY_BLEND_STATE);

@@ -22,11 +22,12 @@
 #include <unordered_map>
 
 #include "Common/CommonTypes.h"
+#include "Common/Log.h"
 #include "Core/MemMap.h"
 #include "GPU/GPU.h"
 #include "GPU/ge_constants.h"
 #include "GPU/GPUInterface.h"
-#include "thin3d/thin3d.h"
+#include "Common/GPU/thin3d.h"
 
 enum {
 	FB_USAGE_DISPLAYED_FRAMEBUFFER = 1,
@@ -339,7 +340,7 @@ protected:
 	void NotifyRenderFramebufferSwitched(VirtualFramebuffer *prevVfb, VirtualFramebuffer *vfb, bool isClearingDepth);
 
 	virtual void ReformatFramebufferFrom(VirtualFramebuffer *vfb, GEBufferFormat old) = 0;
-	virtual void BlitFramebufferDepth(VirtualFramebuffer *src, VirtualFramebuffer *dst) = 0;
+	void BlitFramebufferDepth(VirtualFramebuffer *src, VirtualFramebuffer *dst);
 
 	void ResizeFramebufFBO(VirtualFramebuffer *vfb, int w, int h, bool force = false, bool skipCopy = false);
 	void ShowScreenResolution();

@@ -123,6 +123,7 @@ public:
 	std::string sRemoteISOSubdir;
 	bool bRemoteDebuggerOnStartup;
 	bool bMemStickInserted;
+	int iMemStickSizeGB;
 	bool bLoadPlugins;
 
 	int iScreenRotation;  // The rotation angle of the PPSSPP UI. Only supported on Android and possibly other mobile platforms.
@@ -212,9 +213,11 @@ public:
 	bool bFragmentTestCache;
 	int iSplineBezierQuality; // 0 = low , 1 = Intermediate , 2 = High
 	bool bHardwareTessellation;
-	std::string sPostShaderName;  // Off for off.
-	std::string sTextureShaderName;
+
+	std::vector<std::string> vPostShaderNames; // Off for chain end (only Off for no shader)
 	std::map<std::string, float> mPostShaderSetting;
+	bool bShaderChainRequires60FPS;
+	std::string sTextureShaderName;
 	bool bGfxDebugOutput;
 	bool bGfxDebugSplitSubmit;
 	int iInflightFrames;
@@ -420,6 +423,7 @@ public:
 	bool bTCPNoDelay;
 	bool bEnableUPnP;
 	bool bUPnPUseOriginalPort;
+	bool bForcedFirstConnect;
 	int iPortOffset;
 	int iMinTimeout;
 	int iWlanAdhocChannel;

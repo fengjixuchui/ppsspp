@@ -19,9 +19,9 @@
 
 #include <map>
 
-#include "gfx_es2/gpu_features.h"
-#include "gfx/gl_common.h"
-#include "thin3d/GLRenderManager.h"
+#include "Common/GPU/OpenGL/GLFeatures.h"
+#include "Common/GPU/OpenGL/GLCommon.h"
+#include "Common/GPU/OpenGL/GLRenderManager.h"
 #include "GPU/GPUInterface.h"
 #include "GPU/GPUState.h"
 #include "GPU/GLES/TextureScalerGLES.h"
@@ -55,12 +55,9 @@ public:
 
 	void ForgetLastTexture() override {
 		lastBoundTexture = nullptr;
-		gstate_c.Dirty(DIRTY_TEXTURE_PARAMS);
 	}
-	void InvalidateLastTexture(TexCacheEntry *entry = nullptr) override {
-		if (!entry || entry->textureName == lastBoundTexture) {
-			lastBoundTexture = nullptr;
-		}
+	void InvalidateLastTexture() override {
+		lastBoundTexture = nullptr;
 	}
 
 	bool GetCurrentTextureDebug(GPUDebugBuffer &buffer, int level) override;
@@ -88,7 +85,7 @@ private:
 
 	TextureScalerGLES scaler;
 
-	GLRTexture *lastBoundTexture;
+	GLRTexture *lastBoundTexture = nullptr;
 
 	FramebufferManagerGLES *framebufferManagerGL_;
 	DepalShaderCacheGLES *depalShaderCache_;

@@ -19,9 +19,10 @@
 
 #include <algorithm>
 
-#include "file/file_util.h"
-#include "base/NativeApp.h"
-#include "input/input_state.h"
+#include "Common/File/DirListing.h"
+#include "Common/System/NativeApp.h"
+#include "Common/System/System.h"
+#include "Common/Input/InputState.h"
 
 #include "Common/StringUtils.h"
 #include "Core/Core.h"

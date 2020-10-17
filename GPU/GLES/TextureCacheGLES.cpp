@@ -19,11 +19,10 @@
 #include <cstring>
 
 #include "ext/xxhash.h"
-#include "gfx/gl_debug_log.h"
-#include "i18n/i18n.h"
-#include "math/math_util.h"
-#include "profiler/profiler.h"
-#include "thin3d/GLRenderManager.h"
+#include "Common/Data/Text/I18n.h"
+#include "Common/Math/math_util.h"
+#include "Common/Profiler/Profiler.h"
+#include "Common/GPU/OpenGL/GLRenderManager.h"
 
 #include "Common/ColorConv.h"
 #include "Core/Config.h"
@@ -47,7 +46,6 @@
 TextureCacheGLES::TextureCacheGLES(Draw::DrawContext *draw)
 	: TextureCacheCommon(draw) {
 	timesInvalidatedAllThisFrame_ = 0;
-	lastBoundTexture = nullptr;
 	render_ = (GLRenderManager *)draw_->GetNativeObject(Draw::NativeObject::RENDER_MANAGER);
 
 	SetupTextureDecoder();
@@ -124,10 +122,10 @@ void TextureCacheGLES::ApplySamplingParams(const SamplerCacheKey &key) {
 	}
 
 	float aniso = 0.0f;
-	int magKey = ((int)key.mipEnable << 2) | ((int)key.mipFilt << 1) | ((int)key.magFilt);
+	int minKey = ((int)key.mipEnable << 2) | ((int)key.mipFilt << 1) | ((int)key.minFilt);
 	render_->SetTextureSampler(0,
 		key.sClamp ? GL_CLAMP_TO_EDGE : GL_REPEAT, key.tClamp ? GL_CLAMP_TO_EDGE : GL_REPEAT,
-		MagFiltGL[magKey], key.minFilt ? GL_LINEAR : GL_NEAREST, aniso);
+		key.magFilt ? GL_LINEAR : GL_NEAREST, MinFiltGL[minKey], aniso);
 }
 
 static void ConvertColors(void *dstBuf, const void *srcBuf, Draw::DataFormat dstFmt, int numPixels) {
@@ -537,8 +535,6 @@ void TextureCacheGLES::BuildTexture(TexCacheEntry *const entry) {
 			texelsScaledThisFrame_ += w * h;
 		}
 	}
-
-	lastBoundTexture = entry->textureName;
 	
 	// GLES2 doesn't have support for a "Max lod" which is critical as PSP games often
 	// don't specify mips all the way down. As a result, we either need to manually generate
@@ -595,13 +591,6 @@ void TextureCacheGLES::BuildTexture(TexCacheEntry *const entry) {
 	}
 
 	render_->FinalizeTexture(entry->textureName, texMaxLevel, genMips);
-
-	// This will rebind it, but that's okay.
-	// Need to actually bind it now - it might only have gotten bound in the init phase.
-	render_->BindTexture(TEX_SLOT_PSP_TEXTURE, entry->textureName);
-
-	SamplerCacheKey samplerKey = GetSamplingParams(entry->maxLevel, entry->addr);
-	ApplySamplingParams(samplerKey);
 }
 
 Draw::DataFormat TextureCacheGLES::GetDestFormat(GETextureFormat format, GEPaletteFormat clutFormat) const {
@@ -730,7 +719,9 @@ bool TextureCacheGLES::GetCurrentTextureDebug(GPUDebugBuffer &buffer, int level)
 		gstate.texbufwidth[0] = gstate.texbufwidth[level];
 	}
 
-	SetTexture(true);
+	InvalidateLastTexture();
+	SetTexture();
+
 	if (!nextTexture_) {
 		if (nextFramebufferTexture_) {
 			VirtualFramebuffer *vfb = nextFramebufferTexture_;

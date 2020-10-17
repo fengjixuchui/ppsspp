@@ -19,12 +19,16 @@
 #include <thread>
 #include <mutex>
 #include <condition_variable>
+#include <set>
+#include <cstdlib>
+#include <cstdarg>
 
 #include "Core/Reporting.h"
-
+#include "Common/File/VFS/VFS.h"
 #include "Common/CPUDetect.h"
-#include "Common/FileUtil.h"
+#include "Common/File/FileUtil.h"
 #include "Common/Serialize/SerializeFuncs.h"
+#include "Common/StringUtils.h"
 #include "Core/Core.h"
 #include "Core/CoreTiming.h"
 #include "Core/Config.h"
@@ -40,18 +44,10 @@
 #include "Core/ELF/ParamSFO.h"
 #include "GPU/GPUInterface.h"
 #include "GPU/GPUState.h"
-#include "net/http_client.h"
-#include "net/resolve.h"
-#include "net/url.h"
-
-#include "base/stringutil.h"
-#include "base/buffer.h"
-#include "thread/threadutil.h"
-#include "file/zip_read.h"
-
-#include <set>
-#include <stdlib.h>
-#include <cstdarg>
+#include "Common/Net/HTTPClient.h"
+#include "Common/Net/Resolve.h"
+#include "Common/Net/URL.h"
+#include "Common/Thread/ThreadUtil.h"
 
 namespace Reporting
 {
@@ -64,7 +60,9 @@ namespace Reporting
 	// Temporarily stores a reference to the hostname.
 	static std::string lastHostname;
 	// Keeps track of report-only-once identifiers.  Since they're always constants, a pointer is okay.
-	static std::map<const char *, int> logOnceUsed;
+	static std::map<const char *, int> logNTimes;
+	static std::mutex logNTimesLock;
+
 	// Keeps track of whether a harmful setting was ever used.
 	static bool everUnsupported = false;
 	// Support is cached here to avoid checking it on every single request.
@@ -307,7 +305,7 @@ namespace Reporting
 	{
 		// New game, clean slate.
 		spamProtectionCount = 0;
-		logOnceUsed.clear();
+		logNTimes.clear();
 		everUnsupported = false;
 		currentSupported = IsSupported();
 		pendingMessagesDone = false;
@@ -351,9 +349,10 @@ namespace Reporting
 	bool ShouldLogNTimes(const char *identifier, int count)
 	{
 		// True if it wasn't there already -> so yes, log.
-		auto iter = logOnceUsed.find(identifier);
-		if (iter == logOnceUsed.end()) {
-			logOnceUsed.insert(std::pair<const char*, int>(identifier, 1));
+		std::lock_guard<std::mutex> lock(logNTimesLock);
+		auto iter = logNTimes.find(identifier);
+		if (iter == logNTimes.end()) {
+			logNTimes.insert(std::pair<const char*, int>(identifier, 1));
 			return true;
 		} else {
 			if (iter->second >= count) {
@@ -363,6 +362,11 @@ namespace Reporting
 				return true;
 			}
 		}
+	}
+
+	void ResetCounts() {
+		std::lock_guard<std::mutex> lock(logNTimesLock);
+		logNTimes.clear();
 	}
 
 	std::string CurrentGameID()

@@ -17,7 +17,7 @@
 
 #include <algorithm>
 
-#include "profiler/profiler.h"
+#include "Common/Profiler/Profiler.h"
 #include "Common/ColorConv.h"
 #include "Core/Config.h"
 #include "GPU/Common/DrawEngineCommon.h"
@@ -102,7 +102,7 @@ void DrawEngineCommon::DecodeVerts(u8 *dest) {
 	if (indexGen.Prim() < 0) {
 		ERROR_LOG_REPORT(G3D, "DecodeVerts: Failed to deduce prim: %i", indexGen.Prim());
 		// Force to points (0)
-		indexGen.AddPrim(GE_PRIM_POINTS, 0);
+		indexGen.AddPrim(GE_PRIM_POINTS, 0, true);
 	}
 }
 
@@ -698,6 +698,8 @@ void DrawEngineCommon::SubmitPrim(void *verts, void *inds, GEPrimitiveType prim,
 	}
 
 	*bytesRead = vertexCount * dec_->VertexSize();
+
+	// Check that we have enough vertices to form the requested primitive.
 	if ((vertexCount < 2 && prim > 0) || (vertexCount < 3 && prim > 2 && prim != GE_PRIM_RECTANGLES))
 		return;
 

@@ -3,19 +3,20 @@
 #include <cstdint>
 #include <cfloat>
 #include <vector>
+#include <string>
 #include <d3d11.h>
 #include <D3Dcompiler.h>
 
 #if PPSSPP_PLATFORM(UWP)
 #define ptr_D3DCompile D3DCompile
 #else
-#include "thin3d/d3d11_loader.h"
+#include "Common/GPU/D3D11/D3D11Loader.h"
 #endif
-
-#include "base/stringutil.h"
 
 #include "Common/CommonFuncs.h"
 #include "Common/Log.h"
+#include "Common/StringUtils.h"
+
 #include "D3D11Util.h"
 
 static std::vector<uint8_t> CompileShaderToBytecode(const char *code, size_t codeSize, const char *target, UINT flags) {
@@ -126,7 +127,7 @@ void StockObjectsD3D11::Create(ID3D11Device *device) {
 	sampler_desc.MinLOD = -FLT_MAX;
 	sampler_desc.MaxLOD = FLT_MAX;
 	sampler_desc.MipLODBias = 0.0f;
-	sampler_desc.MaxAnisotropy = 1.0f;
+	sampler_desc.MaxAnisotropy = 1;
 	ASSERT_SUCCESS(device->CreateSamplerState(&sampler_desc, &samplerPoint2DWrap));
 	sampler_desc.Filter = D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
 	ASSERT_SUCCESS(device->CreateSamplerState(&sampler_desc, &samplerLinear2DWrap));

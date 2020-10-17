@@ -18,7 +18,9 @@
 #include <algorithm>
 
 #include "ppsspp_config.h"
-#include "base/NativeApp.h"
+
+#include "Common/System/NativeApp.h"
+#include "Common/System/System.h"
 #include "Common/TimeUtil.h"
 #include "Core/ConfigValues.h"
 #include "Core/MIPS/JitCommon/JitCommon.h"
@@ -55,7 +57,7 @@ HLEFunction UnitTestFakeSyscalls[] = {
 double ExecCPUTest() {
 	int blockTicks = 1000000;
 	int total = 0;
-	double st = real_time_now();
+	double st = time_now_d();
 	do {
 		for (int j = 0; j < 1000; ++j) {
 			currentMIPS->pc = PSP_GetUserMemoryBase();
@@ -67,8 +69,8 @@ double ExecCPUTest() {
 			++total;
 		}
 	}
-	while (real_time_now() - st < 0.5);
-	double elapsed = real_time_now() - st;
+	while (time_now_d() - st < 0.5);
+	double elapsed = time_now_d() - st;
 
 	return total / elapsed;
 }

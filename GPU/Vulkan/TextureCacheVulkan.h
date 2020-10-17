@@ -19,10 +19,10 @@
 
 #include <map>
 
-#include "Common/Hashmaps.h"
+#include "Common/Data/Collections/Hashmaps.h"
 #include "GPU/GPUInterface.h"
 #include "GPU/GPUState.h"
-#include "Common/Vulkan/VulkanContext.h"
+#include "Common/GPU/Vulkan/VulkanContext.h"
 #include "GPU/Vulkan/TextureScalerVulkan.h"
 #include "GPU/Common/TextureCacheCommon.h"
 #include "GPU/Vulkan/VulkanUtil.h"
@@ -83,16 +83,8 @@ public:
 		push_ = push;
 	}
 
-	void ForgetLastTexture() override {
-		lastBoundTexture = nullptr;
-		gstate_c.Dirty(DIRTY_TEXTURE_PARAMS);
-	}
-
-	void InvalidateLastTexture(TexCacheEntry *entry = nullptr) override {
-		if (!entry || entry->vkTex == lastBoundTexture) {
-			lastBoundTexture = nullptr;
-		}
-	}
+	void ForgetLastTexture() override {}
+	void InvalidateLastTexture() override {}
 
 	void NotifyConfigChanged() override;
 
@@ -135,8 +127,6 @@ private:
 	SamplerCache samplerCache_;
 
 	TextureScalerVulkan scaler;
-
-	VulkanTexture *lastBoundTexture = nullptr;
 
 	int decimationCounter_ = 0;
 	int texelsScaledThisFrame_ = 0;

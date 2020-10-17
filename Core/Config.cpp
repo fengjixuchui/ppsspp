@@ -23,26 +23,28 @@
 #include <sstream>
 
 #include "ppsspp_config.h"
-#include "base/display.h"
-#include "base/NativeApp.h"
-#include "file/ini_file.h"
-#include "i18n/i18n.h"
-#include "json/json_reader.h"
-#include "gfx_es2/gpu_features.h"
-#include "net/http_client.h"
-#include "util/text/parsers.h"
-#include "net/url.h"
 
+#include "Common/GPU/OpenGL/GLFeatures.h"
+#include "Common/Net/HTTPClient.h"
+#include "Common/Net/URL.h"
+
+#include "Common/Log.h"
+#include "Common/Data/Format/IniFile.h"
+#include "Common/Data/Format/JSONReader.h"
+#include "Common/Data/Text/I18n.h"
+#include "Common/Data/Text/Parsers.h"
 #include "Common/CPUDetect.h"
-#include "Common/FileUtil.h"
-#include "Common/KeyMap.h"
+#include "Common/File/FileUtil.h"
 #include "Common/LogManager.h"
 #include "Common/OSVersion.h"
+#include "Common/System/Display.h"
+#include "Common/System/System.h"
 #include "Common/StringUtils.h"
-#include "Common/Vulkan/VulkanLoader.h"
+#include "Common/GPU/Vulkan/VulkanLoader.h"
 #include "Core/Config.h"
 #include "Core/ConfigValues.h"
 #include "Core/Loaders.h"
+#include "Core/KeyMap.h"
 #include "Core/HLE/sceUtility.h"
 #include "Core/Instance.h"
 #include "GPU/Common/FramebufferManagerCommon.h"
@@ -394,7 +396,9 @@ std::string CreateRandMAC() {
 }
 
 static int DefaultNumWorkers() {
-	return cpu_info.num_cores;
+	// Let's cap the global thread pool at 16 threads. Nothing we do really should have much
+	// use for more...
+	return std::min(16, cpu_info.num_cores);
 }
 
 static int DefaultCpuCore() {
@@ -805,8 +809,8 @@ static ConfigSetting graphicsSettings[] = {
 	// Not really a graphics setting...
 	ReportedConfigSetting("SplineBezierQuality", &g_Config.iSplineBezierQuality, 2, true, true),
 	ReportedConfigSetting("HardwareTessellation", &g_Config.bHardwareTessellation, false, true, true),
-	ReportedConfigSetting("PostShader", &g_Config.sPostShaderName, "Off", true, true),
 	ConfigSetting("TextureShader", &g_Config.sTextureShaderName, "Off", true, true),
+	ConfigSetting("ShaderChainRequires60FPS", &g_Config.bShaderChainRequires60FPS, false, true, true),
 
 	ReportedConfigSetting("MemBlockTransferGPU", &g_Config.bBlockTransferGPU, true, true, true),
 	ReportedConfigSetting("DisableSlowFramebufEffects", &g_Config.bDisableSlowFramebufEffects, false, true, true),
@@ -970,8 +974,9 @@ static ConfigSetting networkSettings[] = {
 	ConfigSetting("PortOffset", &g_Config.iPortOffset, 0, true, true),
 	ConfigSetting("MinTimeout", &g_Config.iMinTimeout, 1, true, true),
 	ConfigSetting("TCPNoDelay", &g_Config.bTCPNoDelay, false, true, true),
+	ConfigSetting("ForcedFirstConnect", &g_Config.bForcedFirstConnect, false, true, true),
 	ConfigSetting("EnableUPnP", &g_Config.bEnableUPnP, false, true, true),
-	ConfigSetting("UPnPUseOriginalPort", &g_Config.bUPnPUseOriginalPort, true, true, true),
+	ConfigSetting("UPnPUseOriginalPort", &g_Config.bUPnPUseOriginalPort, false, true, true),
 
 	ConfigSetting("EnableNetworkChat", &g_Config.bEnableNetworkChat, false, true, true),
 	ConfigSetting("ChatButtonPosition",&g_Config.iChatButtonPosition,BOTTOM_LEFT,true,true),
@@ -1026,6 +1031,7 @@ static ConfigSetting systemParamSettings[] = {
 	ConfigSetting("WlanPowerSave", &g_Config.bWlanPowerSave, (bool) PSP_SYSTEMPARAM_WLAN_POWERSAVE_OFF, true, true),
 	ReportedConfigSetting("EncryptSave", &g_Config.bEncryptSave, true, true, true),
 	ConfigSetting("SavedataUpgradeVersion", &g_Config.bSavedataUpgrade, true, true, false),
+	ConfigSetting("MemStickSize", &g_Config.iMemStickSizeGB, 16, true, false),
 
 	ConfigSetting(false),
 };
@@ -1254,6 +1260,14 @@ void Config::Load(const char *iniFileName, const char *controllerIniFilename) {
 		mPostShaderSetting[it.first] = std::stof(it.second);
 	}
 
+	auto postShaderChain = iniFile.GetOrCreateSection("PostShaderList")->ToMap();
+	vPostShaderNames.clear();
+	for (auto it : postShaderChain) {
+		vPostShaderNames.push_back(it.second);
+	}
+	if (vPostShaderNames.empty())
+		vPostShaderNames.push_back("Off");
+
 	// This caps the exponent 4 (so 16x.)
 	if (iAnisotropyLevel > 4) {
 		iAnisotropyLevel = 4;
@@ -1384,6 +1398,13 @@ void Config::Save(const char *saveReason) {
 			postShaderSetting->Clear();
 			for (auto it = mPostShaderSetting.begin(), end = mPostShaderSetting.end(); it != end; ++it) {
 				postShaderSetting->Set(it->first.c_str(), it->second);
+			}
+			Section *postShaderChain = iniFile.GetOrCreateSection("PostShaderList");
+			postShaderChain->Clear();
+			for (size_t i = 0; i < vPostShaderNames.size(); ++i) {
+				char keyName[64];
+				snprintf(keyName, sizeof(keyName), "PostShader%d", (int)i+1);
+				postShaderChain->Set(keyName, vPostShaderNames[i]);
 			}
 		}
 
@@ -1643,6 +1664,14 @@ bool Config::saveGameConfig(const std::string &pGameId, const std::string &title
 		postShaderSetting->Set(it->first.c_str(), it->second);
 	}
 
+	Section *postShaderChain = iniFile.GetOrCreateSection("PostShaderList");
+	postShaderChain->Clear();
+	for (size_t i = 0; i < vPostShaderNames.size(); ++i) {
+		char keyName[64];
+		snprintf(keyName, sizeof(keyName), "PostShader%d", (int)i+1);
+		postShaderChain->Set(keyName, vPostShaderNames[i]);
+	}
+
 	KeyMap::SaveToIni(iniFile);
 	iniFile.Save(fullIniFilePath);
 
@@ -1666,6 +1695,14 @@ bool Config::loadGameConfig(const std::string &pGameId, const std::string &title
 	for (auto it : postShaderSetting) {
 		mPostShaderSetting[it.first] = std::stof(it.second);
 	}
+
+	auto postShaderChain = iniFile.GetOrCreateSection("PostShaderList")->ToMap();
+	vPostShaderNames.clear();
+	for (auto it : postShaderChain) {
+		vPostShaderNames.push_back(it.second);
+	}
+	if (vPostShaderNames.empty())
+		vPostShaderNames.push_back("Off");
 
 	IterateSettings(iniFile, [](Section *section, ConfigSetting *setting) {
 		if (setting->perGame_) {
@@ -1696,6 +1733,14 @@ void Config::unloadGameConfig() {
 		for (auto it : postShaderSetting) {
 			mPostShaderSetting[it.first] = std::stof(it.second);
 		}
+
+		auto postShaderChain = iniFile.GetOrCreateSection("PostShaderList")->ToMap();
+		vPostShaderNames.clear();
+		for (auto it : postShaderChain) {
+			vPostShaderNames.push_back(it.second);
+		}
+		if (vPostShaderNames.empty())
+			vPostShaderNames.push_back("Off");
 
 		LoadStandardControllerIni();
 	}

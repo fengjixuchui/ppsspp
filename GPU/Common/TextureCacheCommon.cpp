@@ -18,7 +18,7 @@
 #include <algorithm>
 
 #include "ppsspp_config.h"
-#include "profiler/profiler.h"
+#include "Common/Profiler/Profiler.h"
 #include "Common/ColorConv.h"
 #include "Common/MemoryUtil.h"
 #include "Core/Config.h"
@@ -260,10 +260,9 @@ SamplerCacheKey TextureCacheCommon::GetFramebufferSamplingParams(u16 bufferWidth
 
 	// Kill any mipmapping settings.
 	key.mipEnable = false;
-	key.minFilt &= 1;
-	key.mipFilt = 0;
-	key.magFilt &= 1;
+	key.mipFilt = false;
 	key.aniso = 0.0;
+	key.maxLevel = 0.0f;
 
 	// Often the framebuffer will not match the texture size. We'll wrap/clamp in the shader in that case.
 	int w = gstate.getTextureWidth(0);
@@ -321,11 +320,7 @@ void TextureCacheCommon::UpdateMaxSeenV(TexCacheEntry *entry, bool throughMode) 
 	}
 }
 
-TexCacheEntry *TextureCacheCommon::SetTexture(bool force) {
-	if (force) {
-		InvalidateLastTexture();
-	}
-
+TexCacheEntry *TextureCacheCommon::SetTexture() {
 	u8 level = 0;
 	if (IsFakeMipmapChange())
 		level = std::max(0, gstate.getTexLevelOffset16() / 16);
@@ -342,13 +337,11 @@ TexCacheEntry *TextureCacheCommon::SetTexture(bool force) {
 
 	GETextureFormat format = gstate.getTextureFormat();
 	if (format >= 11) {
-		ERROR_LOG_REPORT(G3D, "Unknown texture format %i", format);
-		// TODO: Better assumption?
+		// TODO: Better assumption? Doesn't really matter, these are invalid.
 		format = GE_TFMT_5650;
 	}
-	bool hasClut = gstate.isTextureFormatIndexed();
 
-	// Ignore uncached/kernel when caching.
+	bool hasClut = gstate.isTextureFormatIndexed();
 	u32 cluthash;
 	if (hasClut) {
 		if (clutLastFormat_ != gstate.clutformat) {
@@ -450,7 +443,6 @@ TexCacheEntry *TextureCacheCommon::SetTexture(bool force) {
 		}
 
 		if (match) {
-			// TODO: Mark the entry reliable if it's been safe for long enough?
 			// got one!
 			gstate_c.curTextureWidth = w;
 			gstate_c.curTextureHeight = h;
@@ -466,7 +458,7 @@ TexCacheEntry *TextureCacheCommon::SetTexture(bool force) {
 			nextNeedsChange_ = false;
 			// Might need a rebuild if the hash fails, but that will be set later.
 			nextNeedsRebuild_ = false;
-			VERBOSE_LOG(G3D, "Texture at %08x Found in Cache, applying", texaddr);
+			VERBOSE_LOG(G3D, "Texture at %08x found in cache, applying", texaddr);
 			return entry; //Done!
 		} else {
 			// Wasn't a match, we will rebuild.
@@ -505,15 +497,17 @@ TexCacheEntry *TextureCacheCommon::SetTexture(bool force) {
 
 	if (!entry) {
 		VERBOSE_LOG(G3D, "No texture in cache for %08x, decoding...", texaddr);
-		TexCacheEntry *entryNew = new TexCacheEntry{};
-		cache_[cachekey].reset(entryNew);
+		entry = new TexCacheEntry{};
+		cache_[cachekey].reset(entry);
 
 		if (hasClut && clutRenderAddress_ != 0xFFFFFFFF) {
 			WARN_LOG_REPORT_ONCE(clutUseRender, G3D, "Using texture with rendered CLUT: texfmt=%d, clutfmt=%d", gstate.getTextureFormat(), gstate.getClutPaletteFormat());
 		}
 
-		entry = entryNew;
-		if (g_Config.bTextureBackoffCache) {
+		if (Memory::IsKernelAndNotVolatileAddress(texaddr)) {
+			// It's the builtin font texture.
+			entry->status = TexCacheEntry::STATUS_RELIABLE;
+		} else if (g_Config.bTextureBackoffCache) {
 			entry->status = TexCacheEntry::STATUS_HASHING;
 		} else {
 			entry->status = TexCacheEntry::STATUS_UNRELIABLE;
@@ -561,7 +555,7 @@ TexCacheEntry *TextureCacheCommon::SetTexture(bool force) {
 	if (nextFramebufferTexture_) {
 		nextFramebufferTexture_ = nullptr;  // in case it was accidentally set somehow?
 	}
-	nextNeedsRehash_ = false;
+	nextNeedsRehash_ = true;
 	// We still need to rebuild, to allocate a texture.  But we'll bail early.
 	nextNeedsRebuild_ = true;
 	return entry;
@@ -575,10 +569,9 @@ std::vector<AttachCandidate> TextureCacheCommon::GetFramebufferCandidates(const 
 
 	FramebufferNotificationChannel channel = Memory::IsDepthTexVRAMAddress(entry.addr) ? FramebufferNotificationChannel::NOTIFY_FB_DEPTH : FramebufferNotificationChannel::NOTIFY_FB_COLOR;
 
-	auto framebuffers = framebufferManager_->Framebuffers();
+	const std::vector<VirtualFramebuffer *> &framebuffers = framebufferManager_->Framebuffers();
 
-	for (size_t i = 0, n = framebuffers.size(); i < n; ++i) {
-		auto framebuffer = framebuffers[i];
+	for (VirtualFramebuffer *framebuffer : framebuffers) {
 		FramebufferMatchInfo match = MatchFramebuffer(entry, framebuffer, texAddrOffset, channel);
 		switch (match.match) {
 		case FramebufferMatch::VALID:
@@ -714,7 +707,8 @@ void TextureCacheCommon::HandleTextureChange(TexCacheEntry *const entry, const c
 		ReleaseTexture(entry, true);
 		entry->status &= ~TexCacheEntry::STATUS_IS_SCALED;
 	}
-	// Clear the reliable bit if set.
+
+	// Mark as hashing, if marked as reliable.
 	if (entry->GetHashStatus() == TexCacheEntry::STATUS_RELIABLE) {
 		entry->SetHashStatus(TexCacheEntry::STATUS_HASHING);
 	}
@@ -730,7 +724,6 @@ void TextureCacheCommon::HandleTextureChange(TexCacheEntry *const entry, const c
 		}
 	}
 
-	entry->status |= TexCacheEntry::STATUS_UNRELIABLE;
 	if (entry->numFrames < TEXCACHE_FRAME_CHANGE_FREQUENT) {
 		if (entry->status & TexCacheEntry::STATUS_FREE_CHANGE) {
 			entry->status &= ~TexCacheEntry::STATUS_FREE_CHANGE;
@@ -741,24 +734,21 @@ void TextureCacheCommon::HandleTextureChange(TexCacheEntry *const entry, const c
 	entry->numFrames = 0;
 }
 
-void TextureCacheCommon::NotifyFramebuffer(VirtualFramebuffer *framebuffer, FramebufferNotification msg, FramebufferNotificationChannel channel) {
-	// Mask to ignore the Z memory mirrors if the address is in VRAM.
-	// These checks are mainly to reduce scanning all textures.
-
+void TextureCacheCommon::NotifyFramebuffer(VirtualFramebuffer *framebuffer, FramebufferNotification msg) {
 	const u32 mirrorMask = 0x00600000;
-	const u32 address = channel == NOTIFY_FB_COLOR ? framebuffer->fb_address : framebuffer->z_address;
-	const u32 addr = Memory::IsVRAMAddress(address) ? (address & ~mirrorMask) : address;
-	const u32 bpp = (framebuffer->format == GE_FORMAT_8888 && channel == NOTIFY_FB_COLOR) ? 4 : 2;
-	const u32 stride = channel == NOTIFY_FB_COLOR ? framebuffer->fb_stride : framebuffer->z_stride;
+	const u32 fb_addr = framebuffer->fb_address;
+
+	const u32 z_addr = framebuffer->z_address & ~mirrorMask;  // Probably unnecessary.
+
+	const u32 fb_bpp = framebuffer->format == GE_FORMAT_8888 ? 4 : 2;
+	const u32 z_bpp = 2;  // No other format exists.
+	const u32 fb_stride = framebuffer->fb_stride;
+	const u32 z_stride = framebuffer->z_stride;
 
 	// NOTE: Some games like Burnout massively misdetects the height of some framebuffers, leading to a lot of unnecessary invalidations.
 	// Let's only actually get rid of textures that cover the very start of the framebuffer.
-	const u32 endAddr = addr + stride * std::min((int)framebuffer->height, 16) * bpp;
-
-	const u64 cacheKey = (u64)addr << 32;
-	// If it has a clut, those are the low 32 bits, so it'll be inside this range.
-	// Also, if it's a subsample of the buffer, it'll also be within the FBO.
-	const u64 cacheKeyEnd = (u64)endAddr << 32;
+	const u32 fb_endAddr = fb_addr + fb_stride * std::min((int)framebuffer->height, 16) * fb_bpp;
+	const u32 z_endAddr = z_addr + z_stride * std::min((int)framebuffer->height, 16) * z_bpp;
 
 	switch (msg) {
 	case NOTIFY_FB_CREATED:
@@ -769,16 +759,22 @@ void TextureCacheCommon::NotifyFramebuffer(VirtualFramebuffer *framebuffer, Fram
 
 		std::vector<AttachCandidate> candidates;
 
-		// TODO: Rework this to not try to "apply" all matches, only the best one.
-		if (channel == FramebufferNotificationChannel::NOTIFY_FB_COLOR) {
-			// Color - no need to look in the mirrors.
-			for (auto it = cache_.lower_bound(cacheKey), end = cache_.upper_bound(cacheKeyEnd); it != end; ++it) {
-				it->second->status |= TexCacheEntry::STATUS_FRAMEBUFFER_OVERLAP;
-				gpuStats.numTextureInvalidationsByFramebuffer++;
-			}
-		} else {
+		u64 cacheKey = (u64)fb_addr << 32;
+		// If it has a clut, those are the low 32 bits, so it'll be inside this range.
+		// Also, if it's a subsample of the buffer, it'll also be within the FBO.
+		u64 cacheKeyEnd = (u64)fb_endAddr << 32;
+
+		// Color - no need to look in the mirrors.
+		for (auto it = cache_.lower_bound(cacheKey), end = cache_.upper_bound(cacheKeyEnd); it != end; ++it) {
+			it->second->status |= TexCacheEntry::STATUS_FRAMEBUFFER_OVERLAP;
+			gpuStats.numTextureInvalidationsByFramebuffer++;
+		}
+
+		if (z_stride != 0) {
 			// Depth. Just look at the range, but in each mirror (0x04200000 and 0x04600000).
 			// Games don't use 0x04400000 as far as I know - it has no swizzle effect so kinda useless.
+			cacheKey = (u64)z_addr << 32;
+			cacheKeyEnd = (u64)z_endAddr << 32;
 			for (auto it = cache_.lower_bound(cacheKey | 0x200000), end = cache_.upper_bound(cacheKeyEnd | 0x200000); it != end; ++it) {
 				it->second->status |= TexCacheEntry::STATUS_FRAMEBUFFER_OVERLAP;
 				gpuStats.numTextureInvalidationsByFramebuffer++;
@@ -1077,9 +1073,8 @@ void TextureCacheCommon::LoadClut(u32 clutAddr, u32 loadBytes) {
 			static const u32 MAX_CLUT_OFFSET = 4096;
 
 			clutRenderOffset_ = MAX_CLUT_OFFSET;
-			auto framebuffers = framebufferManager_->Framebuffers();
-			for (size_t i = 0, n = framebuffers.size(); i < n; ++i) {
-				auto framebuffer = framebuffers[i];
+			const std::vector<VirtualFramebuffer *> &framebuffers = framebufferManager_->Framebuffers();
+			for (VirtualFramebuffer *framebuffer : framebuffers) {
 				const u32 fb_address = framebuffer->fb_address & 0x3FFFFFFF;
 				const u32 bpp = framebuffer->drawnFormat == GE_FORMAT_8888 ? 4 : 2;
 				u32 offset = clutFramebufAddr - fb_address;
@@ -1590,8 +1585,10 @@ void TextureCacheCommon::ApplyTexture() {
 	TexCacheEntry *entry = nextTexture_;
 	if (!entry) {
 		// Maybe we bound a framebuffer?
+		InvalidateLastTexture();
 		if (nextFramebufferTexture_) {
 			bool depth = Memory::IsDepthTexVRAMAddress(gstate.getTextureAddress(0));
+			// ApplyTextureFrameBuffer is responsible for setting SetTextureFullAlpha.
 			ApplyTextureFramebuffer(nextFramebufferTexture_, gstate.getTextureFormat(), depth ? NOTIFY_FB_DEPTH : NOTIFY_FB_COLOR);
 			nextFramebufferTexture_ = nullptr;
 		}
@@ -1644,6 +1641,7 @@ void TextureCacheCommon::ApplyTexture() {
 	if (nextNeedsRebuild_) {
 		_assert_(!entry->texturePtr);
 		BuildTexture(entry);
+		InvalidateLastTexture();
 	}
 
 	entry->lastFrame = gpuStats.numFlips;
@@ -1753,6 +1751,9 @@ bool TextureCacheCommon::CheckFullHash(TexCacheEntry *entry, bool &doDelete) {
 
 void TextureCacheCommon::Invalidate(u32 addr, int size, GPUInvalidationType type) {
 	// They could invalidate inside the texture, let's just give a bit of leeway.
+	// TODO: Keep track of the largest texture size in bytes, and use that instead of this
+	// humongous unrealistic value.
+
 	const int LARGEST_TEXTURE_SIZE = 512 * 512 * 4;
 
 	addr &= 0x3FFFFFFF;
@@ -1762,8 +1763,9 @@ void TextureCacheCommon::Invalidate(u32 addr, int size, GPUInvalidationType type
 		// This is an active signal from the game that something in the texture cache may have changed.
 		gstate_c.Dirty(DIRTY_TEXTURE_IMAGE);
 	} else {
-		// Do a quick check to see if the current texture is in range.
+		// Do a quick check to see if the current texture could potentially be in range.
 		const u32 currentAddr = gstate.getTextureAddress(0);
+		// TODO: This can be made tighter.
 		if (addr_end >= currentAddr && addr < currentAddr + LARGEST_TEXTURE_SIZE) {
 			gstate_c.Dirty(DIRTY_TEXTURE_IMAGE);
 		}
@@ -1784,7 +1786,8 @@ void TextureCacheCommon::Invalidate(u32 addr, int size, GPUInvalidationType type
 		u32 texAddr = iter->second->addr;
 		u32 texEnd = iter->second->addr + iter->second->sizeInRAM;
 
-		if (texAddr < addr_end && addr < texEnd) {
+		// Quick check for overlap. Yes the check is right.
+		if (addr < texEnd && addr_end > texAddr) {
 			if (iter->second->GetHashStatus() == TexCacheEntry::STATUS_RELIABLE) {
 				iter->second->SetHashStatus(TexCacheEntry::STATUS_HASHING);
 			}

@@ -17,6 +17,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <cfloat>
 
 #include <d3d11.h>
 
@@ -36,7 +37,7 @@
 #include "Core/Host.h"
 
 #include "ext/xxhash.h"
-#include "math/math_util.h"
+#include "Common/Math/math_util.h"
 
 
 #define INVALID_TEX (ID3D11ShaderResourceView *)(-1LL)
@@ -144,15 +145,13 @@ void TextureCacheD3D11::ReleaseTexture(TexCacheEntry *entry, bool delete_them) {
 
 void TextureCacheD3D11::ForgetLastTexture() {
 	InvalidateLastTexture();
-	gstate_c.Dirty(DIRTY_TEXTURE_PARAMS);
+
 	ID3D11ShaderResourceView *nullTex[2]{};
 	context_->PSSetShaderResources(0, 2, nullTex);
 }
 
-void TextureCacheD3D11::InvalidateLastTexture(TexCacheEntry *entry) {
-	if (!entry || entry->texturePtr == lastBoundTexture) {
-		lastBoundTexture = INVALID_TEX;
-	}
+void TextureCacheD3D11::InvalidateLastTexture() {
+	lastBoundTexture = INVALID_TEX;
 }
 
 void TextureCacheD3D11::StartFrame() {
@@ -387,6 +386,7 @@ void TextureCacheD3D11::ApplyTextureFramebuffer(VirtualFramebuffer *framebuffer,
 		context_->PSSetSamplers(0, 1, &stockD3D11.samplerPoint2DWrap);
 		shaderApply.Shade();
 
+		context_->PSSetShaderResources(0, 1, &nullTexture);  // Make D3D11 validation happy. Really of no consequence since we rebind anyway.
 		framebufferManagerD3D11_->RebindFramebuffer("RebindFramebuffer - ApplyTextureFramebuffer");
 		draw_->BindFramebufferAsTexture(depalFBO, 0, Draw::FB_COLOR_BIT, 0);
 
@@ -408,7 +408,6 @@ void TextureCacheD3D11::ApplyTextureFramebuffer(VirtualFramebuffer *framebuffer,
 
 	gstate_c.Dirty(DIRTY_VIEWPORTSCISSOR_STATE | DIRTY_RASTER_STATE | DIRTY_DEPTHSTENCIL_STATE | DIRTY_BLEND_STATE | DIRTY_FRAGMENTSHADER_STATE);
 }
-
 
 void TextureCacheD3D11::BuildTexture(TexCacheEntry *const entry) {
 	entry->status &= ~TexCacheEntry::STATUS_ALPHA_MASK;
@@ -735,7 +734,7 @@ void TextureCacheD3D11::LoadTextureLevel(TexCacheEntry &entry, ReplacedTexture &
 }
 
 bool TextureCacheD3D11::GetCurrentTextureDebug(GPUDebugBuffer &buffer, int level) {
-	SetTexture(false);
+	SetTexture();
 	if (!nextTexture_) {
 		if (nextFramebufferTexture_) {
 			VirtualFramebuffer *vfb = nextFramebufferTexture_;

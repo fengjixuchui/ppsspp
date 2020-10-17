@@ -49,8 +49,10 @@ public:
 		shaderManager_ = sm;
 	}
 
-	void ForgetLastTexture() override;
-	void InvalidateLastTexture(TexCacheEntry *entry = nullptr) override;
+	void ForgetLastTexture() override {
+		InvalidateLastTexture();
+	}
+	void InvalidateLastTexture() override;
 
 	bool GetCurrentTextureDebug(GPUDebugBuffer &buffer, int level) override;
 
