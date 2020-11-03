@@ -279,7 +279,7 @@ void GLQueueRunner::RunInitSteps(const std::vector<GLRInitStep> &steps, bool ski
 			glGetShaderiv(shader, GL_COMPILE_STATUS, &success);
 			if (!success) {
 				std::string infoLog = GetInfoLog(shader, glGetShaderiv, glGetShaderInfoLog);
-#ifdef __ANDROID__
+#if PPSSPP_PLATFORM(ANDROID)
 				ERROR_LOG(G3D, "Error in shader compilation! %s\n", infoLog.c_str());
 				ERROR_LOG(G3D, "Shader source:\n%s\n", (const char *)code);
 #endif
@@ -425,7 +425,12 @@ void GLQueueRunner::InitCreateFramebuffer(const GLRInitStep &step) {
 		tex.wrapT = GL_CLAMP_TO_EDGE;
 		tex.magFilter = linear ? GL_LINEAR : GL_NEAREST;
 		tex.minFilter = linear ? GL_LINEAR : GL_NEAREST;
-		tex.canWrap = isPowerOf2(fbo->width) && isPowerOf2(fbo->height);
+		if (gl_extensions.OES_texture_npot) {
+			tex.canWrap = true;
+		} else {
+			tex.canWrap = isPowerOf2(fbo->width) && isPowerOf2(fbo->height);
+		}
+
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, tex.wrapS);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, tex.wrapT);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, tex.magFilter);

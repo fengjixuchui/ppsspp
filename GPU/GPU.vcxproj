@@ -340,6 +340,7 @@
     <ClInclude Include="..\ext\xbrz\xbrz.h" />
     <ClInclude Include="Common\DepalettizeShaderCommon.h" />
     <ClInclude Include="Common\DrawEngineCommon.h" />
+    <ClInclude Include="Common\FragmentShaderGenerator.h" />
     <ClInclude Include="Common\FramebufferManagerCommon.h" />
     <ClInclude Include="Common\GPUDebugInterface.h" />
     <ClInclude Include="Common\GPUStateUtils.h" />
@@ -350,6 +351,7 @@
     <ClInclude Include="Common\ShaderId.h" />
     <ClInclude Include="Common\ShaderTranslation.h" />
     <ClInclude Include="Common\ShaderUniforms.h" />
+    <ClInclude Include="Common\ShaderWriter.h" />
     <ClInclude Include="Common\SoftwareTransformCommon.h" />
     <ClInclude Include="Common\SplineCommon.h" />
     <ClInclude Include="Common\StencilCommon.h" />
@@ -367,6 +369,7 @@
     <ClInclude Include="Common\TextureScalerCommon.h" />
     <ClInclude Include="Common\TransformCommon.h" />
     <ClInclude Include="Common\VertexDecoderCommon.h" />
+    <ClInclude Include="Common\VertexShaderGenerator.h" />
     <ClInclude Include="D3D11\D3D11Util.h" />
     <ClInclude Include="D3D11\DepalettizeShaderD3D11.h" />
     <ClInclude Include="D3D11\DrawEngineD3D11.h" />
@@ -385,21 +388,13 @@
     <ClInclude Include="Directx9\DepalettizeShaderDX9.h" />
     <ClInclude Include="Directx9\FramebufferManagerDX9.h" />
     <ClInclude Include="Directx9\GPU_DX9.h" />
-    <ClInclude Include="Directx9\FragmentShaderGeneratorHLSL.h" />
     <ClInclude Include="Directx9\ShaderManagerDX9.h" />
     <ClInclude Include="Directx9\TextureCacheDX9.h" />
     <ClInclude Include="Directx9\TextureScalerDX9.h" />
     <ClInclude Include="Directx9\DrawEngineDX9.h" />
-    <ClInclude Include="Directx9\VertexShaderGeneratorHLSL.h" />
     <ClInclude Include="ge_constants.h" />
     <ClInclude Include="GeDisasm.h" />
     <ClInclude Include="GLES\DepalettizeShaderGLES.h">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|ARM'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|ARM'">true</ExcludedFromBuild>
-    </ClInclude>
-    <ClInclude Include="GLES\FragmentShaderGeneratorGLES.h">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|ARM'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">true</ExcludedFromBuild>
@@ -453,12 +448,6 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|ARM'">true</ExcludedFromBuild>
     </ClInclude>
-    <ClInclude Include="GLES\VertexShaderGeneratorGLES.h">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|ARM'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|ARM'">true</ExcludedFromBuild>
-    </ClInclude>
     <ClInclude Include="GPU.h" />
     <ClInclude Include="GPUCommon.h" />
     <ClInclude Include="GPUInterface.h" />
@@ -476,7 +465,6 @@
     <ClInclude Include="Vulkan\DebugVisVulkan.h" />
     <ClInclude Include="Vulkan\DepalettizeShaderVulkan.h" />
     <ClInclude Include="Vulkan\DrawEngineVulkan.h" />
-    <ClInclude Include="Vulkan\FragmentShaderGeneratorVulkan.h" />
     <ClInclude Include="Vulkan\FramebufferManagerVulkan.h" />
     <ClInclude Include="Vulkan\GPU_Vulkan.h" />
     <ClInclude Include="Vulkan\PipelineManagerVulkan.h" />
@@ -484,13 +472,13 @@
     <ClInclude Include="Vulkan\StateMappingVulkan.h" />
     <ClInclude Include="Vulkan\TextureCacheVulkan.h" />
     <ClInclude Include="Vulkan\TextureScalerVulkan.h" />
-    <ClInclude Include="Vulkan\VertexShaderGeneratorVulkan.h" />
     <ClInclude Include="Vulkan\VulkanUtil.h" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="..\ext\xbrz\xbrz.cpp" />
     <ClCompile Include="Common\DepalettizeShaderCommon.cpp" />
     <ClCompile Include="Common\DrawEngineCommon.cpp" />
+    <ClCompile Include="Common\FragmentShaderGenerator.cpp" />
     <ClCompile Include="Common\FramebufferManagerCommon.cpp" />
     <ClCompile Include="Common\GPUDebugInterface.cpp" />
     <ClCompile Include="Common\GPUStateUtils.cpp" />
@@ -501,6 +489,7 @@
     <ClCompile Include="Common\ShaderId.cpp" />
     <ClCompile Include="Common\ShaderTranslation.cpp" />
     <ClCompile Include="Common\ShaderUniforms.cpp" />
+    <ClCompile Include="Common\ShaderWriter.cpp" />
     <ClCompile Include="Common\SplineCommon.cpp" />
     <ClCompile Include="Common\StencilCommon.cpp" />
     <ClCompile Include="Common\TextureDecoderNEON.cpp">
@@ -544,6 +533,7 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|ARM'">true</ExcludedFromBuild>
     </ClCompile>
+    <ClCompile Include="Common\VertexShaderGenerator.cpp" />
     <ClCompile Include="D3D11\D3D11Util.cpp" />
     <ClCompile Include="D3D11\DepalettizeShaderD3D11.cpp" />
     <ClCompile Include="D3D11\DrawEngineD3D11.cpp" />
@@ -562,14 +552,12 @@
     <ClCompile Include="Directx9\DepalettizeShaderDX9.cpp" />
     <ClCompile Include="Directx9\FramebufferManagerDX9.cpp" />
     <ClCompile Include="Directx9\GPU_DX9.cpp" />
-    <ClCompile Include="Directx9\FragmentShaderGeneratorHLSL.cpp" />
     <ClCompile Include="Directx9\ShaderManagerDX9.cpp" />
     <ClCompile Include="Directx9\StateMappingDX9.cpp" />
     <ClCompile Include="Directx9\StencilBufferDX9.cpp" />
     <ClCompile Include="Directx9\TextureCacheDX9.cpp" />
     <ClCompile Include="Directx9\TextureScalerDX9.cpp" />
     <ClCompile Include="Directx9\DrawEngineDX9.cpp" />
-    <ClCompile Include="Directx9\VertexShaderGeneratorHLSL.cpp" />
     <ClCompile Include="GeDisasm.cpp" />
     <ClCompile Include="GeConstants.cpp" />
     <ClCompile Include="GLES\DepalettizeShaderGLES.cpp">
@@ -579,12 +567,6 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|ARM'">true</ExcludedFromBuild>
     </ClCompile>
     <ClCompile Include="GLES\DepthBufferGLES.cpp">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|ARM'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|ARM'">true</ExcludedFromBuild>
-    </ClCompile>
-    <ClCompile Include="GLES\FragmentShaderGeneratorGLES.cpp">
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|ARM'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">true</ExcludedFromBuild>
@@ -644,12 +626,6 @@
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">true</ExcludedFromBuild>
       <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|ARM'">true</ExcludedFromBuild>
     </ClCompile>
-    <ClCompile Include="GLES\VertexShaderGeneratorGLES.cpp">
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|ARM64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Debug|ARM'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|ARM64'">true</ExcludedFromBuild>
-      <ExcludedFromBuild Condition="'$(Configuration)|$(Platform)'=='Release|ARM'">true</ExcludedFromBuild>
-    </ClCompile>
     <ClCompile Include="GPU.cpp" />
     <ClCompile Include="GPUCommon.cpp" />
     <ClCompile Include="GPUState.cpp" />
@@ -667,7 +643,6 @@
     <ClCompile Include="Vulkan\DebugVisVulkan.cpp" />
     <ClCompile Include="Vulkan\DepalettizeShaderVulkan.cpp" />
     <ClCompile Include="Vulkan\DrawEngineVulkan.cpp" />
-    <ClCompile Include="Vulkan\FragmentShaderGeneratorVulkan.cpp" />
     <ClCompile Include="Vulkan\FramebufferManagerVulkan.cpp" />
     <ClCompile Include="Vulkan\GPU_Vulkan.cpp" />
     <ClCompile Include="Vulkan\PipelineManagerVulkan.cpp" />
@@ -676,7 +651,6 @@
     <ClCompile Include="Vulkan\StencilBufferVulkan.cpp" />
     <ClCompile Include="Vulkan\TextureCacheVulkan.cpp" />
     <ClCompile Include="Vulkan\TextureScalerVulkan.cpp" />
-    <ClCompile Include="Vulkan\VertexShaderGeneratorVulkan.cpp" />
     <ClCompile Include="Vulkan\VulkanUtil.cpp" />
   </ItemGroup>
   <ItemGroup>

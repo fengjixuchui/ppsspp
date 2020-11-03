@@ -1235,8 +1235,6 @@ set(GPU_GLES
 	GPU/GLES/DepthBufferGLES.cpp
 	GPU/GLES/GPU_GLES.cpp
 	GPU/GLES/GPU_GLES.h
-	GPU/GLES/FragmentShaderGeneratorGLES.cpp
-	GPU/GLES/FragmentShaderGeneratorGLES.h
 	GPU/GLES/FragmentTestCacheGLES.cpp
 	GPU/GLES/FragmentTestCacheGLES.h
 	GPU/GLES/FramebufferManagerGLES.cpp
@@ -1252,8 +1250,6 @@ set(GPU_GLES
 	GPU/GLES/TextureScalerGLES.h
 	GPU/GLES/DrawEngineGLES.cpp
 	GPU/GLES/DrawEngineGLES.h
-	GPU/GLES/VertexShaderGeneratorGLES.cpp
-	GPU/GLES/VertexShaderGeneratorGLES.h
 )
 
 set(GPU_VULKAN
@@ -1263,8 +1259,6 @@ set(GPU_VULKAN
 	GPU/Vulkan/DebugVisVulkan.h
 	GPU/Vulkan/DrawEngineVulkan.cpp
 	GPU/Vulkan/DrawEngineVulkan.h
-	GPU/Vulkan/FragmentShaderGeneratorVulkan.cpp
-	GPU/Vulkan/FragmentShaderGeneratorVulkan.h
 	GPU/Vulkan/FramebufferManagerVulkan.cpp
 	GPU/Vulkan/FramebufferManagerVulkan.h
 	GPU/Vulkan/GPU_Vulkan.cpp
@@ -1280,8 +1274,6 @@ set(GPU_VULKAN
 	GPU/Vulkan/TextureCacheVulkan.h
 	GPU/Vulkan/TextureScalerVulkan.cpp
 	GPU/Vulkan/TextureScalerVulkan.h
-	GPU/Vulkan/VertexShaderGeneratorVulkan.cpp
-	GPU/Vulkan/VertexShaderGeneratorVulkan.h
 	GPU/Vulkan/VulkanUtil.cpp
 	GPU/Vulkan/VulkanUtil.h
 )
@@ -1304,10 +1296,8 @@ set(GPU_D3D9
 	GPU/Directx9/TextureCacheDX9.h
 	GPU/Directx9/TextureScalerDX9.cpp
 	GPU/Directx9/TextureScalerDX9.h
-	GPU/Directx9/FragmentShaderGeneratorHLSL.cpp
-	GPU/Directx9/FragmentShaderGeneratorHLSL.h
 	GPU/Directx9/VertexShaderGeneratorHLSL.cpp
-	GPU/Directx9/VertexShaderGeneratorHLSL.h
+	GPU/GLES/VertexShaderGeneratorGLES.h
 )
 
 set(GPU_D3D11
@@ -1346,6 +1336,10 @@ set(GPU_SOURCES
 	${GPU_NEON}
 	GPU/Common/DepalettizeShaderCommon.cpp
 	GPU/Common/DepalettizeShaderCommon.h
+	GPU/Common/FragmentShaderGenerator.cpp
+	GPU/Common/FragmentShaderGenerator.h
+	GPU/Common/VertexShaderGenerator.cpp
+	GPU/Common/VertexShaderGenerator.h
 	GPU/Common/FramebufferManagerCommon.cpp
 	GPU/Common/FramebufferManagerCommon.h
 	GPU/Common/GPUDebugInterface.cpp
@@ -1362,6 +1356,8 @@ set(GPU_SOURCES
 	GPU/Common/ShaderUniforms.h
 	GPU/Common/ShaderCommon.cpp
 	GPU/Common/ShaderCommon.h
+	GPU/Common/ShaderWriter.cpp
+	GPU/Common/ShaderWriter.h
 	GPU/Common/ShaderTranslation.cpp
 	GPU/Common/ShaderTranslation.h
 	GPU/Common/SplineCommon.cpp

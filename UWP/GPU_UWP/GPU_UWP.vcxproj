@@ -381,6 +381,7 @@
   <ItemGroup>
     <ClInclude Include="..\..\GPU\Common\DepalettizeShaderCommon.h" />
     <ClInclude Include="..\..\GPU\Common\DrawEngineCommon.h" />
+    <ClInclude Include="..\..\GPU\Common\FragmentShaderGenerator.h" />
     <ClInclude Include="..\..\GPU\Common\FramebufferManagerCommon.h" />
     <ClInclude Include="..\..\GPU\Common\PresentationCommon.h" />
     <ClInclude Include="..\..\GPU\Common\GPUDebugInterface.h" />
@@ -391,6 +392,7 @@
     <ClInclude Include="..\..\GPU\Common\ShaderId.h" />
     <ClInclude Include="..\..\GPU\Common\ShaderTranslation.h" />
     <ClInclude Include="..\..\GPU\Common\ShaderUniforms.h" />
+    <ClInclude Include="..\..\GPU\Common\ShaderWriter.h" />
     <ClInclude Include="..\..\GPU\Common\SoftwareLighting.h" />
     <ClInclude Include="..\..\GPU\Common\SoftwareTransformCommon.h" />
     <ClInclude Include="..\..\GPU\Common\SplineCommon.h" />
@@ -401,6 +403,7 @@
     <ClInclude Include="..\..\GPU\Common\TextureScalerCommon.h" />
     <ClInclude Include="..\..\GPU\Common\TransformCommon.h" />
     <ClInclude Include="..\..\GPU\Common\VertexDecoderCommon.h" />
+    <ClInclude Include="..\..\GPU\Common\VertexShaderGenerator.h" />
     <ClInclude Include="..\..\GPU\D3D11\D3D11Util.h" />
     <ClInclude Include="..\..\GPU\D3D11\DepalettizeShaderD3D11.h" />
     <ClInclude Include="..\..\GPU\D3D11\DrawEngineD3D11.h" />
@@ -416,8 +419,6 @@
     <ClInclude Include="..\..\GPU\Debugger\Record.h" />
     <ClInclude Include="..\..\GPU\Debugger\RecordFormat.h" />
     <ClInclude Include="..\..\GPU\Debugger\Stepping.h" />
-    <ClInclude Include="..\..\GPU\Directx9\FragmentShaderGeneratorHLSL.h" />
-    <ClInclude Include="..\..\GPU\Directx9\VertexShaderGeneratorHLSL.h" />
     <ClInclude Include="..\..\GPU\GeDisasm.h" />
     <ClInclude Include="..\..\GPU\ge_constants.h" />
     <ClInclude Include="..\..\GPU\GPU.h" />
@@ -438,6 +439,7 @@
   <ItemGroup>
     <ClCompile Include="..\..\GPU\Common\DepalettizeShaderCommon.cpp" />
     <ClCompile Include="..\..\GPU\Common\DrawEngineCommon.cpp" />
+    <ClCompile Include="..\..\GPU\Common\FragmentShaderGenerator.cpp" />
     <ClCompile Include="..\..\GPU\Common\FramebufferManagerCommon.cpp" />
     <ClCompile Include="..\..\GPU\Common\PresentationCommon.cpp" />
     <ClCompile Include="..\..\GPU\Common\GPUDebugInterface.cpp" />
@@ -448,6 +450,7 @@
     <ClCompile Include="..\..\GPU\Common\ShaderId.cpp" />
     <ClCompile Include="..\..\GPU\Common\ShaderTranslation.cpp" />
     <ClCompile Include="..\..\GPU\Common\ShaderUniforms.cpp" />
+    <ClCompile Include="..\..\GPU\Common\ShaderWriter.cpp" />
     <ClCompile Include="..\..\GPU\Common\SoftwareTransformCommon.cpp" />
     <ClCompile Include="..\..\GPU\Common\SplineCommon.cpp" />
     <ClCompile Include="..\..\GPU\Common\StencilCommon.cpp" />
@@ -461,6 +464,7 @@
     <ClCompile Include="..\..\GPU\Common\VertexDecoderCommon.cpp" />
     <ClCompile Include="..\..\GPU\Common\VertexDecoderFake.cpp" />
     <ClCompile Include="..\..\GPU\Common\VertexDecoderX86.cpp" />
+    <ClCompile Include="..\..\GPU\Common\VertexShaderGenerator.cpp" />
     <ClCompile Include="..\..\GPU\D3D11\D3D11Util.cpp" />
     <ClCompile Include="..\..\GPU\D3D11\DepalettizeShaderD3D11.cpp" />
     <ClCompile Include="..\..\GPU\D3D11\DrawEngineD3D11.cpp" />
@@ -476,8 +480,6 @@
     <ClCompile Include="..\..\GPU\Debugger\Playback.cpp" />
     <ClCompile Include="..\..\GPU\Debugger\Record.cpp" />
     <ClCompile Include="..\..\GPU\Debugger\Stepping.cpp" />
-    <ClCompile Include="..\..\GPU\Directx9\FragmentShaderGeneratorHLSL.cpp" />
-    <ClCompile Include="..\..\GPU\Directx9\VertexShaderGeneratorHLSL.cpp" />
     <ClCompile Include="..\..\GPU\GeConstants.cpp" />
     <ClCompile Include="..\..\GPU\GeDisasm.cpp" />
     <ClCompile Include="..\..\GPU\GPU.cpp" />

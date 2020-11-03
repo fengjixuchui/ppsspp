@@ -236,6 +236,7 @@ SOURCES_CXX += \
 	$(GPUCOMMONDIR)/ShaderCommon.cpp \
 	$(GPUCOMMONDIR)/ShaderUniforms.cpp \
 	$(GPUCOMMONDIR)/ShaderTranslation.cpp \
+	$(GPUCOMMONDIR)/ShaderWriter.cpp \
 	$(GPUCOMMONDIR)/GPUDebugInterface.cpp \
 	$(GPUCOMMONDIR)/DepalettizeShaderCommon.cpp \
 	$(GPUCOMMONDIR)/TransformCommon.cpp \
@@ -248,6 +249,8 @@ SOURCES_CXX += \
 	$(GPUDIR)/Debugger/Playback.cpp \
 	$(GPUDIR)/Debugger/Record.cpp \
 	$(GPUDIR)/Debugger/Stepping.cpp \
+	$(GPUDIR)/Common/FragmentShaderGenerator.cpp \
+	$(GPUDIR)/Common/VertexShaderGenerator.cpp \
 	$(GPUDIR)/Common/TextureCacheCommon.cpp \
 	$(GPUDIR)/Common/TextureScalerCommon.cpp \
 	$(GPUDIR)/Common/SoftwareTransformCommon.cpp \
@@ -268,10 +271,8 @@ SOURCES_CXX += \
 	$(GPUDIR)/Software/RasterizerRectangle.cpp \
 	$(GPUDIR)/GLES/DepalettizeShaderGLES.cpp \
 	$(GPUDIR)/GLES/DepthBufferGLES.cpp \
-	$(GPUDIR)/GLES/VertexShaderGeneratorGLES.cpp \
 	$(GPUDIR)/GLES/DrawEngineGLES.cpp \
 	$(GPUDIR)/GLES/GPU_GLES.cpp \
-	$(GPUDIR)/GLES/FragmentShaderGeneratorGLES.cpp \
 	$(GPUDIR)/GLES/FragmentTestCacheGLES.cpp \
 	$(GPUDIR)/GLES/FramebufferManagerGLES.cpp \
 	$(GPUDIR)/GLES/TextureCacheGLES.cpp \
@@ -639,7 +640,6 @@ SOURCES_C += \
 SOURCES_CXX += \
 	$(GPUDIR)/Vulkan/DepalettizeShaderVulkan.cpp \
 	$(GPUDIR)/Vulkan/DrawEngineVulkan.cpp \
-	$(GPUDIR)/Vulkan/FragmentShaderGeneratorVulkan.cpp \
 	$(GPUDIR)/Vulkan/FramebufferManagerVulkan.cpp \
 	$(GPUDIR)/Vulkan/GPU_Vulkan.cpp \
 	$(GPUDIR)/Vulkan/PipelineManagerVulkan.cpp \
@@ -648,7 +648,6 @@ SOURCES_CXX += \
 	$(GPUDIR)/Vulkan/StencilBufferVulkan.cpp \
 	$(GPUDIR)/Vulkan/TextureCacheVulkan.cpp \
 	$(GPUDIR)/Vulkan/TextureScalerVulkan.cpp \
-	$(GPUDIR)/Vulkan/VertexShaderGeneratorVulkan.cpp \
 	$(GPUDIR)/Vulkan/VulkanUtil.cpp \
 	$(LIBRETRODIR)/LibretroVulkanContext.cpp \
 	$(LIBRETRODIR)/libretro_vulkan.cpp
@@ -663,7 +662,6 @@ ifeq ($(PLATFORM_EXT), win32)
 SOURCES_CXX += \
 	$(GPUDIR)/Directx9/DepalettizeShaderDX9.cpp \
 	$(GPUDIR)/Directx9/DrawEngineDX9.cpp \
-	$(GPUDIR)/Directx9/FragmentShaderGeneratorHLSL.cpp \
 	$(GPUDIR)/Directx9/FramebufferManagerDX9.cpp \
 	$(GPUDIR)/Directx9/GPU_DX9.cpp \
 	$(GPUDIR)/Directx9/ShaderManagerDX9.cpp \

@@ -166,7 +166,7 @@ LinkedShader::LinkedShader(GLRenderManager *render, VShaderID VSID, Shader *vs, 
 	queries.push_back({ &u_tess_weights_u, "u_tess_weights_u" });
 	queries.push_back({ &u_tess_weights_v, "u_tess_weights_v" });
 	queries.push_back({ &u_spline_counts, "u_spline_counts" });
-	queries.push_back({ &u_depal, "u_depal" });
+	queries.push_back({ &u_depal_mask_shift_off_fmt, "u_depal_mask_shift_off_fmt" });
 
 	attrMask = vs->GetAttrMask();
 	availableUniforms = vs->GetUniformMask() | fs->GetUniformMask();
@@ -264,7 +264,7 @@ static void SetFloatUniform4(GLRenderManager *render, GLint *uniform, float data
 
 static void SetMatrix4x3(GLRenderManager *render, GLint *uniform, const float *m4x3) {
 	float m4x4[16];
-	ConvertMatrix4x3To4x4(m4x4, m4x3);
+	ConvertMatrix4x3To4x4Transposed(m4x4, m4x3);
 	render->SetUniformM4x4(uniform, m4x4);
 }
 
@@ -298,7 +298,7 @@ void LinkedShader::UpdateUniforms(u32 vertType, const ShaderID &vsid, bool useBu
 		uint32_t val = BytesToUint32(indexMask, indexShift, indexOffset, format);
 		// Poke in a bilinear filter flag in the top bit.
 		val |= gstate.isMagnifyFilteringEnabled() << 31;
-		render_->SetUniformI1(&u_depal, val);
+		render_->SetUniformI1(&u_depal_mask_shift_off_fmt, val);
 	}
 
 	// Update any dirty uniforms before we draw
@@ -495,7 +495,7 @@ void LinkedShader::UpdateUniforms(u32 vertType, const ShaderID &vsid, bool useBu
 	float bonetemp[16];
 	for (int i = 0; i < numBones; i++) {
 		if (dirty & (DIRTY_BONEMATRIX0 << i)) {
-			ConvertMatrix4x3To4x4(bonetemp, gstate.boneMatrix + 12 * i);
+			ConvertMatrix4x3To4x4Transposed(bonetemp, gstate.boneMatrix + 12 * i);
 			render_->SetUniformM4x4(&u_bone[i], bonetemp);
 		}
 	}
@@ -571,15 +571,93 @@ void LinkedShader::UpdateUniforms(u32 vertType, const ShaderID &vsid, bool useBu
 }
 
 ShaderManagerGLES::ShaderManagerGLES(Draw::DrawContext *draw)
-		: ShaderManagerCommon(draw), lastShader_(nullptr), shaderSwitchDirtyUniforms_(0), diskCacheDirty_(false), fsCache_(16), vsCache_(16) {
+	  : ShaderManagerCommon(draw), compat_(GLSL_140), fsCache_(16), vsCache_(16) {
 	render_ = (GLRenderManager *)draw->GetNativeObject(Draw::NativeObject::RENDER_MANAGER);
 	codeBuffer_ = new char[16384];
 	lastFSID_.set_invalid();
 	lastVSID_.set_invalid();
+	DetectShaderLanguage();
 }
 
 ShaderManagerGLES::~ShaderManagerGLES() {
 	delete [] codeBuffer_;
+}
+
+void ShaderManagerGLES::DetectShaderLanguage() {
+	ShaderLanguageDesc &compat = compat_;
+
+	compat.gles = gl_extensions.IsGLES;
+
+	if (compat.gles) {
+		if (gstate_c.Supports(GPU_SUPPORTS_GLSL_ES_300)) {
+			compat.shaderLanguage = ShaderLanguage::GLSL_300;
+			compat.glslVersionNumber = 300;  // GLSL ES 3.0
+			compat.fragColor0 = "fragColor0";
+			compat.texture = "texture";
+			compat.glslES30 = true;
+			compat.bitwiseOps = true;
+			compat.texelFetch = "texelFetch";
+			compat.varying_vs = "out";
+			compat.varying_fs = "in";
+			compat.attribute = "in";
+		} else {
+			compat.shaderLanguage = ShaderLanguage::GLSL_140;
+			compat.glslVersionNumber = 100;  // GLSL ES 1.0
+			if (gl_extensions.EXT_gpu_shader4) {
+				compat.bitwiseOps = true;
+				compat.texelFetch = "texelFetch2D";
+			}
+			if (gl_extensions.EXT_blend_func_extended) {
+				// Oldy moldy GLES, so use the fixed output name.
+				compat.fragColor1 = "gl_SecondaryFragColorEXT";
+			}
+		}
+	} else {
+		if (!gl_extensions.ForceGL2 || gl_extensions.IsCoreContext) {
+			if (gl_extensions.VersionGEThan(3, 3, 0)) {
+				compat.shaderLanguage = ShaderLanguage::GLSL_300;
+				compat.glslVersionNumber = 330;
+				compat.fragColor0 = "fragColor0";
+				compat.texture = "texture";
+				compat.glslES30 = true;
+				compat.bitwiseOps = true;
+				compat.texelFetch = "texelFetch";
+				compat.varying_vs = "out";
+				compat.varying_fs = "in";
+				compat.attribute = "in";
+			} else if (gl_extensions.VersionGEThan(3, 0, 0)) {
+				compat.shaderLanguage = ShaderLanguage::GLSL_140;
+				compat.glslVersionNumber = 130;
+				compat.fragColor0 = "fragColor0";
+				compat.bitwiseOps = true;
+				compat.texelFetch = "texelFetch";
+			} else {
+				compat.shaderLanguage = ShaderLanguage::GLSL_140;
+				compat.glslVersionNumber = 110;
+				if (gl_extensions.EXT_gpu_shader4) {
+					compat.bitwiseOps = true;
+					compat.texelFetch = "texelFetch2D";
+				}
+			}
+		}
+	}
+
+	if (gstate_c.Supports(GPU_SUPPORTS_ANY_FRAMEBUFFER_FETCH)) {
+		if (gstate_c.Supports(GPU_SUPPORTS_GLSL_ES_300) && gl_extensions.EXT_shader_framebuffer_fetch) {
+			compat.framebufferFetchExtension = "#extension GL_EXT_shader_framebuffer_fetch : require";
+			compat.lastFragData = "fragColor0";
+		} else if (gl_extensions.EXT_shader_framebuffer_fetch) {
+			compat.framebufferFetchExtension = "#extension GL_EXT_shader_framebuffer_fetch : require";
+			compat.lastFragData = "gl_LastFragData[0]";
+		} else if (gl_extensions.NV_shader_framebuffer_fetch) {
+			// GL_NV_shader_framebuffer_fetch is available on mobile platform and ES 2.0 only but not on desktop.
+			compat.framebufferFetchExtension = "#extension GL_NV_shader_framebuffer_fetch : require";
+			compat.lastFragData = "gl_LastFragData[0]";
+		} else if (gl_extensions.ARM_shader_framebuffer_fetch) {
+			compat.framebufferFetchExtension = "#extension GL_ARM_shader_framebuffer_fetch : require";
+			compat.lastFragData = "gl_LastFragColorARM";
+		}
+	}
 }
 
 void ShaderManagerGLES::Clear() {
@@ -630,7 +708,7 @@ void ShaderManagerGLES::DirtyLastShader() {
 Shader *ShaderManagerGLES::CompileFragmentShader(FShaderID FSID) {
 	uint64_t uniformMask;
 	std::string errorString;
-	if (!GenerateFragmentShaderGLSL(FSID, codeBuffer_, &uniformMask, &errorString)) {
+	if (!GenerateFragmentShader(FSID, codeBuffer_, compat_, &uniformMask, &errorString)) {
 		ERROR_LOG(G3D, "Shader gen error: %s", errorString.c_str());
 		return nullptr;
 	}
@@ -643,7 +721,7 @@ Shader *ShaderManagerGLES::CompileVertexShader(VShaderID VSID) {
 	uint32_t attrMask;
 	uint64_t uniformMask;
 	std::string errorString;
-	if (!GenerateVertexShaderGLSL(VSID, codeBuffer_, &attrMask, &uniformMask, &errorString)) {
+	if (!GenerateVertexShader(VSID, codeBuffer_, compat_, &attrMask, &uniformMask, &errorString)) {
 		ERROR_LOG(G3D, "Shader gen error: %s", errorString.c_str());
 		return nullptr;
 	}
@@ -832,7 +910,7 @@ std::string ShaderManagerGLES::DebugGetShaderString(std::string id, DebugShaderT
 // as sometimes these features might have an effect on the ID bits.
 
 #define CACHE_HEADER_MAGIC 0x83277592
-#define CACHE_VERSION 14
+#define CACHE_VERSION 15
 struct CacheHeader {
 	uint32_t magic;
 	uint32_t version;

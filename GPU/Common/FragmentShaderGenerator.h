@@ -17,10 +17,24 @@
 
 #pragma once
 
-#include "Common/CommonTypes.h"
+#include "GPU/Common/ShaderCommon.h"
 
-// #define USE_BONE_ARRAY
+struct FShaderID;
 
-struct VShaderID;
+// D3D9 constants
 
-bool GenerateVertexShaderGLSL(const VShaderID &id, char *buffer, uint32_t *attrMask, uint64_t *uniformMask, std::string *errorString);
+#define CONST_PS_TEXENV 0
+#define CONST_PS_ALPHACOLORREF 1
+#define CONST_PS_ALPHACOLORMASK 2
+#define CONST_PS_FOGCOLOR 3
+#define CONST_PS_STENCILREPLACE 4
+#define CONST_PS_BLENDFIXA 5
+#define CONST_PS_BLENDFIXB 6
+#define CONST_PS_FBOTEXSIZE 7
+#define CONST_PS_TEXCLAMP 8
+#define CONST_PS_TEXCLAMPOFF 9
+
+// For stencil upload
+#define CONST_PS_STENCILVALUE 10
+
+bool GenerateFragmentShader(const FShaderID &id, char *buffer, const ShaderLanguageDesc &compat, uint64_t *uniformMask, std::string *errorString);

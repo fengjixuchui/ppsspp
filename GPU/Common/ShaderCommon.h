@@ -18,19 +18,23 @@
 #pragma once
 
 #include <cstdint>
+#include <vector>
 
 namespace Draw {
 	class DrawContext;
 }
 
 enum ShaderLanguage {
-	GLSL_140,
+	GLSL_140,  // really covers a lot more. This set of languages is not good.
 	GLSL_300,
 	GLSL_VULKAN,
-	HLSL_DX9,
+	HLSL_D3D9,
 	HLSL_D3D11,
-	HLSL_D3D11_LEVEL9,
 };
+
+inline bool ShaderLanguageIsOpenGL(ShaderLanguage lang) {
+	return lang == GLSL_140 || lang == GLSL_300;
+}
 
 enum DebugShaderType {
 	SHADER_TYPE_VERTEX = 0,
@@ -46,6 +50,11 @@ enum DebugShaderStringType {
 	SHADER_STRING_SHORT_DESC = 0,
 	SHADER_STRING_SOURCE_CODE = 1,
 	SHADER_STRING_STATS = 2,
+};
+
+enum class ShaderStage {
+	Vertex,
+	Fragment
 };
 
 // Shared between the backends. Not all are necessarily used by each backend, but this lets us share
@@ -138,14 +147,50 @@ enum DoLightComputation {
 	LIGHT_FULL,
 };
 
-struct GLSLShaderCompat {
-	const char *varying;
-	const char *attribute;
-	const char *fragColor0;
-	const char *fragColor1;
-	const char *texture;
-	const char *texelFetch;
-	const char *lastFragData;
-	bool glslES30;
-	bool bitwiseOps;
+struct ShaderLanguageDesc {
+	explicit ShaderLanguageDesc(ShaderLanguage lang);
+
+	int glslVersionNumber = 0;
+	ShaderLanguage shaderLanguage;
+	bool gles = false;
+	const char *varying_fs = nullptr;
+	const char *varying_vs = nullptr;
+	const char *attribute = nullptr;
+	const char *fragColor0 = nullptr;
+	const char *fragColor1 = nullptr;
+	const char *texture = nullptr;
+	const char *texelFetch = nullptr;
+	const char *lastFragData = nullptr;
+	const char *framebufferFetchExtension = nullptr;
+	const char *vsOutPrefix = "";
+	bool glslES30 = false;
+	bool bitwiseOps = false;
+	bool forceMatrix4x4 = false;
+	bool coefsFromBuffers = false;
+};
+
+// PSP vertex format.
+enum class PspAttributeLocation {
+	POSITION = 0,
+	TEXCOORD = 1,
+	NORMAL = 2,
+	W1 = 3,
+	W2 = 4,
+	COLOR0 = 5,
+	COLOR1 = 6,
+
+	COUNT
+};
+
+// Pre-fetched attrs and uniforms (used by GL only).
+enum {
+	ATTR_POSITION = 0,
+	ATTR_TEXCOORD = 1,
+	ATTR_NORMAL = 2,
+	ATTR_W1 = 3,
+	ATTR_W2 = 4,
+	ATTR_COLOR0 = 5,
+	ATTR_COLOR1 = 6,
+
+	ATTR_COUNT,
 };

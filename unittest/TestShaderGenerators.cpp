@@ -1,18 +1,16 @@
+#include <algorithm>
+
 #include "Common/StringUtils.h"
 
 #include "GPU/Common/ShaderId.h"
 #include "GPU/Common/ShaderCommon.h"
+#include "GPU/Common/GPUStateUtils.h"
 #include "Common/Data/Random/Rng.h"
 
 #include "GPU/Vulkan/VulkanContext.h"
 
-#include "GPU/Vulkan/FragmentShaderGeneratorVulkan.h"
-#include "GPU/Directx9/FragmentShaderGeneratorHLSL.h"
-#include "GPU/GLES/FragmentShaderGeneratorGLES.h"
-
-#include "GPU/Vulkan/VertexShaderGeneratorVulkan.h"
-#include "GPU/Directx9/VertexShaderGeneratorHLSL.h"
-#include "GPU/GLES/VertexShaderGeneratorGLES.h"
+#include "GPU/Common/FragmentShaderGenerator.h"
+#include "GPU/Common/VertexShaderGenerator.h"
 
 #include "GPU/D3D11/D3D11Util.h"
 #include "GPU/D3D11/D3D11Loader.h"
@@ -21,69 +19,128 @@
 #include "GPU/D3D9/D3D9ShaderCompiler.h"
 
 bool GenerateFShader(FShaderID id, char *buffer, ShaderLanguage lang, std::string *errorString) {
+	uint64_t uniformMask;
 	switch (lang) {
-	case ShaderLanguage::HLSL_D3D11:
-		return GenerateFragmentShaderHLSL(id, buffer, ShaderLanguage::HLSL_D3D11, errorString);
-	case ShaderLanguage::HLSL_DX9:
-		GenerateFragmentShaderHLSL(id, buffer, ShaderLanguage::HLSL_DX9, errorString);
-		// TODO: Need a device :(  Returning false here so it doesn't get tried.
-		return false;
 	case ShaderLanguage::GLSL_VULKAN:
-		return GenerateFragmentShaderVulkanGLSL(id, buffer, 0, errorString);
+	{
+		ShaderLanguageDesc compat(ShaderLanguage::GLSL_VULKAN);
+		return GenerateFragmentShader(id, buffer, compat, &uniformMask, errorString);
+	}
 	case ShaderLanguage::GLSL_140:
+	{
+		ShaderLanguageDesc compat(ShaderLanguage::GLSL_140);
+		return GenerateFragmentShader(id, buffer, compat, &uniformMask, errorString);
+	}
 	case ShaderLanguage::GLSL_300:
-		// TODO: Need a device - except that maybe glslang could be used to verify these ....
-		return false;
+	{
+		ShaderLanguageDesc compat(ShaderLanguage::GLSL_140);
+		return GenerateFragmentShader(id, buffer, compat, &uniformMask, errorString);
+	}
+	case ShaderLanguage::HLSL_D3D9:
+	{
+		ShaderLanguageDesc compat(ShaderLanguage::HLSL_D3D9);
+		return GenerateFragmentShader(id, buffer, compat, &uniformMask, errorString);
+	}
+	case ShaderLanguage::HLSL_D3D11:
+	{
+		ShaderLanguageDesc compat(ShaderLanguage::HLSL_D3D11);
+		return GenerateFragmentShader(id, buffer, compat, &uniformMask, errorString);
+	}
 	default:
 		return false;
 	}
 }
 
 bool GenerateVShader(VShaderID id, char *buffer, ShaderLanguage lang, std::string *errorString) {
+	uint32_t attrMask;
+	uint64_t uniformMask;
 	switch (lang) {
-	case ShaderLanguage::HLSL_D3D11:
-		return GenerateVertexShaderHLSL(id, buffer, ShaderLanguage::HLSL_D3D11, errorString);
-	case ShaderLanguage::HLSL_DX9:
-		GenerateVertexShaderHLSL(id, buffer, ShaderLanguage::HLSL_DX9, errorString);
-		// TODO: Need a device :(  Returning false here so it doesn't get tried.
-		return false;
-		// return DX9::GenerateFragmentShaderHLSL(id, buffer, ShaderLanguage::HLSL_DX9);
 	case ShaderLanguage::GLSL_VULKAN:
-		return GenerateVertexShaderVulkanGLSL(id, buffer, errorString);
+	{
+		ShaderLanguageDesc compat(ShaderLanguage::GLSL_VULKAN);
+		return GenerateVertexShader(id, buffer, compat, &attrMask, &uniformMask, errorString);
+	}
+	case ShaderLanguage::GLSL_140:
+	{
+		ShaderLanguageDesc compat(ShaderLanguage::GLSL_140);
+		return GenerateVertexShader(id, buffer, compat, &attrMask, &uniformMask, errorString);
+	}
+	case ShaderLanguage::GLSL_300:
+	{
+		ShaderLanguageDesc compat(ShaderLanguage::GLSL_140);
+		return GenerateVertexShader(id, buffer, compat, &attrMask, &uniformMask, errorString);
+	}
+	case ShaderLanguage::HLSL_D3D9:
+	{
+		ShaderLanguageDesc compat(ShaderLanguage::HLSL_D3D9);
+		return GenerateVertexShader(id, buffer, compat, &attrMask, &uniformMask, errorString);
+	}
+	case ShaderLanguage::HLSL_D3D11:
+	{
+		ShaderLanguageDesc compat(ShaderLanguage::HLSL_D3D11);
+		return GenerateVertexShader(id, buffer, compat, &attrMask, &uniformMask, errorString);
+	}
 	default:
 		return false;
 	}
 }
 
-bool TestCompileShader(const char *buffer, ShaderLanguage lang, bool vertex) {
+bool TestCompileShader(const char *buffer, ShaderLanguage lang, bool vertex, std::string *errorMessage) {
+	std::vector<uint32_t> spirv;
 	switch (lang) {
 	case ShaderLanguage::HLSL_D3D11:
 	{
 		auto output = CompileShaderToBytecodeD3D11(buffer, strlen(buffer), vertex ? "vs_4_0" : "ps_4_0", 0);
 		return !output.empty();
 	}
-	case ShaderLanguage::HLSL_DX9:
-		return false;
-	case ShaderLanguage::GLSL_VULKAN:
+	case ShaderLanguage::HLSL_D3D9:
 	{
-		std::vector<uint32_t> spirv;
-		std::string errorMessage;
-		bool result = GLSLtoSPV(vertex ? VK_SHADER_STAGE_VERTEX_BIT : VK_SHADER_STAGE_FRAGMENT_BIT, buffer, spirv, &errorMessage);
-		if (!result) {
-			printf("GLSLtoSPV ERROR:\n%s\n\n", errorMessage.c_str());
+		LPD3DBLOB blob = CompileShaderToByteCodeD3D9(buffer, vertex ? "vs_2_0" : "ps_2_0", errorMessage);
+		if (blob) {
+			blob->Release();
+			return true;
+		} else {
+			return false;
 		}
-		return result;
 	}
+
+	case ShaderLanguage::GLSL_VULKAN:
+		return GLSLtoSPV(vertex ? VK_SHADER_STAGE_VERTEX_BIT : VK_SHADER_STAGE_FRAGMENT_BIT, buffer, GLSLVariant::VULKAN, spirv, errorMessage);
 	case ShaderLanguage::GLSL_140:
-
-		return false;
+		return GLSLtoSPV(vertex ? VK_SHADER_STAGE_VERTEX_BIT : VK_SHADER_STAGE_FRAGMENT_BIT, buffer, GLSLVariant::GL140, spirv, errorMessage);
 	case ShaderLanguage::GLSL_300:
-
-		return false;
+		return GLSLtoSPV(vertex ? VK_SHADER_STAGE_VERTEX_BIT : VK_SHADER_STAGE_FRAGMENT_BIT, buffer, GLSLVariant::GLES300, spirv, errorMessage);
 	default:
 		return false;
 	}
 }
+
+void PrintDiff(const char *a, const char *b) {
+	// Stupidest diff ever: Just print both lines, and a few around it, when we find a mismatch.
+	std::vector<std::string> a_lines;
+	std::vector<std::string> b_lines;
+	SplitString(a, '\n', a_lines);
+	SplitString(b, '\n', b_lines);
+	for (size_t i = 0; i < a_lines.size() && i < b_lines.size(); i++) {
+		if (a_lines[i] != b_lines[i]) {
+			// Print some context
+			for (size_t j = std::max((int)i - 4, 0); j < i; j++) {
+				printf("%s\n", a_lines[j].c_str());
+			}
+			printf("DIFF found at line %d:\n", (int)i);
+			printf("a: %s\n", a_lines[i].c_str());
+			printf("b: %s\n", b_lines[i].c_str());
+			printf("...continues...\n");
+			for (size_t j = i + 1; j < i + 5 && j < a_lines.size() && j < b_lines.size(); j++) {
+				printf("a: %s\n", a_lines[j].c_str());
+				printf("b: %s\n", b_lines[j].c_str());
+			}
+			printf("==================\n");
+			return;
+		}
+	}
+}
+
 
 bool TestShaderGenerators() {
 	LoadD3D11();
@@ -91,11 +148,11 @@ bool TestShaderGenerators() {
 	LoadD3DCompilerDynamic();
 
 	ShaderLanguage languages[] = {
+		ShaderLanguage::HLSL_D3D9,
 		ShaderLanguage::HLSL_D3D11,
 		ShaderLanguage::GLSL_VULKAN,
 		ShaderLanguage::GLSL_140,
 		ShaderLanguage::GLSL_300,
-		ShaderLanguage::HLSL_DX9,
 	};
 	const int numLanguages = ARRAY_SIZE(languages);
 
@@ -106,7 +163,57 @@ bool TestShaderGenerators() {
 	}
 	GMRng rng;
 	int successes = 0;
-	int count = 200;
+	int count = 700;
+
+	// Generate a bunch of random vertex shader IDs, try to generate shader source.
+	// Then compile it and check that it's ok.
+	for (int i = 0; i < count; i++) {
+		uint32_t bottom = rng.R32();
+		uint32_t top = rng.R32();
+		VShaderID id;
+		id.d[0] = bottom;
+		id.d[1] = top;
+
+		// The generated bits need some adjustment:
+
+		// We don't use these bits in the HLSL shader generator.
+		id.SetBits(VS_BIT_WEIGHT_FMTSCALE, 2, 0);
+		// If mode is through, we won't do hardware transform.
+		if (id.Bit(VS_BIT_IS_THROUGH)) {
+			id.SetBit(VS_BIT_USE_HW_TRANSFORM, 0);
+		}
+		if (!id.Bit(VS_BIT_USE_HW_TRANSFORM)) {
+			id.SetBit(VS_BIT_ENABLE_BONES, 0);
+		}
+
+		bool generateSuccess[numLanguages]{};
+		std::string genErrorString[numLanguages];
+
+		for (int j = 0; j < numLanguages; j++) {
+			generateSuccess[j] = GenerateVShader(id, buffer[j], languages[j], &genErrorString[j]);
+			if (!genErrorString[j].empty()) {
+				printf("%s\n", genErrorString[j].c_str());
+			}
+		}
+
+		// Now that we have the strings ready for easy comparison (buffer,4 in the watch window),
+		// let's try to compile them.
+		for (int j = 0; j < numLanguages; j++) {
+			if (generateSuccess[j]) {
+				std::string errorMessage;
+				if (!TestCompileShader(buffer[j], languages[j], true, &errorMessage)) {
+					printf("Error compiling vertex shader %d:\n\n%s\n\n%s\n", (int)j, LineNumberString(buffer[j]).c_str(), errorMessage.c_str());
+					return false;
+				}
+				successes++;
+			}
+		}
+	}
+
+	printf("%d/%d vertex shaders generated (it's normal that it's not all, there are invalid bit combos)\n", successes, count * numLanguages);
+
+	successes = 0;
+	count = 200;
 
 	// Generate a bunch of random fragment shader IDs, try to generate shader source.
 	// Then compile it and check that it's ok.
@@ -117,13 +224,21 @@ bool TestShaderGenerators() {
 		id.d[0] = bottom;
 		id.d[1] = top;
 
+		// bits we don't need to test because they are irrelevant on d3d11
+		id.SetBit(FS_BIT_NO_DEPTH_CANNOT_DISCARD_STENCIL, false);
+		id.SetBit(FS_BIT_SHADER_DEPAL, false);
+
+		// DX9 disabling:
+		if (static_cast<ReplaceAlphaType>(id.Bits(FS_BIT_STENCIL_TO_ALPHA, 2)) == ReplaceAlphaType::REPLACE_ALPHA_DUALSOURCE)
+			continue;
+
 		bool generateSuccess[numLanguages]{};
+		std::string genErrorString[numLanguages];
 
 		for (int j = 0; j < numLanguages; j++) {
-			std::string genErrorString;
-			generateSuccess[j] = GenerateFShader(id, buffer[j], languages[j], &genErrorString);
-			if (!genErrorString.empty()) {
-				printf("%s\n", genErrorString.c_str());
+			generateSuccess[j] = GenerateFShader(id, buffer[j], languages[j], &genErrorString[j]);
+			if (!genErrorString[j].empty()) {
+				printf("%s\n", genErrorString[j].c_str());
 			}
 			// We ignore the contents of the error string here, not even gonna try to compile if it errors.
 		}
@@ -132,8 +247,9 @@ bool TestShaderGenerators() {
 		// let's try to compile them.
 		for (int j = 0; j < numLanguages; j++) {
 			if (generateSuccess[j]) {
-				if (!TestCompileShader(buffer[j], languages[j], false)) {
-					printf("Error compiling fragment shader:\n\n%s\n\n", LineNumberString(buffer[j]).c_str());
+				std::string errorMessage;
+				if (!TestCompileShader(buffer[j], languages[j], false, &errorMessage)) {
+					printf("Error compiling fragment shader:\n\n%s\n\n%s\n", LineNumberString(buffer[j]).c_str(), errorMessage.c_str());
 					return false;
 				}
 				successes++;
@@ -146,46 +262,8 @@ bool TestShaderGenerators() {
 	successes = 0;
 	count = 200;
 
-	// Generate a bunch of random vertex shader IDs, try to generate shader source.
-	// Then compile it and check that it's ok.
-	for (int i = 0; i < count; i++) {
-		uint32_t bottom = rng.R32();
-		uint32_t top = rng.R32();
-		VShaderID id;
-		id.d[0] = bottom;
-		id.d[1] = top;
 
-		// Skip testing beziers for now. I'll deal with those bugs later.
-		id.SetBit(VS_BIT_BEZIER, false);
-		id.SetBit(VS_BIT_SPLINE, false);
-
-		bool generateSuccess[numLanguages]{};
-
-		for (int j = 0; j < numLanguages; j++) {
-			std::string genErrorString;
-			generateSuccess[j] = GenerateVShader(id, buffer[j], languages[j], &genErrorString);
-			if (!genErrorString.empty()) {
-				printf("%s\n", genErrorString.c_str());
-			}
-		}
-
-		// Now that we have the strings ready for easy comparison (buffer,4 in the watch window),
-		// let's try to compile them.
-		for (int j = 0; j < numLanguages; j++) {
-			if (generateSuccess[j]) {
-				if (!TestCompileShader(buffer[j], languages[j], true)) {
-					printf("Error compiling vertex shader:\n\n%s\n\n", LineNumberString(buffer[j]).c_str());
-					return false;
-				}
-				successes++;
-			}
-		}
-	}
-
-	printf("%d/%d vertex shaders generated (it's normal that it's not all, there are invalid bit combos)\n", successes, count * numLanguages);
-
-	successes = 0;
-	count = 200;
+	_CrtCheckMemory();
 
 	for (int i = 0; i < numLanguages; i++) {
 		delete[] buffer[i];

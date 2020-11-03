@@ -33,7 +33,7 @@
 #include "GPU/GPUState.h"
 #include "GPU/GLES/TextureCacheGLES.h"
 #include "GPU/GLES/FramebufferManagerGLES.h"
-#include "GPU/GLES/FragmentShaderGeneratorGLES.h"
+#include "GPU/Common/FragmentShaderGenerator.h"
 #include "GPU/GLES/DepalettizeShaderGLES.h"
 #include "GPU/GLES/ShaderManagerGLES.h"
 #include "GPU/GLES/DrawEngineGLES.h"
@@ -546,10 +546,11 @@ void TextureCacheGLES::BuildTexture(TexCacheEntry *const entry) {
 		// NOTE: Since the level is not part of the cache key, we assume it never changes.
 		u8 level = std::max(0, gstate.getTexLevelOffset16() / 16);
 		LoadTextureLevel(*entry, replaced, level, scaleFactor, dstFmt);
-	} else
+	} else {
 		LoadTextureLevel(*entry, replaced, 0, scaleFactor, dstFmt);
+	}
 
-	// Mipmapping only enable when texture scaling disable
+	// Mipmapping is only enabled when texture scaling is disabled.
 	int texMaxLevel = 0;
 	bool genMips = false;
 	if (maxLevel > 0 && scaleFactor == 1) {
@@ -708,7 +709,6 @@ void TextureCacheGLES::LoadTextureLevel(TexCacheEntry &entry, ReplacedTexture &r
 }
 
 bool TextureCacheGLES::GetCurrentTextureDebug(GPUDebugBuffer &buffer, int level) {
-#ifndef USING_GLES2
 	GPUgstate saved;
 	if (level != 0) {
 		saved = gstate;
@@ -769,9 +769,6 @@ bool TextureCacheGLES::GetCurrentTextureDebug(GPUDebugBuffer &buffer, int level)
 	framebufferManager_->RebindFramebuffer("RebindFramebuffer - GetCurrentTextureDebug");
 
 	return result;
-#else
-	return false;
-#endif
 }
 
 void TextureCacheGLES::DeviceLost() {
