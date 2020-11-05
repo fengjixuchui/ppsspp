@@ -12,7 +12,8 @@
 #include <string>
 #include <vector>
 
-#include "DataFormat.h"
+#include "Common/GPU/DataFormat.h"
+#include "Common/GPU/Shader.h"
 
 namespace Lin {
 class Matrix4x4;
@@ -161,15 +162,6 @@ enum class TextureType : uint8_t {
 	ARRAY2D,
 };
 
-enum class ShaderStage {
-	VERTEX,
-	FRAGMENT,
-	GEOMETRY,
-	CONTROL,  // HULL
-	EVALUATION,  // DOMAIN
-	COMPUTE,
-};
-
 enum class CullMode : uint8_t {
 	NONE,
 	FRONT,
@@ -201,15 +193,6 @@ enum class TextureAddressMode {
 	REPEAT_MIRROR,
 	CLAMP_TO_EDGE,
 	CLAMP_TO_BORDER,
-};
-
-enum class ShaderLanguage {
-	GLSL_ES_200 = 1,
-	GLSL_ES_300 = 2,
-	GLSL_410 = 4,
-	GLSL_VULKAN = 8,
-	HLSL_D3D9 = 32,
-	HLSL_D3D11 = 64,
 };
 
 enum FormatSupport {
@@ -261,13 +244,6 @@ enum class NativeObject {
 	NULL_IMAGEVIEW,
 };
 
-enum FBColorDepth {
-	FBO_8888,
-	FBO_565,
-	FBO_4444,
-	FBO_5551,
-};
-
 enum FBChannel {
 	FB_COLOR_BIT = 1,
 	FB_DEPTH_BIT = 2,
@@ -309,7 +285,6 @@ struct FramebufferDesc {
 	int depth;
 	int numColorAttachments;
 	bool z_stencil;
-	FBColorDepth colorDepth;
 	const char *tag;  // For graphics debuggers
 };
 
@@ -574,6 +549,8 @@ public:
 	virtual std::vector<std::string> GetDeviceList() const { return std::vector<std::string>(); }
 
 	virtual uint32_t GetSupportedShaderLanguages() const = 0;
+
+	virtual void SetErrorCallback(ErrorCallbackFn callback, void *userdata) {}
 
 	// Partial pipeline state, used to create pipelines. (in practice, in d3d11 they'll use the native state objects directly).
 	virtual DepthStencilState *CreateDepthStencilState(const DepthStencilStateDesc &desc) = 0;

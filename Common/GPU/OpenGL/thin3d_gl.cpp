@@ -8,6 +8,7 @@
 #include "Common/Math/math_util.h"
 #include "Common/Math/lin/matrix4x4.h"
 #include "Common/GPU/thin3d.h"
+#include "Common/GPU/Shader.h"
 #include "Common/GPU/OpenGL/DataFormatGL.h"
 #include "Common/GPU/OpenGL/GLCommon.h"
 #include "Common/GPU/OpenGL/GLDebugLog.h"
@@ -213,14 +214,12 @@ public:
 
 GLuint ShaderStageToOpenGL(ShaderStage stage) {
 	switch (stage) {
-	case ShaderStage::VERTEX: return GL_VERTEX_SHADER;
+	case ShaderStage::Vertex: return GL_VERTEX_SHADER;
 #ifndef USING_GLES2
-	case ShaderStage::COMPUTE: return GL_COMPUTE_SHADER;
-	case ShaderStage::EVALUATION: return GL_TESS_EVALUATION_SHADER;
-	case ShaderStage::CONTROL: return GL_TESS_CONTROL_SHADER;
-	case ShaderStage::GEOMETRY: return GL_GEOMETRY_SHADER;
+	case ShaderStage::Compute: return GL_COMPUTE_SHADER;
+	case ShaderStage::Geometry: return GL_GEOMETRY_SHADER;
 #endif
-	case ShaderStage::FRAGMENT:
+	case ShaderStage::Fragment:
 	default:
 		return GL_FRAGMENT_SHADER;
 	}
@@ -254,7 +253,7 @@ public:
 private:
 	GLRenderManager *render_;
 	ShaderStage stage_;
-	ShaderLanguage language_ = ShaderLanguage::GLSL_ES_200;
+	ShaderLanguage language_ = GLSL_1xx;
 	GLRShader *shader_ = nullptr;
 	GLuint glstage_ = 0;
 	std::string source_;  // So we can recompile in case of context loss.
@@ -345,12 +344,17 @@ public:
 		return caps_;
 	}
 	uint32_t GetSupportedShaderLanguages() const override {
-		if (gl_extensions.IsGLES)
-			return (uint32_t)ShaderLanguage::GLSL_ES_200 | (uint32_t)ShaderLanguage::GLSL_ES_300;
-		else
-			return (uint32_t)ShaderLanguage::GLSL_ES_200 | (uint32_t)ShaderLanguage::GLSL_410;
+		if (gl_extensions.GLES3) {
+			return (uint32_t)(ShaderLanguage::GLSL_3xx | ShaderLanguage::GLSL_1xx);
+		} else {
+			return (uint32_t)ShaderLanguage::GLSL_1xx;
+		}
 	}
 	uint32_t GetDataFormatSupport(DataFormat fmt) const override;
+
+	void SetErrorCallback(ErrorCallbackFn callback, void *userdata) override {
+		renderManager_.SetErrorCallback(callback, userdata);
+	}
 
 	DepthStencilState *CreateDepthStencilState(const DepthStencilStateDesc &desc) override;
 	BlendState *CreateBlendState(const BlendStateDesc &desc) override;
@@ -738,8 +742,6 @@ public:
 
 	GLRenderManager *render_;
 	GLRFramebuffer *framebuffer = nullptr;
-
-	FBColorDepth colorDepth = FBO_8888;
 };
 
 // TODO: SSE/NEON optimize, and move to ColorConv.cpp.

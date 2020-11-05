@@ -101,7 +101,7 @@ bool RefCountedObject::ReleaseAssertLast() {
 // The Vulkan ones can be re-used with modern GL later if desired, as they're just GLSL.
 
 static const std::vector<ShaderSource> fsTexCol = {
-	{ShaderLanguage::GLSL_ES_200,
+	{ShaderLanguage::GLSL_1xx,
 	"#ifdef GL_ES\n"
 	"precision lowp float;\n"
 	"#endif\n"
@@ -145,7 +145,7 @@ static const std::vector<ShaderSource> fsTexCol = {
 };
 
 static const std::vector<ShaderSource> fsTexColRBSwizzle = {
-	{ShaderLanguage::GLSL_ES_200,
+	{GLSL_1xx,
 	"#ifdef GL_ES\n"
 	"precision lowp float;\n"
 	"#endif\n"
@@ -189,7 +189,7 @@ static const std::vector<ShaderSource> fsTexColRBSwizzle = {
 };
 
 static const std::vector<ShaderSource> fsCol = {
-	{ ShaderLanguage::GLSL_ES_200,
+	{ GLSL_1xx,
 	"#ifdef GL_ES\n"
 	"precision lowp float;\n"
 	"#endif\n"
@@ -226,7 +226,7 @@ static const std::vector<ShaderSource> fsCol = {
 // ================================== VERTEX SHADERS
 
 static const std::vector<ShaderSource> vsCol = {
-	{ ShaderLanguage::GLSL_ES_200,
+	{ GLSL_1xx,
 	"#if __VERSION__ >= 130\n"
 	"#define attribute in\n"
 	"#define varying out\n"
@@ -288,7 +288,7 @@ const UniformBufferDesc vsColBufDesc { sizeof(VsColUB), {
 } };
 
 static const std::vector<ShaderSource> vsTexCol = {
-	{ ShaderLanguage::GLSL_ES_200,
+	{ GLSL_1xx,
 	"#if __VERSION__ >= 130\n"
 	"#define attribute in\n"
 	"#define varying out\n"
@@ -367,12 +367,12 @@ ShaderModule *CreateShader(DrawContext *draw, ShaderStage stage, const std::vect
 }
 
 bool DrawContext::CreatePresets() {
-	vsPresets_[VS_TEXTURE_COLOR_2D] = CreateShader(this, ShaderStage::VERTEX, vsTexCol);
-	vsPresets_[VS_COLOR_2D] = CreateShader(this, ShaderStage::VERTEX, vsCol);
+	vsPresets_[VS_TEXTURE_COLOR_2D] = CreateShader(this, ShaderStage::Vertex, vsTexCol);
+	vsPresets_[VS_COLOR_2D] = CreateShader(this, ShaderStage::Vertex, vsCol);
 
-	fsPresets_[FS_TEXTURE_COLOR_2D] = CreateShader(this, ShaderStage::FRAGMENT, fsTexCol);
-	fsPresets_[FS_COLOR_2D] = CreateShader(this, ShaderStage::FRAGMENT, fsCol);
-	fsPresets_[FS_TEXTURE_COLOR_2D_RB_SWIZZLE] = CreateShader(this, ShaderStage::FRAGMENT, fsTexColRBSwizzle);
+	fsPresets_[FS_TEXTURE_COLOR_2D] = CreateShader(this, ShaderStage::Fragment, fsTexCol);
+	fsPresets_[FS_COLOR_2D] = CreateShader(this, ShaderStage::Fragment, fsCol);
+	fsPresets_[FS_TEXTURE_COLOR_2D_RB_SWIZZLE] = CreateShader(this, ShaderStage::Fragment, fsTexColRBSwizzle);
 
 	return vsPresets_[VS_TEXTURE_COLOR_2D] && vsPresets_[VS_COLOR_2D] && fsPresets_[FS_TEXTURE_COLOR_2D] && fsPresets_[FS_COLOR_2D] && fsPresets_[FS_TEXTURE_COLOR_2D_RB_SWIZZLE];
 }

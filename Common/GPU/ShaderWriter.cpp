@@ -1,4 +1,9 @@
-#include "GPU/Common/ShaderWriter.h"
+#include <cstdarg>
+#include <cstdio>
+#include <cstring>
+
+#include "Common/GPU/Shader.h"
+#include "Common/GPU/ShaderWriter.h"
 
 const char *vulkan_glsl_preamble_fs =
 "#version 450\n"
@@ -96,6 +101,10 @@ void ShaderWriter::Preamble(const char **gl_extensions, size_t num_gl_extensions
 		break;
 	default:  // OpenGL
 		F("#version %d%s\n", lang_.glslVersionNumber, lang_.gles && lang_.glslES30 ? " es" : "");
+		// IMPORTANT! Extensions must be the first thing after #version.
+		for (size_t i = 0; i < num_gl_extensions; i++) {
+			F("%s\n", gl_extensions[i]);
+		}
 		switch (stage_) {
 		case ShaderStage::Fragment:
 			C("#define DISCARD discard\n");
@@ -108,9 +117,6 @@ void ShaderWriter::Preamble(const char **gl_extensions, size_t num_gl_extensions
 				C("precision highp float;\n");
 			}
 			break;
-		}
-		for (size_t i = 0; i < num_gl_extensions; i++) {
-			F("%s\n", gl_extensions[i]);
 		}
 		if (!lang_.gles) {
 			C("#define lowp\n");
