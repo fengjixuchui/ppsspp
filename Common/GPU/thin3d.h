@@ -347,6 +347,10 @@ public:
 
 class Framebuffer : public RefCountedObject {
 public:
+	int Width() { return width_; }
+	int Height() { return height_; }
+protected:
+	int width_ = -1, height_ = -1;
 };
 
 class Buffer : public RefCountedObject {
@@ -359,7 +363,7 @@ public:
 	int Height() { return height_; }
 	int Depth() { return depth_; }
 protected:
-	int width_, height_, depth_;
+	int width_ = -1, height_ = -1, depth_ = -1;
 };
 
 struct BindingDesc {
@@ -381,28 +385,7 @@ struct InputLayoutDesc {
 
 class InputLayout : public RefCountedObject { };
 
-enum class UniformType : int8_t {
-	FLOAT1,
-	FLOAT2,
-	FLOAT3,
-	FLOAT4,
-	MATRIX4X4,
-};
-
-// For emulation of uniform buffers on D3D9/GL
-struct UniformDesc {
-	const char *name;  // For GL
-	int16_t vertexReg;        // For D3D
-	int16_t fragmentReg;      // For D3D
-	UniformType type;
-	int16_t offset;
-	// TODO: Support array elements etc.
-};
-
-struct UniformBufferDesc {
-	size_t uniformBufferSize;
-	std::vector<UniformDesc> uniforms;
-};
+// Uniform types have moved to Shader.h.
 
 class ShaderModule : public RefCountedObject {
 public:
@@ -496,6 +479,7 @@ struct DeviceCaps {
 	bool framebufferBlitSupported;
 	bool framebufferDepthCopySupported;
 	bool framebufferDepthBlitSupported;
+	bool framebufferFetchSupported;
 	std::string deviceName;  // The device name to use when creating the thin3d context, to get the same one.
 };
 
@@ -547,6 +531,11 @@ public:
 	virtual std::vector<std::string> GetFeatureList() const { return std::vector<std::string>(); }
 	virtual std::vector<std::string> GetExtensionList() const { return std::vector<std::string>(); }
 	virtual std::vector<std::string> GetDeviceList() const { return std::vector<std::string>(); }
+
+	// Describes the primary shader language that this implementation prefers.
+	const ShaderLanguageDesc &GetShaderLanguageDesc() {
+		return shaderLanguageDesc_;
+	}
 
 	virtual uint32_t GetSupportedShaderLanguages() const = 0;
 
@@ -662,6 +651,8 @@ public:
 protected:
 	ShaderModule *vsPresets_[VS_MAX_PRESET];
 	ShaderModule *fsPresets_[FS_MAX_PRESET];
+
+	ShaderLanguageDesc shaderLanguageDesc_;
 
 	int targetWidth_;
 	int targetHeight_;

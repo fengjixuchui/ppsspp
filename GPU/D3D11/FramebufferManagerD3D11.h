@@ -42,10 +42,6 @@ public:
 	void DrawActiveTexture(float x, float y, float w, float h, float destW, float destH, float u0, float v0, float u1, float v1, int uvRotation, int flags) override;
 
 	void EndFrame();
-	void DeviceLost();
-	void ReformatFramebufferFrom(VirtualFramebuffer *vfb, GEBufferFormat old) override;
-
-	void BindFramebufferAsColorTexture(int stage, VirtualFramebuffer *framebuffer, int flags);
 
 	virtual bool NotifyStencilUpload(u32 addr, int size, StencilUpload flags = StencilUpload::NEEDS_CLEAR) override;
 
@@ -57,6 +53,8 @@ public:
 protected:
 	// Used by ReadFramebufferToMemory and later framebuffer block copies
 	void BlitFramebuffer(VirtualFramebuffer *dst, int dstX, int dstY, VirtualFramebuffer *src, int srcX, int srcY, int w, int h, int bpp) override;
+
+	void UpdateDownloadTempBuffer(VirtualFramebuffer *nvfb) override;
 
 private:
 	void Bind2DShader() override;

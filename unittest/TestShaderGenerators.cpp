@@ -11,6 +11,7 @@
 
 #include "GPU/Common/FragmentShaderGenerator.h"
 #include "GPU/Common/VertexShaderGenerator.h"
+#include "GPU/Common/ReinterpretFramebuffer.h"
 
 #include "GPU/D3D11/D3D11Util.h"
 #include "GPU/D3D11/D3D11Loader.h"
@@ -141,21 +142,89 @@ void PrintDiff(const char *a, const char *b) {
 	}
 }
 
+const char *ShaderLanguageToString(ShaderLanguage lang) {
+	switch (lang) {
+	case HLSL_D3D11: return "HLSL_D3D11";
+	case HLSL_D3D9: return "HLSL_D3D9";
+	case GLSL_VULKAN: return "GLSL_VULKAN";
+	case GLSL_1xx: return "GLSL_1xx";
+	case GLSL_3xx: return "GLSL_3xx";
+	default: return "N/A";
+	}
+}
 
-bool TestShaderGenerators() {
-	LoadD3D11();
-	init_glslang();
-	LoadD3DCompilerDynamic();
-
+bool TestReinterpretShaders() {
 	ShaderLanguage languages[] = {
-		ShaderLanguage::HLSL_D3D9,
 		ShaderLanguage::HLSL_D3D11,
 		ShaderLanguage::GLSL_VULKAN,
-		ShaderLanguage::GLSL_1xx,
 		ShaderLanguage::GLSL_3xx,
 	};
-	const int numLanguages = ARRAY_SIZE(languages);
+	GEBufferFormat fmts[3] = {
+		GE_FORMAT_565,
+		GE_FORMAT_5551,
+		GE_FORMAT_4444,
+	};
+	char *buffer = new char[65536];
 
+	// Generate all despite failures - it's only 6.
+	bool failed = false;
+
+	for (int k = 0; k < ARRAY_SIZE(languages); k++) {
+		ShaderLanguageDesc desc(languages[k]);
+		if (!GenerateReinterpretVertexShader(buffer, desc)) {
+			printf("Failed!\n%s\n", buffer);
+			failed = true;
+		} else {
+			std::string errorMessage;
+			if (!TestCompileShader(buffer, languages[k], true, &errorMessage)) {
+				printf("Error compiling fragment shader:\n\n%s\n\n%s\n", LineNumberString(buffer).c_str(), errorMessage.c_str());
+				failed = true;
+				return false;
+			} else {
+				//printf("===\n%s\n===\n", buffer);
+			}
+		}
+	}
+
+	for (int k = 0; k < ARRAY_SIZE(languages); k++) {
+		printf("=== %s ===\n\n", ShaderLanguageToString(languages[k]));
+
+		ShaderLanguageDesc desc(languages[k]);
+
+		for (int i = 0; i < 3; i++) {
+			for (int j = 0; j < 3; j++) {
+				if (i == j)
+					continue;  // useless shader!
+				if (!GenerateReinterpretFragmentShader(buffer, fmts[i], fmts[j], desc)) {
+					printf("Failed!\n%s\n", buffer);
+					failed = true;
+				} else {
+					std::string errorMessage;
+					if (!TestCompileShader(buffer, languages[k], false, &errorMessage)) {
+						printf("Error compiling fragment shader %d:\n\n%s\n\n%s\n", (int)j, LineNumberString(buffer).c_str(), errorMessage.c_str());
+						failed = true;
+						return false;
+					} else {
+						printf("===\n%s\n===\n", buffer);
+					}
+				}
+			}
+		}
+
+	}
+	return !failed;
+}
+
+const ShaderLanguage languages[] = {
+	ShaderLanguage::HLSL_D3D9,
+	ShaderLanguage::HLSL_D3D11,
+	ShaderLanguage::GLSL_VULKAN,
+	ShaderLanguage::GLSL_1xx,
+	ShaderLanguage::GLSL_3xx,
+};
+const int numLanguages = ARRAY_SIZE(languages);
+
+bool TestVertexShaders() {
 	char *buffer[numLanguages];
 
 	for (int i = 0; i < numLanguages; i++) {
@@ -212,8 +281,21 @@ bool TestShaderGenerators() {
 
 	printf("%d/%d vertex shaders generated (it's normal that it's not all, there are invalid bit combos)\n", successes, count * numLanguages);
 
-	successes = 0;
-	count = 200;
+	for (int i = 0; i < numLanguages; i++) {
+		delete[] buffer[i];
+	}
+	return true;
+}
+
+bool TestFragmentShaders() {
+	char *buffer[numLanguages];
+
+	for (int i = 0; i < numLanguages; i++) {
+		buffer[i] = new char[65536];
+	}
+	GMRng rng;
+	int successes = 0;
+	int count = 300;
 
 	// Generate a bunch of random fragment shader IDs, try to generate shader source.
 	// Then compile it and check that it's ok.
@@ -259,15 +341,31 @@ bool TestShaderGenerators() {
 
 	printf("%d/%d fragment shaders generated (it's normal that it's not all, there are invalid bit combos)\n", successes, count * numLanguages);
 
-	successes = 0;
-	count = 200;
-
-
-	_CrtCheckMemory();
-
 	for (int i = 0; i < numLanguages; i++) {
 		delete[] buffer[i];
 	}
+	return true;
+}
+
+bool TestShaderGenerators() {
+	LoadD3D11();
+	init_glslang();
+	LoadD3DCompilerDynamic();
+
+	if (!TestReinterpretShaders()) {
+		return false;
+	}
+
+	if (!TestFragmentShaders()) {
+		return false;
+	}
+
+	if (!TestVertexShaders()) {
+		return false;
+	}
+
+	_CrtCheckMemory();
+
 
 	return true;
 } 

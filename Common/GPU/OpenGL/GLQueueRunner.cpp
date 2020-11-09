@@ -286,12 +286,16 @@ void GLQueueRunner::RunInitSteps(const std::vector<GLRInitStep> &steps, bool ski
 					step.create_shader.shader->desc.c_str(),
 					infoLog.c_str(),
 					LineNumberString(code).c_str());
+				std::vector<std::string> lines;
+				SplitString(errorString, '\n', lines);
+				for (auto &line : lines) {
+					ERROR_LOG(G3D, "%s", line.c_str());
+				}
 				if (errorCallback_) {
 					std::string desc = StringFromFormat("Shader compilation failed: %s", step.create_shader.stage == GL_VERTEX_SHADER ? "vertex" : "fragment");
 					errorCallback_(desc.c_str(), errorString.c_str(), errorCallbackUserData_);
 				}
 				Reporting::ReportMessage("Error in shader compilation: info: %s\n%s\n%s", infoLog.c_str(), step.create_shader.shader->desc.c_str(), (const char *)code);
-			} else {
 #ifdef SHADERLOG
 				OutputDebugStringUTF8(infoLog.c_str());
 #endif
@@ -381,17 +385,21 @@ void GLQueueRunner::RunInitSteps(const std::vector<GLRInitStep> &steps, bool ski
 	CHECK_GL_ERROR_IF_DEBUG();
 
 	// TODO: Use GL_KHR_no_error or a debug callback, where supported?
-	if (allocatedTextures) {
+	if (false && allocatedTextures) {
 		// Users may use replacements or scaling, with high render resolutions, and run out of VRAM.
 		// This detects that, rather than looking like PPSSPP is broken.
-		// Calling glGetError() isn't great, but at the end of init shouldn't be too bad...
+		// Calling glGetError() isn't great, but at the end of init, only after creating textures, shouldn't be too bad...
 		GLenum err = glGetError();
 		if (err == GL_OUT_OF_MEMORY) {
 			WARN_LOG_REPORT(G3D, "GL ran out of GPU memory; switching to low memory mode");
 			sawOutOfMemory_ = true;
 		} else if (err != GL_NO_ERROR) {
 			// We checked the err anyway, might as well log if there is one.
-			WARN_LOG(G3D, "Got an error after init: %08x (%s)", err, GLEnumToString(err).c_str());
+			std::string errorString = GLEnumToString(err);
+			WARN_LOG(G3D, "Got an error after init: %08x (%s)", err, errorString.c_str());
+			if (errorCallback_) {
+				errorCallback_("GL frame init error", errorString.c_str(), errorCallbackUserData_);
+			}
 		}
 	}
 
@@ -987,6 +995,32 @@ void GLQueueRunner::PerformRenderPass(const GLRStep &step, bool first, bool last
 					break;
 				case 4:
 					glUniform4fv(loc, 1, c.uniform4.v);
+					break;
+				}
+			}
+			CHECK_GL_ERROR_IF_DEBUG();
+			break;
+		}
+		case GLRRenderCommand::UNIFORM4UI:
+		{
+			_dbg_assert_(curProgram);
+			int loc = c.uniform4.loc ? *c.uniform4.loc : -1;
+			if (c.uniform4.name) {
+				loc = curProgram->GetUniformLoc(c.uniform4.name);
+			}
+			if (loc >= 0) {
+				switch (c.uniform4.count) {
+				case 1:
+					glUniform1uiv(loc, 1, (GLuint *)&c.uniform4.v[0]);
+					break;
+				case 2:
+					glUniform2uiv(loc, 1, (GLuint *)c.uniform4.v);
+					break;
+				case 3:
+					glUniform3uiv(loc, 1, (GLuint *)c.uniform4.v);
+					break;
+				case 4:
+					glUniform4uiv(loc, 1, (GLuint *)c.uniform4.v);
 					break;
 				}
 			}

@@ -47,10 +47,6 @@ public:
 	void DestroyAllFBOs();
 
 	void EndFrame();
-	void DeviceLost();
-	void ReformatFramebufferFrom(VirtualFramebuffer *vfb, GEBufferFormat old) override;
-
-	void BindFramebufferAsColorTexture(int stage, VirtualFramebuffer *framebuffer, int flags);
 
 	virtual bool NotifyStencilUpload(u32 addr, int size, StencilUpload flags = StencilUpload::NEEDS_CLEAR) override;
 
@@ -68,6 +64,8 @@ protected:
 
 	// Used by ReadFramebufferToMemory and later framebuffer block copies
 	void BlitFramebuffer(VirtualFramebuffer *dst, int dstX, int dstY, VirtualFramebuffer *src, int srcX, int srcY, int w, int h, int bpp) override;
+
+	void UpdateDownloadTempBuffer(VirtualFramebuffer *nvfb) override;
 
 private:
 	void PackFramebufferSync_(VirtualFramebuffer *vfb, int x, int y, int w, int h) override;

@@ -465,6 +465,8 @@ public:
 
 	uint64_t GetNativeObject(NativeObject obj) override {
 		switch (obj) {
+		case NativeObject::CONTEXT:
+			return (uint64_t)vulkan_;
 		case NativeObject::FRAMEBUFFER_RENDERPASS:
 			// Return a representative renderpass.
 			return (uint64_t)renderManager_.GetFramebufferRenderPass();
@@ -497,7 +499,6 @@ public:
 	void InvalidateCachedState() override;
 
 private:
-
 	VulkanTexture *GetNullTexture();
 	VulkanContext *vulkan_ = nullptr;
 
@@ -760,6 +761,8 @@ bool VKTexture::Create(VkCommandBuffer cmd, VulkanPushBuffer *push, const Textur
 
 VKContext::VKContext(VulkanContext *vulkan, bool splitSubmit)
 	: vulkan_(vulkan), caps_{}, renderManager_(vulkan) {
+	shaderLanguageDesc_.Init(GLSL_VULKAN);
+
 	caps_.anisoSupported = vulkan->GetDeviceFeatures().enabled.samplerAnisotropy != 0;
 	caps_.geometryShaderSupported = vulkan->GetDeviceFeatures().enabled.geometryShader != 0;
 	caps_.tesselationShaderSupported = vulkan->GetDeviceFeatures().enabled.tessellationShader != 0;
@@ -780,8 +783,7 @@ VKContext::VKContext(VulkanContext *vulkan, bool splitSubmit)
 	case VULKAN_VENDOR_NVIDIA: caps_.vendor = GPUVendor::VENDOR_NVIDIA; break;
 	case VULKAN_VENDOR_QUALCOMM: caps_.vendor = GPUVendor::VENDOR_QUALCOMM; break;
 	case VULKAN_VENDOR_INTEL: caps_.vendor = GPUVendor::VENDOR_INTEL; break;
-	default:
-		caps_.vendor = GPUVendor::VENDOR_UNKNOWN;
+	default: caps_.vendor = GPUVendor::VENDOR_UNKNOWN; break;
 	}
 
 	if (caps_.vendor == GPUVendor::VENDOR_QUALCOMM) {
@@ -1028,8 +1030,12 @@ Pipeline *VKContext::CreateGraphicsPipeline(const PipelineDesc &desc) {
 
 	VKPipeline *pipeline = new VKPipeline(vulkan_, desc.uniformDesc ? desc.uniformDesc->uniformBufferSize : 16 * sizeof(float), (PipelineFlags)pipelineFlags);
 
-	for (int i = 0; i < (int)input->bindings.size(); i++) {
-		pipeline->stride[i] = input->bindings[i].stride;
+	if (input) {
+		for (int i = 0; i < (int)input->bindings.size(); i++) {
+			pipeline->stride[i] = input->bindings[i].stride;
+		}
+	} else {
+		pipeline->stride[0] = 0;
 	}
 
 	std::vector<VkPipelineShaderStageCreateInfo> stages;
@@ -1074,6 +1080,8 @@ Pipeline *VKContext::CreateGraphicsPipeline(const PipelineDesc &desc) {
 	VkPipelineRasterizationStateCreateInfo rs{ VK_STRUCTURE_TYPE_PIPELINE_RASTERIZATION_STATE_CREATE_INFO };
 	raster->ToVulkan(&rs);
 
+	VkPipelineVertexInputStateCreateInfo emptyVisc{ VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
+
 	VkGraphicsPipelineCreateInfo createInfo[2]{};
 	for (auto &info : createInfo) {
 		info.sType = VK_STRUCTURE_TYPE_GRAPHICS_PIPELINE_CREATE_INFO;
@@ -1086,7 +1094,7 @@ Pipeline *VKContext::CreateGraphicsPipeline(const PipelineDesc &desc) {
 		info.pInputAssemblyState = &inputAssembly;
 		info.pTessellationState = nullptr;
 		info.pMultisampleState = &ms;
-		info.pVertexInputState = &input->visc;
+		info.pVertexInputState = input ? &input->visc : &emptyVisc;
 		info.pRasterizationState = &rs;
 		info.pViewportState = &vs;  // Must set viewport and scissor counts even if we set the actual state dynamically.
 		info.layout = pipelineLayout_;
@@ -1448,7 +1456,11 @@ uint32_t VKContext::GetDataFormatSupport(DataFormat fmt) const {
 // use this frame's init command buffer.
 class VKFramebuffer : public Framebuffer {
 public:
-	VKFramebuffer(VKRFramebuffer *fb) : buf_(fb) { _assert_msg_(fb, "Null fb in VKFramebuffer constructor"); }
+	VKFramebuffer(VKRFramebuffer *fb) : buf_(fb) {
+		_assert_msg_(fb, "Null fb in VKFramebuffer constructor");
+		width_ = fb->width;
+		height_ = fb->height;
+	}
 	~VKFramebuffer() {
 		_assert_msg_(buf_, "Null buf_ in VKFramebuffer - double delete?");
 		buf_->vulkan_->Delete().QueueCallback([](void *fb) {
@@ -1531,7 +1543,8 @@ void VKContext::BindFramebufferAsRenderTarget(Framebuffer *fbo, const RenderPass
 void VKContext::BindFramebufferAsTexture(Framebuffer *fbo, int binding, FBChannel channelBit, int attachment) {
 	VKFramebuffer *fb = (VKFramebuffer *)fbo;
 
-	// TODO: There are cases where this is okay, actually.
+	// TODO: There are cases where this is okay, actually. But requires layout transitions and stuff -
+	// we're not ready for this.
 	_assert_(fb != curFramebuffer_);
 
 	int aspect = 0;
