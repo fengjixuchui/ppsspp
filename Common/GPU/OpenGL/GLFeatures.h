@@ -34,11 +34,11 @@ struct GLExtensions {
 	int ver[3];
 	int gpuVendor;
 	char model[128];
+	int modelNumber;
 
 	bool IsGLES;
 	bool IsCoreContext;
 	bool GLES3;  // true if the full OpenGL ES 3.0 is supported
-	bool ForceGL2;
 
 	// OES
 	bool OES_depth24;
@@ -85,7 +85,6 @@ struct GLExtensions {
 	bool EXT_clip_cull_distance;
 
 	// NV
-	bool NV_shader_framebuffer_fetch;
 	bool NV_copy_image;
 	bool NV_framebuffer_blit;
 	bool NV_pixel_buffer_object; // GL_NV_pixel_buffer_object

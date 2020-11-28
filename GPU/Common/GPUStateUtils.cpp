@@ -958,7 +958,8 @@ void ApplyStencilReplaceAndLogicOpIgnoreBlend(ReplaceAlphaType replaceAlphaWithS
 
 bool IsColorWriteMaskComplex(bool allowFramebufferRead) {
 	// Restrict to Outrun temporarily (by uglily reusing the ReinterpretFramebuffers flag)
-	if (!allowFramebufferRead || !PSP_CoreParameter().compat.flags().ReinterpretFramebuffers) {
+	// This check must match the one in ConvertMaskState.
+	if (!allowFramebufferRead || !PSP_CoreParameter().compat.flags().ShaderColorBitmask) {
 		// Don't have a choice - we'll make do but it won't always be right.
 		return false;
 	}
@@ -998,7 +999,9 @@ void ConvertMaskState(GenericMaskState &maskState, bool allowFramebufferRead) {
 			break;
 		default:
 			if (allowFramebufferRead) {
-				maskState.applyFramebufferRead = true;
+				// Instead of just 'true', restrict shader bitmasks to Outrun temporarily.
+				// TODO: This check must match the one in IsColorWriteMaskComplex.
+				maskState.applyFramebufferRead = PSP_CoreParameter().compat.flags().ShaderColorBitmask;
 				maskState.rgba[i] = true;
 			} else {
 				// Use the old heuristic.

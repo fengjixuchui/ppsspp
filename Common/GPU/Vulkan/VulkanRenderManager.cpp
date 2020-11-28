@@ -434,7 +434,6 @@ void VulkanRenderManager::BeginFrame(bool enableProfiling) {
 
 	int curFrame = vulkan_->GetCurFrame();
 	FrameData &frameData = frameData_[curFrame];
-	frameData.profilingEnabled_ = enableProfiling;
 
 	// Make sure the very last command buffer from the frame before the previous has been fully executed.
 	if (useThread_) {
@@ -447,9 +446,12 @@ void VulkanRenderManager::BeginFrame(bool enableProfiling) {
 	}
 
 	VLOG("PUSH: Fencing %d", curFrame);
+
 	vkWaitForFences(device, 1, &frameData.fence, true, UINT64_MAX);
 	vkResetFences(device, 1, &frameData.fence);
 
+	// Can't set this until after the fence.
+	frameData.profilingEnabled_ = enableProfiling;
 	frameData.readbackFenceUsed = false;
 
 	uint64_t queryResults[MAX_TIMESTAMP_QUERIES];
@@ -502,6 +504,7 @@ void VulkanRenderManager::BeginFrame(bool enableProfiling) {
 	if (frameData.profilingEnabled_) {
 		// For various reasons, we need to always use an init cmd buffer in this case to perform the vkCmdResetQueryPool,
 		// unless we want to limit ourselves to only measure the main cmd buffer.
+		// Later versions of Vulkan have support for clearing queries on the CPU timeline, but we don't want to rely on that.
 		// Reserve the first two queries for initCmd.
 		frameData.profile.timestampDescriptions.push_back("initCmd Begin");
 		frameData.profile.timestampDescriptions.push_back("initCmd");
@@ -551,7 +554,7 @@ void VulkanRenderManager::EndCurRenderStep() {
 
 void VulkanRenderManager::BindFramebufferAsRenderTarget(VKRFramebuffer *fb, VKRRenderPassAction color, VKRRenderPassAction depth, VKRRenderPassAction stencil, uint32_t clearColor, float clearDepth, uint8_t clearStencil, const char *tag) {
 	_dbg_assert_(insideFrame_);
-	// Eliminate dupes, instantly convert to a clear if possible.
+	// Eliminate dupes (bind of the framebuffer we already are rendering to), instantly convert to a clear if possible.
 	if (!steps_.empty() && steps_.back()->stepType == VKRStepType::RENDER && steps_.back()->render.framebuffer == fb) {
 		u32 clearMask = 0;
 		if (color == VKRRenderPassAction::CLEAR) {
@@ -587,6 +590,7 @@ void VulkanRenderManager::BindFramebufferAsRenderTarget(VKRFramebuffer *fb, VKRR
 				data.clear.clearStencil = clearStencil;
 				data.clear.clearMask = clearMask;
 				curRenderStep_->commands.push_back(data);
+				curRenderArea_.SetRect(0, 0, curWidth_, curHeight_);
 			}
 			return;
 		}
@@ -665,6 +669,10 @@ void VulkanRenderManager::BindFramebufferAsRenderTarget(VKRFramebuffer *fb, VKRR
 			curWidth_ = curWidthRaw_;
 			curHeight_ = curHeightRaw_;
 		}
+	}
+
+	if (color == VKRRenderPassAction::CLEAR || depth == VKRRenderPassAction::CLEAR || stencil == VKRRenderPassAction::CLEAR) {
+		curRenderArea_.SetRect(0, 0, curWidth_, curHeight_);
 	}
 
 	// See above - we add a clear afterward if only one side for depth/stencil CLEAR/KEEP.

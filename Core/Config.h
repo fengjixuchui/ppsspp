@@ -207,6 +207,7 @@ public:
 	bool bReloadCheats;
 	int iCwCheatRefreshRate;
 	float fCwCheatScrollPosition;
+	float fGameListScrollPosition;
 	int iBloomHack; //0 = off, 1 = safe, 2 = balanced, 3 = aggressive
 	bool bBlockTransferGPU;
 	bool bDisableSlowFramebufEffects;
@@ -238,6 +239,7 @@ public:
 	bool bShowRegionOnGameIcon;
 	bool bShowIDOnGameIcon;
 	float fGameGridScale;
+	bool bShowOnScreenMessages;
 
 	// TODO: Maybe move to a separate theme system.
 	uint32_t uItemStyleFg;

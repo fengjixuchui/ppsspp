@@ -531,6 +531,9 @@ void FramebufferManagerCommon::ReinterpretFramebufferFrom(VirtualFramebuffer *vf
 		if (oldFormat == GE_FORMAT_565) {
 			// We have to bind here instead of clear, since it can be that no framebuffer is bound.
 			// The backend can sometimes directly optimize it to a clear.
+			// TODO: Ultimate Ghosts and Goblins, if we don't enable reinterpret, long after this hits an assert
+			// in VKContext::BindFramebufferAsTexture indicating that we've fallen out of sync between
+			// VKContext::curFramebuffer and currentRenderVfb_. That's issue #13717.
 			draw_->BindFramebufferAsRenderTarget(vfb->fbo, { Draw::RPAction::CLEAR, Draw::RPAction::KEEP, Draw::RPAction::CLEAR }, "FakeReinterpret");
 			// Need to dirty anything that has command buffer dynamic state, in case we started a new pass above.
 			// Should find a way to feed that information back, maybe... Or simply correct the issue in the rendermanager.
@@ -605,6 +608,7 @@ void FramebufferManagerCommon::ReinterpretFramebufferFrom(VirtualFramebuffer *vf
 	// Copy to a temp framebuffer.
 	Draw::Framebuffer *temp = GetTempFBO(TempFBO::REINTERPRET, vfb->renderWidth, vfb->renderHeight);
 
+	draw_->InvalidateCachedState();
 	draw_->CopyFramebufferImage(vfb->fbo, 0, 0, 0, 0, temp, 0, 0, 0, 0, vfb->renderWidth, vfb->renderHeight, 1, Draw::FBChannel::FB_COLOR_BIT, "reinterpret_prep");
 	draw_->BindFramebufferAsRenderTarget(vfb->fbo, { Draw::RPAction::DONT_CARE, Draw::RPAction::DONT_CARE, Draw::RPAction::DONT_CARE }, "reinterpret");
 	draw_->BindPipeline(pipeline);
@@ -1008,7 +1012,7 @@ void FramebufferManagerCommon::CopyDisplayToOutput(bool reallyDirty) {
 	DownloadFramebufferOnSwitch(currentRenderVfb_);
 	shaderManager_->DirtyLastShader();
 
-	currentRenderVfb_ = 0;
+	currentRenderVfb_ = nullptr;
 
 	if (displayFramebufPtr_ == 0) {
 		if (Core_IsStepping())
@@ -1145,7 +1149,7 @@ void FramebufferManagerCommon::CopyDisplayToOutput(bool reallyDirty) {
 }
 
 void FramebufferManagerCommon::DecimateFBOs() {
-	currentRenderVfb_ = 0;
+	currentRenderVfb_ = nullptr;
 
 	for (auto iter : fbosToDelete_) {
 		iter->Release();
@@ -1982,6 +1986,7 @@ bool FramebufferManagerCommon::GetFramebuffer(u32 fb_address, int fb_stride, GEB
 			tempVfb.bufferHeight = vfb->height;
 			tempVfb.renderWidth = w;
 			tempVfb.renderHeight = h;
+			tempVfb.renderScaleFactor = (float)maxRes;
 			BlitFramebuffer(&tempVfb, 0, 0, vfb, 0, 0, vfb->width, vfb->height, 0);
 
 			bound = tempFBO;
@@ -2272,9 +2277,11 @@ void FramebufferManagerCommon::DeviceLost() {
 	}
 	if (reinterpretSampler_) {
 		reinterpretSampler_->Release();
+		reinterpretSampler_ = nullptr;
 	}
 	if (reinterpretVS_) {
 		reinterpretVS_->Release();
+		reinterpretVS_ = nullptr;
 	}
 	presentation_->DeviceLost();
 	draw_ = nullptr;

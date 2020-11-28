@@ -134,25 +134,6 @@ static const unsigned short primToGL[] = {
 	GL_TRIANGLES,
 	GL_TRIANGLE_STRIP,
 	GL_TRIANGLE_FAN,
-#if !defined(USING_GLES2)   // TODO: Remove when we have better headers
-	GL_PATCHES,
-	GL_LINES_ADJACENCY,
-	GL_LINE_STRIP_ADJACENCY,
-	GL_TRIANGLES_ADJACENCY,
-	GL_TRIANGLE_STRIP_ADJACENCY,
-#elif !defined(IOS)
-	GL_POINTS,
-	GL_POINTS,
-	GL_POINTS,
-	GL_POINTS,
-	GL_POINTS,
-#else
-	GL_POINTS,
-	GL_POINTS,
-	GL_POINTS,
-	GL_POINTS,
-	GL_POINTS,
-#endif
 };
 
 class OpenGLBuffer;
@@ -386,7 +367,7 @@ public:
 	void GetFramebufferDimensions(Framebuffer *fbo, int *w, int *h) override;
 
 	void BindSamplerStates(int start, int count, SamplerState **states) override {
-		if (start + count >= MAX_TEXTURE_SLOTS) {
+		if (start + count > MAX_TEXTURE_SLOTS) {
 			return;
 		}
 		for (int i = 0; i < count; i++) {
@@ -497,7 +478,9 @@ private:
 
 	// Bound state
 	OpenGLSamplerState *boundSamplers_[MAX_TEXTURE_SLOTS]{};
-	OpenGLTexture *boundTextures_[MAX_TEXTURE_SLOTS]{};
+	// Point to GLRTexture directly because they can point to the textures
+	// in framebuffers too (which also can be bound).
+	const GLRTexture *boundTextures_[MAX_TEXTURE_SLOTS]{};
 
 	OpenGLPipeline *curPipeline_ = nullptr;
 	OpenGLBuffer *curVBuffers_[4]{};
@@ -605,12 +588,15 @@ OpenGLContext::OpenGLContext() {
 
 	shaderLanguageDesc_.Init(GLSL_1xx);
 
+	shaderLanguageDesc_.glslVersionNumber = gl_extensions.GLSLVersion();
+
+	snprintf(shaderLanguageDesc_.driverInfo, sizeof(shaderLanguageDesc_.driverInfo),
+		"%s - GLSL %d", gl_extensions.model, gl_extensions.GLSLVersion());
 	// Detect shader language features.
 	if (gl_extensions.IsGLES) {
 		shaderLanguageDesc_.gles = true;
 		if (gl_extensions.GLES3) {
 			shaderLanguageDesc_.shaderLanguage = ShaderLanguage::GLSL_3xx;
-			shaderLanguageDesc_.glslVersionNumber = 300;  // GLSL ES 3.0
 			shaderLanguageDesc_.fragColor0 = "fragColor0";
 			shaderLanguageDesc_.texture = "texture";
 			shaderLanguageDesc_.glslES30 = true;
@@ -621,7 +607,6 @@ OpenGLContext::OpenGLContext() {
 			shaderLanguageDesc_.attribute = "in";
 		} else {
 			shaderLanguageDesc_.shaderLanguage = ShaderLanguage::GLSL_1xx;
-			shaderLanguageDesc_.glslVersionNumber = 100;  // GLSL ES 1.0
 			if (gl_extensions.EXT_gpu_shader4) {
 				shaderLanguageDesc_.bitwiseOps = true;
 				shaderLanguageDesc_.texelFetch = "texelFetch2D";
@@ -632,10 +617,9 @@ OpenGLContext::OpenGLContext() {
 			}
 		}
 	} else {
-		if (!gl_extensions.ForceGL2 || gl_extensions.IsCoreContext) {
+		if (gl_extensions.IsCoreContext) {
 			if (gl_extensions.VersionGEThan(3, 3, 0)) {
 				shaderLanguageDesc_.shaderLanguage = ShaderLanguage::GLSL_3xx;
-				shaderLanguageDesc_.glslVersionNumber = 330;
 				shaderLanguageDesc_.fragColor0 = "fragColor0";
 				shaderLanguageDesc_.texture = "texture";
 				shaderLanguageDesc_.glslES30 = true;
@@ -645,14 +629,14 @@ OpenGLContext::OpenGLContext() {
 				shaderLanguageDesc_.varying_fs = "in";
 				shaderLanguageDesc_.attribute = "in";
 			} else if (gl_extensions.VersionGEThan(3, 0, 0)) {
+				// Hm, I think this is wrong. This should be outside "if (gl_extensions.IsCoreContext)".
 				shaderLanguageDesc_.shaderLanguage = ShaderLanguage::GLSL_1xx;
-				shaderLanguageDesc_.glslVersionNumber = 130;
 				shaderLanguageDesc_.fragColor0 = "fragColor0";
 				shaderLanguageDesc_.bitwiseOps = true;
 				shaderLanguageDesc_.texelFetch = "texelFetch";
 			} else {
+				// This too...
 				shaderLanguageDesc_.shaderLanguage = ShaderLanguage::GLSL_1xx;
-				shaderLanguageDesc_.glslVersionNumber = 110;
 				if (gl_extensions.EXT_gpu_shader4) {
 					shaderLanguageDesc_.bitwiseOps = true;
 					shaderLanguageDesc_.texelFetch = "texelFetch2D";
@@ -661,15 +645,11 @@ OpenGLContext::OpenGLContext() {
 		}
 	}
 
-	if (gl_extensions.IsGLES && gl_extensions.GLES3) {
-		caps_.framebufferFetchSupported = (gl_extensions.EXT_shader_framebuffer_fetch || gl_extensions.NV_shader_framebuffer_fetch || gl_extensions.ARM_shader_framebuffer_fetch);
+	if (gl_extensions.IsGLES) {
+		caps_.framebufferFetchSupported = (gl_extensions.EXT_shader_framebuffer_fetch || gl_extensions.ARM_shader_framebuffer_fetch);
 		if (gl_extensions.EXT_shader_framebuffer_fetch) {
 			shaderLanguageDesc_.framebufferFetchExtension = "#extension GL_EXT_shader_framebuffer_fetch : require";
-			shaderLanguageDesc_.lastFragData = "gl_LastFragData[0]";
-		} else if (gl_extensions.NV_shader_framebuffer_fetch) {
-			// GL_NV_shader_framebuffer_fetch is available on mobile platform and ES 2.0 only but not on desktop.
-			shaderLanguageDesc_.framebufferFetchExtension = "#extension GL_NV_shader_framebuffer_fetch : require";
-			shaderLanguageDesc_.lastFragData = "gl_LastFragData[0]";
+			shaderLanguageDesc_.lastFragData = gl_extensions.GLES3 ? "fragColor0" : "gl_LastFragData[0]";
 		} else if (gl_extensions.ARM_shader_framebuffer_fetch) {
 			shaderLanguageDesc_.framebufferFetchExtension = "#extension GL_ARM_shader_framebuffer_fetch : require";
 			shaderLanguageDesc_.lastFragData = "gl_LastFragColorARM";
@@ -741,15 +721,16 @@ public:
 	bool HasMips() const {
 		return mipLevels_ > 1 || generatedMips_;
 	}
-	bool CanWrap() const {
-		return canWrap_;
-	}
+
 	TextureType GetType() const { return type_; }
 	void Bind(int stage) {
 		render_->BindTexture(stage, tex_);
 	}
 	int NumMipmaps() const {
 		return mipLevels_;
+	}
+	const GLRTexture *GetTex() const {
+		return tex_;
 	}
 
 private:
@@ -762,7 +743,6 @@ private:
 	TextureType type_;
 	int mipLevels_;
 	bool generatedMips_;
-	bool canWrap_;
 };
 
 OpenGLTexture::OpenGLTexture(GLRenderManager *render, const TextureDesc &desc) : render_(render) {
@@ -773,9 +753,8 @@ OpenGLTexture::OpenGLTexture(GLRenderManager *render, const TextureDesc &desc) :
 	format_ = desc.format;
 	type_ = desc.type;
 	GLenum target = TypeToTarget(desc.type);
-	tex_ = render->CreateTexture(target);
+	tex_ = render->CreateTexture(target, desc.width, desc.height, desc.mipLevels);
 
-	canWrap_ = isPowerOf2(width_) && isPowerOf2(height_);
 	mipLevels_ = desc.mipLevels;
 	if (desc.initData.empty())
 		return;
@@ -1093,7 +1072,7 @@ Pipeline *OpenGLContext::CreateGraphicsPipeline(const PipelineDesc &desc) {
 }
 
 void OpenGLContext::BindTextures(int start, int count, Texture **textures) {
-	if (start + count >= MAX_TEXTURE_SLOTS) {
+	if (start + count > MAX_TEXTURE_SLOTS) {
 		return;
 	}
 	for (int i = start; i < start + count; i++) {
@@ -1104,14 +1083,14 @@ void OpenGLContext::BindTextures(int start, int count, Texture **textures) {
 			continue;
 		}
 		glTex->Bind(i);
-		boundTextures_[i] = glTex;
+		boundTextures_[i] = glTex->GetTex();
 	}
 }
 
 void OpenGLContext::ApplySamplers() {
 	for (int i = 0; i < MAX_TEXTURE_SLOTS; i++) {
 		const OpenGLSamplerState *samp = boundSamplers_[i];
-		const OpenGLTexture *tex = boundTextures_[i];
+		const GLRTexture *tex = boundTextures_[i];
 		if (tex) {
 			_assert_(samp);
 		} else {
@@ -1119,7 +1098,7 @@ void OpenGLContext::ApplySamplers() {
 		}
 		GLenum wrapS;
 		GLenum wrapT;
-		if (tex->CanWrap()) {
+		if (tex->canWrap) {
 			wrapS = samp->wrapU;
 			wrapT = samp->wrapV;
 		} else {
@@ -1127,9 +1106,9 @@ void OpenGLContext::ApplySamplers() {
 			wrapT = GL_CLAMP_TO_EDGE;
 		}
 		GLenum magFilt = samp->magFilt;
-		GLenum minFilt = tex->HasMips() ? samp->mipMinFilt : samp->minFilt;
+		GLenum minFilt = tex->numMips > 1 ? samp->mipMinFilt : samp->minFilt;
 		renderManager_.SetTextureSampler(i, wrapS, wrapT, magFilt, minFilt, 0.0f);
-		renderManager_.SetTextureLod(i, 0.0, (float)(tex->NumMipmaps() - 1), 0.0);
+		renderManager_.SetTextureLod(i, 0.0, (float)(tex->numMips - 1), 0.0);
 	}
 }
 
@@ -1378,12 +1357,18 @@ void OpenGLContext::BindFramebufferAsTexture(Framebuffer *fbo, int binding, FBCh
 	OpenGLFramebuffer *fb = (OpenGLFramebuffer *)fbo;
 
 	GLuint aspect = 0;
-	if (channelBit & FB_COLOR_BIT)
+	if (channelBit & FB_COLOR_BIT) {
 		aspect |= GL_COLOR_BUFFER_BIT;
-	if (channelBit & FB_DEPTH_BIT)
+		boundTextures_[binding] = &fb->framebuffer_->color_texture;
+	}
+	if (channelBit & FB_DEPTH_BIT) {
 		aspect |= GL_DEPTH_BUFFER_BIT;
-	if (channelBit & FB_STENCIL_BIT)
+		boundTextures_[binding] = &fb->framebuffer_->z_stencil_texture;
+	}
+	if (channelBit & FB_STENCIL_BIT) {
 		aspect |= GL_STENCIL_BUFFER_BIT;
+		boundTextures_[binding] = &fb->framebuffer_->z_stencil_texture;
+	}
 	renderManager_.BindFramebufferAsTexture(fb->framebuffer_, binding, aspect, color);
 }
 

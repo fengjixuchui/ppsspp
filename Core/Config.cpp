@@ -450,6 +450,7 @@ static ConfigSetting generalSettings[] = {
 	ReportedConfigSetting("EnableCheats", &g_Config.bEnableCheats, false, true, true),
 	ConfigSetting("CwCheatRefreshRate", &g_Config.iCwCheatRefreshRate, 77, true, true),
 	ConfigSetting("CwCheatScrollPosition", &g_Config.fCwCheatScrollPosition, 0.0f, true, true),
+	ConfigSetting("GameListScrollPosition", &g_Config.fGameListScrollPosition, 0.0f),
 
 	ConfigSetting("ScreenshotsAsPNG", &g_Config.bScreenshotsAsPNG, false, true, true),
 	ConfigSetting("UseFFV1", &g_Config.bUseFFV1, false),
@@ -461,6 +462,7 @@ static ConfigSetting generalSettings[] = {
 	ConfigSetting("EnableStateUndo", &g_Config.bEnableStateUndo, &DefaultEnableStateUndo, true, true),
 	ConfigSetting("RewindFlipFrequency", &g_Config.iRewindFlipFrequency, 0, true, true),
 
+	ConfigSetting("ShowOnScreenMessage", &g_Config.bShowOnScreenMessages, true, true, false),
 	ConfigSetting("ShowRegionOnGameIcon", &g_Config.bShowRegionOnGameIcon, false),
 	ConfigSetting("ShowIDOnGameIcon", &g_Config.bShowIDOnGameIcon, false),
 	ConfigSetting("GameGridScale", &g_Config.fGameGridScale, 1.0),

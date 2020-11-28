@@ -626,8 +626,8 @@ void GameSettingsScreen::CreateViews() {
 
 	std::vector<std::string> micList = Microphone::getDeviceList();
 	if (micList.size() >= 1) {
-		audioSettings->Add(new ItemHeader(gr->T("Microphone")));
-		PopupMultiChoiceDynamic *MicChoice = audioSettings->Add(new PopupMultiChoiceDynamic(&g_Config.sMicDevice, gr->T("Microphone Device"), micList, nullptr, screenManager()));
+		audioSettings->Add(new ItemHeader(a->T("Microphone")));
+		PopupMultiChoiceDynamic *MicChoice = audioSettings->Add(new PopupMultiChoiceDynamic(&g_Config.sMicDevice, a->T("Microphone Device"), micList, nullptr, screenManager()));
 		MicChoice->OnChoice.Handle(this, &GameSettingsScreen::OnMicDeviceChange);
 	}
 
@@ -781,7 +781,7 @@ void GameSettingsScreen::CreateViews() {
 
 	networkingSettings->Add(new ItemHeader(n->T("AdHoc Server")));
 	networkingSettings->Add(new CheckBox(&g_Config.bEnableAdhocServer, n->T("Enable built-in PRO Adhoc Server", "Enable built-in PRO Adhoc Server")));
-	networkingSettings->Add(new ChoiceWithValueDisplay(&g_Config.proAdhocServer, n->T("Change proAdhocServer Address (localhost = multiple instance)"), (const char*)nullptr))->OnClick.Handle(this, &GameSettingsScreen::OnChangeproAdhocServerAddress);
+	networkingSettings->Add(new ChoiceWithValueDisplay(&g_Config.proAdhocServer, n->T("Change proAdhocServer Address", "Change proAdhocServer Address (localhost = multiple instance)"), (const char*)nullptr))->OnClick.Handle(this, &GameSettingsScreen::OnChangeproAdhocServerAddress);
 
 	networkingSettings->Add(new ItemHeader(n->T("UPnP (port-forwarding)")));
 	networkingSettings->Add(new CheckBox(&g_Config.bEnableUPnP, n->T("Enable UPnP", "Enable UPnP (need a few seconds to detect)")));
@@ -840,7 +840,7 @@ void GameSettingsScreen::CreateViews() {
 	qc5->SetEnabledPtr(&g_Config.bEnableQuickChat);
 #endif
 
-	networkingSettings->Add(new ItemHeader(n->T("Misc (default = compatiblity)")));
+	networkingSettings->Add(new ItemHeader(n->T("Misc", "Misc (default = compatibility)")));
 	networkingSettings->Add(new PopupSliderChoice(&g_Config.iPortOffset, 0, 60000, n->T("Port offset", "Port offset (0 = PSP compatibility)"), 100, screenManager()));
 	networkingSettings->Add(new PopupSliderChoice(&g_Config.iMinTimeout, 0, 15000, n->T("Minimum Timeout", "Minimum Timeout (override in ms, 0 = default)"), 50, screenManager()));
 	networkingSettings->Add(new CheckBox(&g_Config.bTCPNoDelay, n->T("TCP No Delay", "TCP No Delay (faster TCP)")));
@@ -1650,6 +1650,7 @@ void DeveloperToolsScreen::CreateViews() {
 	list->Add(allowDebugger)->OnClick.Handle(this, &DeveloperToolsScreen::OnRemoteDebugger);
 	allowDebugger->SetEnabledPtr(&canAllowDebugger_);
 
+	list->Add(new CheckBox(&g_Config.bShowOnScreenMessages, dev->T("Show on-screen messages")));
 	list->Add(new CheckBox(&g_Config.bEnableLogging, dev->T("Enable Logging")))->OnClick.Handle(this, &DeveloperToolsScreen::OnLoggingChanged);
 	list->Add(new CheckBox(&g_Config.bLogFrameDrops, dev->T("Log Dropped Frame Statistics")));
 	list->Add(new Choice(dev->T("Logging Channels")))->OnClick.Handle(this, &DeveloperToolsScreen::OnLogConfig);
