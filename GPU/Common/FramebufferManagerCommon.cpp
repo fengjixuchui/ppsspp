@@ -471,10 +471,10 @@ void FramebufferManagerCommon::BlitFramebufferDepth(VirtualFramebuffer *src, Vir
 	// Note: We prefer Blit ahead of Copy here, since at least on GL, Copy will always also copy stencil which we don't want. See #9740.
 	if (gstate_c.Supports(GPU_SUPPORTS_FRAMEBUFFER_BLIT_TO_DEPTH)) {
 		draw_->BlitFramebuffer(src->fbo, 0, 0, w, h, dst->fbo, 0, 0, w, h, Draw::FB_DEPTH_BIT, Draw::FB_BLIT_NEAREST, "BlitFramebufferDepth");
-		RebindFramebuffer("BlitFramebufferDepth");
+		RebindFramebuffer("After BlitFramebufferDepth");
 	} else if (gstate_c.Supports(GPU_SUPPORTS_COPY_IMAGE)) {
 		draw_->CopyFramebufferImage(src->fbo, 0, 0, 0, 0, dst->fbo, 0, 0, 0, 0, w, h, 1, Draw::FB_DEPTH_BIT, "BlitFramebufferDepth");
-		RebindFramebuffer("BlitFramebufferDepth");
+		RebindFramebuffer("After BlitFramebufferDepth");
 	}
 	dst->last_frame_depth_updated = gpuStats.numFlips;
 }
@@ -503,7 +503,7 @@ void FramebufferManagerCommon::NotifyRenderFramebufferUpdated(VirtualFramebuffer
 	if (vfbFormatChanged) {
 		textureCache_->NotifyFramebuffer(vfb, NOTIFY_FB_UPDATED);
 		if (vfb->drawnFormat != vfb->format) {
-			ReinterpretFramebufferFrom(vfb, vfb->drawnFormat);
+			ReinterpretFramebuffer(vfb, vfb->drawnFormat, vfb->format);
 		}
 	}
 
@@ -517,10 +517,14 @@ void FramebufferManagerCommon::NotifyRenderFramebufferUpdated(VirtualFramebuffer
 	}
 }
 
-void FramebufferManagerCommon::ReinterpretFramebufferFrom(VirtualFramebuffer *vfb, GEBufferFormat oldFormat) {
+void FramebufferManagerCommon::ReinterpretFramebuffer(VirtualFramebuffer *vfb, GEBufferFormat oldFormat, GEBufferFormat newFormat) {
 	if (!useBufferedRendering_ || !vfb->fbo) {
 		return;
 	}
+
+	_assert_(newFormat != oldFormat);
+	// The caller is responsible for updating the format.
+	_assert_(newFormat == vfb->format);
 
 	ShaderLanguage lang = draw_->GetShaderLanguageDesc().shaderLanguage;
 
@@ -531,20 +535,23 @@ void FramebufferManagerCommon::ReinterpretFramebufferFrom(VirtualFramebuffer *vf
 		if (oldFormat == GE_FORMAT_565) {
 			// We have to bind here instead of clear, since it can be that no framebuffer is bound.
 			// The backend can sometimes directly optimize it to a clear.
-			// TODO: Ultimate Ghosts and Goblins, if we don't enable reinterpret, long after this hits an assert
-			// in VKContext::BindFramebufferAsTexture indicating that we've fallen out of sync between
-			// VKContext::curFramebuffer and currentRenderVfb_. That's issue #13717.
-			draw_->BindFramebufferAsRenderTarget(vfb->fbo, { Draw::RPAction::CLEAR, Draw::RPAction::KEEP, Draw::RPAction::CLEAR }, "FakeReinterpret");
-			// Need to dirty anything that has command buffer dynamic state, in case we started a new pass above.
-			// Should find a way to feed that information back, maybe... Or simply correct the issue in the rendermanager.
-			gstate_c.Dirty(DIRTY_DEPTHSTENCIL_STATE | DIRTY_VIEWPORTSCISSOR_STATE | DIRTY_BLEND_STATE);
+
+			// Games that are marked as doing reinterpret just ignore this - better to keep the data than to clear.
+			// Fixes #13717.
+			if (!PSP_CoreParameter().compat.flags().ReinterpretFramebuffers) {
+				draw_->BindFramebufferAsRenderTarget(vfb->fbo, { Draw::RPAction::CLEAR, Draw::RPAction::KEEP, Draw::RPAction::CLEAR }, "FakeReinterpret");
+				// Need to dirty anything that has command buffer dynamic state, in case we started a new pass above.
+				// Should find a way to feed that information back, maybe... Or simply correct the issue in the rendermanager.
+				gstate_c.Dirty(DIRTY_DEPTHSTENCIL_STATE | DIRTY_VIEWPORTSCISSOR_STATE | DIRTY_BLEND_STATE);
+
+				if (currentRenderVfb_ != vfb) {
+					// In case ReinterpretFramebuffer was called from the texture manager.
+					draw_->BindFramebufferAsRenderTarget(currentRenderVfb_->fbo, { Draw::RPAction::KEEP, Draw::RPAction::KEEP, Draw::RPAction::KEEP }, "After FakeReinterpret");
+				}
+			}
 		}
 		return;
 	}
-
-	GEBufferFormat newFormat = vfb->format;
-
-	_assert_(newFormat != oldFormat);
 
 	// We only reinterpret between 16 - bit formats, for now.
 	if (!IsGeBufferFormat16BitColor(oldFormat) || !IsGeBufferFormat16BitColor(newFormat)) {
@@ -623,13 +630,16 @@ void FramebufferManagerCommon::ReinterpretFramebufferFrom(VirtualFramebuffer *vf
 
 	// Unbind.
 	draw_->BindTexture(0, nullptr);
-	RebindFramebuffer("After reinterpret");
 
 	shaderManager_->DirtyLastShader();
 	textureCache_->ForgetLastTexture();
 
 	gstate_c.Dirty(DIRTY_BLEND_STATE | DIRTY_DEPTHSTENCIL_STATE | DIRTY_RASTER_STATE | DIRTY_VIEWPORTSCISSOR_STATE | DIRTY_VERTEXSHADER_STATE);
 
+	if (currentRenderVfb_ != vfb) {
+		// In case ReinterpretFramebuffer was called from the texture manager.
+		draw_->BindFramebufferAsRenderTarget(currentRenderVfb_->fbo, { Draw::RPAction::KEEP, Draw::RPAction::KEEP, Draw::RPAction::KEEP }, "After reinterpret");
+	}
 	delete[] vsCode;
 	delete[] fsCode;
 }
@@ -661,8 +671,9 @@ void FramebufferManagerCommon::NotifyRenderFramebufferSwitched(VirtualFramebuffe
 			}
 		}
 	}
+
 	if (vfb->drawnFormat != vfb->format) {
-		ReinterpretFramebufferFrom(vfb, vfb->drawnFormat);
+		ReinterpretFramebuffer(vfb, vfb->drawnFormat, vfb->format);
 	}
 
 	if (useBufferedRendering_) {
@@ -822,17 +833,15 @@ void FramebufferManagerCommon::DrawPixels(VirtualFramebuffer *vfb, int dstX, int
 
 bool FramebufferManagerCommon::BindFramebufferAsColorTexture(int stage, VirtualFramebuffer *framebuffer, int flags) {
 	if (!framebuffer->fbo || !useBufferedRendering_) {
-		draw_->BindTexture(0, nullptr);
+		draw_->BindTexture(stage, nullptr);
 		gstate_c.skipDrawReason |= SKIPDRAW_BAD_FB_TEXTURE;
 		return false;
 	}
 
 	// currentRenderVfb_ will always be set when this is called, except from the GE debugger.
 	// Let's just not bother with the copy in that case.
-	bool skipCopy = (flags & BINDFBCOLOR_MAY_COPY) == 0;
-	if (GPUStepping::IsStepping()) {
-		skipCopy = true;
-	}
+	bool skipCopy = !(flags & BINDFBCOLOR_MAY_COPY) || GPUStepping::IsStepping();
+
 	// Currently rendering to this framebuffer. Need to make a copy.
 	if (!skipCopy && framebuffer == currentRenderVfb_) {
 		// TODO: Maybe merge with bvfbs_?  Not sure if those could be packing, and they're created at a different size.
@@ -856,11 +865,10 @@ bool FramebufferManagerCommon::BindFramebufferAsColorTexture(int stage, VirtualF
 		// Actually if the texture region and render regions don't overlap, this is safe, but we need
 		// to transition to GENERAL image layout which will take some trickery.
 		// Badness on D3D11 to bind the currently rendered-to framebuffer as a texture.
-		draw_->BindTexture(0, nullptr);
+		draw_->BindTexture(stage, nullptr);
 		gstate_c.skipDrawReason |= SKIPDRAW_BAD_FB_TEXTURE;
 		return false;
 	}
-
 }
 
 void FramebufferManagerCommon::CopyFramebufferForColorTexture(VirtualFramebuffer *dst, VirtualFramebuffer *src, int flags) {
@@ -885,7 +893,7 @@ void FramebufferManagerCommon::CopyFramebufferForColorTexture(VirtualFramebuffer
 	}
 
 	if (x < src->drawnWidth && y < src->drawnHeight && w > 0 && h > 0) {
-		BlitFramebuffer(dst, x, y, src, x, y, w, h, 0);
+		BlitFramebuffer(dst, x, y, src, x, y, w, h, 0, "Blit_CopyFramebufferForColorTexture");
 	}
 }
 
@@ -986,6 +994,8 @@ void FramebufferManagerCommon::DrawFramebufferToOutput(const u8 *srcPixels, GEBu
 
 	// PresentationCommon sets all kinds of state, we can't rely on anything.
 	gstate_c.Dirty(DIRTY_ALL);
+
+	currentRenderVfb_ = nullptr;
 }
 
 void FramebufferManagerCommon::DownloadFramebufferOnSwitch(VirtualFramebuffer *vfb) {
@@ -1274,9 +1284,10 @@ void FramebufferManagerCommon::ResizeFramebufFBO(VirtualFramebuffer *vfb, int w,
 	if (old.fbo) {
 		INFO_LOG(FRAMEBUF, "Resizing FBO for %08x : %dx%dx%s", vfb->fb_address, w, h, GeBufferFormatToString(vfb->format));
 		if (vfb->fbo) {
+			// TODO: Swap the order of the below? That way we can avoid the needGLESRebinds_ check below I think.
 			draw_->BindFramebufferAsRenderTarget(vfb->fbo, { Draw::RPAction::CLEAR, Draw::RPAction::CLEAR, Draw::RPAction::CLEAR }, "ResizeFramebufFBO");
 			if (!skipCopy) {
-				BlitFramebuffer(vfb, 0, 0, &old, 0, 0, std::min((u16)oldWidth, std::min(vfb->bufferWidth, vfb->width)), std::min((u16)oldHeight, std::min(vfb->height, vfb->bufferHeight)), 0);
+				BlitFramebuffer(vfb, 0, 0, &old, 0, 0, std::min((u16)oldWidth, std::min(vfb->bufferWidth, vfb->width)), std::min((u16)oldHeight, std::min(vfb->height, vfb->bufferHeight)), 0, "Blit_ResizeFramebufFBO");
 			}
 		}
 		fbosToDelete_.push_back(old.fbo);
@@ -1380,7 +1391,7 @@ bool FramebufferManagerCommon::NotifyFramebufferCopy(u32 src, u32 dst, int size,
 		} else {
 			WARN_LOG_ONCE(dstnotsrccpy, G3D, "Inter-buffer memcpy %08x -> %08x (size: %x)", src, dst, size);
 			// Just do the blit!
-			BlitFramebuffer(dstBuffer, 0, dstY, srcBuffer, 0, srcY, srcBuffer->width, srcH, 0);
+			BlitFramebuffer(dstBuffer, 0, dstY, srcBuffer, 0, srcY, srcBuffer->width, srcH, 0, "Blit_InterBufferMemcpy");
 			SetColorUpdated(dstBuffer, skipDrawReason);
 			RebindFramebuffer("RebindFramebuffer - Inter-buffer memcpy");
 		}
@@ -1732,22 +1743,23 @@ bool FramebufferManagerCommon::NotifyBlockTransferBefore(u32 dstBasePtr, int dst
 					dstBasePtr, dstX, dstY, dstStride,
 					width, height, bpp);
 				FlushBeforeCopy();
-				BlitFramebuffer(dstBuffer, dstX, dstY, srcBuffer, srcX, srcY, dstWidth, dstHeight, bpp);
+				// Some backends can handle blitting within a framebuffer. Others will just have to deal with it or ignore it, apparently.
+				BlitFramebuffer(dstBuffer, dstX, dstY, srcBuffer, srcX, srcY, dstWidth, dstHeight, bpp, "Blit_IntraBufferBlockTransfer");
 				RebindFramebuffer("rebind after intra block transfer");
 				SetColorUpdated(dstBuffer, skipDrawReason);
-				return true;
+				return true;  // Skip the memory copy.
 			} else {
 				// Ignore, nothing to do.  Tales of Phantasia X does this by accident.
-				return true;
+				return true;  // Skip the memory copy.
 			}
 		} else {
 			WARN_LOG_N_TIMES(dstnotsrc, 100, G3D, "Inter-buffer block transfer  %08x (x:%d y:%d stride:%d) -> %08x (x:%d y:%d stride:%d) (%dx%d %dbpp)",
 				srcBasePtr, srcX, srcY, srcStride,
 				dstBasePtr, dstX, dstY, dstStride,
 				width, height, bpp);
-			// Just do the blit!
+			// Straightforward blit between two framebuffers.
 			FlushBeforeCopy();
-			BlitFramebuffer(dstBuffer, dstX, dstY, srcBuffer, srcX, srcY, dstWidth, dstHeight, bpp);
+			BlitFramebuffer(dstBuffer, dstX, dstY, srcBuffer, srcX, srcY, dstWidth, dstHeight, bpp, "Blit_InterBufferBlockTransfer");
 			RebindFramebuffer("RebindFramebuffer - Inter-buffer block transfer");
 			SetColorUpdated(dstBuffer, skipDrawReason);
 			return true;  // No need to actually do the memory copy behind, probably.
@@ -1987,7 +1999,7 @@ bool FramebufferManagerCommon::GetFramebuffer(u32 fb_address, int fb_stride, GEB
 			tempVfb.renderWidth = w;
 			tempVfb.renderHeight = h;
 			tempVfb.renderScaleFactor = (float)maxRes;
-			BlitFramebuffer(&tempVfb, 0, 0, vfb, 0, 0, vfb->width, vfb->height, 0);
+			BlitFramebuffer(&tempVfb, 0, 0, vfb, 0, 0, vfb->width, vfb->height, 0, "Blit_GetFramebuffer");
 
 			bound = tempFBO;
 		} else {
@@ -2178,7 +2190,7 @@ void FramebufferManagerCommon::ReadFramebufferToMemory(VirtualFramebuffer *vfb, 
 		} else {
 			VirtualFramebuffer *nvfb = FindDownloadTempBuffer(vfb);
 			if (nvfb) {
-				BlitFramebuffer(nvfb, x, y, vfb, x, y, w, h, 0);
+				BlitFramebuffer(nvfb, x, y, vfb, x, y, w, h, 0, "Blit_ReadFramebufferToMemory");
 				PackFramebufferSync_(nvfb, x, y, w, h);
 			}
 		}
@@ -2226,7 +2238,7 @@ void FramebufferManagerCommon::DownloadFramebufferForClut(u32 fb_address, u32 lo
 			// We'll pseudo-blit framebuffers here to get a resized version of vfb.
 			VirtualFramebuffer *nvfb = FindDownloadTempBuffer(vfb);
 			if (nvfb) {
-				BlitFramebuffer(nvfb, x, y, vfb, x, y, w, h, 0);
+				BlitFramebuffer(nvfb, x, y, vfb, x, y, w, h, 0, "Blit_DownloadFramebufferForClut");
 				PackFramebufferSync_(nvfb, x, y, w, h);
 			}
 

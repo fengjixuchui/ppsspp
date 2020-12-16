@@ -1050,6 +1050,7 @@ void MainScreen::CreateViews() {
 			leftColumn->Add(new Spacer(new LinearLayoutParams(0.1f)));
 		}
 	} else {
+		scrollAllGames_ = nullptr;
 		if (!showRecent) {
 			leftColumn = new LinearLayout(ORIENT_VERTICAL, new LinearLayoutParams(FILL_PARENT, WRAP_CONTENT, 1.0f));
 			// Just so it's destroyed on recreate.
@@ -1203,7 +1204,9 @@ void MainScreen::update() {
 		RecreateViews();
 		lastVertical_ = vertical;
 	}
-	g_Config.fGameListScrollPosition = scrollAllGames_->GetScrollPosition();
+	if (scrollAllGames_) {
+		g_Config.fGameListScrollPosition = scrollAllGames_->GetScrollPosition();
+	}
 }
 
 bool MainScreen::UseVerticalLayout() const {
@@ -1366,13 +1369,11 @@ UI::EventReturn MainScreen::OnForums(UI::EventParams &e) {
 }
 
 UI::EventReturn MainScreen::OnExit(UI::EventParams &e) {
-	System_SendMessage("event", "exitprogram");
+	// Let's make sure the config was saved, since it may not have been.
+	g_Config.Save("MainScreen::OnExit");
 
 	// Request the framework to exit cleanly.
 	System_SendMessage("finish", "");
-
-	// However, let's make sure the config was saved, since it may not have been.
-	g_Config.Save("MainScreen::OnExit");
 
 #ifdef __ANDROID__
 #ifdef ANDROID_NDK_PROFILER

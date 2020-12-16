@@ -669,10 +669,7 @@ bool Config::IsBackendEnabled(GPUBackend backend, bool validate) {
 			return false;
 	}
 
-#if PPSSPP_PLATFORM(IOS)
-	if (backend != GPUBackend::OPENGL)
-		return false;
-#elif PPSSPP_PLATFORM(UWP)
+#if PPSSPP_PLATFORM(UWP)
 	if (backend != GPUBackend::DIRECT3D11)
 		return false;
 #elif PPSSPP_PLATFORM(WINDOWS)
@@ -689,12 +686,10 @@ bool Config::IsBackendEnabled(GPUBackend backend, bool validate) {
 	if (backend == GPUBackend::OPENGL)
 		return false;
 #endif
-#if !PPSSPP_PLATFORM(IOS)
 	if (validate) {
 		if (backend == GPUBackend::VULKAN && !VulkanMayBeAvailable())
 			return false;
 	}
-#endif
 
 	return true;
 }
@@ -793,7 +788,7 @@ static ConfigSetting graphicsSettings[] = {
 	ConfigSetting("SmallDisplayOffsetX", &g_Config.fSmallDisplayOffsetX, 0.5f, true, true),
 	ConfigSetting("SmallDisplayOffsetY", &g_Config.fSmallDisplayOffsetY, 0.5f, true, true),
 	ConfigSetting("SmallDisplayZoomLevel", &g_Config.fSmallDisplayZoomLevel, 1.0f, true, true),
-	ConfigSetting("ImmersiveMode", &g_Config.bImmersiveMode, false, true, true),
+	ConfigSetting("ImmersiveMode", &g_Config.bImmersiveMode, true, true, true),
 	ConfigSetting("SustainedPerformanceMode", &g_Config.bSustainedPerformanceMode, false, true, true),
 	ConfigSetting("IgnoreScreenInsets", &g_Config.bIgnoreScreenInsets, true, true, false),
 
