@@ -46,6 +46,7 @@ import android.widget.Toast;
 import java.io.File;
 import java.lang.reflect.Field;
 import java.util.List;
+import java.util.ArrayList;
 import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -241,6 +242,100 @@ public abstract class NativeActivity extends Activity {
 		this.shortcutParam = ((shortcutParam == null) ? "" : shortcutParam);
 	}
 
+	// Unofficial hacks to get a list of SD cards that are not the main "external storage".
+	private static ArrayList<String> getSdCardPaths(final Context context) {
+		// Q is the last version that will support normal file access.
+		ArrayList<String> list = null;
+		if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.KITKAT && Build.VERSION.SDK_INT <= Build.VERSION_CODES.Q) {
+			Log.i(TAG, "getSdCardPaths: Trying KitKat method");
+			list = getSdCardPaths19(context);
+		}
+
+		if (list == null) {
+			Log.i(TAG, "getSdCardPaths: Attempting fallback");
+			// Try another method.
+			String removableStoragePath;
+			list = new ArrayList<String>();
+			File fileList[] = new File("/storage/").listFiles();
+			if (fileList != null) {
+				for (File file : fileList) {
+					if (!file.getAbsolutePath().equalsIgnoreCase(Environment.getExternalStorageDirectory().getAbsolutePath()) && file.isDirectory() && file.canRead()) {
+						list.add(file.getAbsolutePath());
+					}
+				}
+			}
+		}
+
+		// TODO: On older devices, try System.getenv(“EXTERNAL_SDCARD_STORAGE”)
+
+		if (list == null) {
+			return new ArrayList<String>();
+		} else {
+			return list;
+		}
+	}
+
+	/**
+	 * returns a list of all available sd cards paths, or null if not found.
+	 */
+	@TargetApi(Build.VERSION_CODES.KITKAT)
+	private static ArrayList<String> getSdCardPaths19(final Context context)
+	{
+		final File[] externalCacheDirs = context.getExternalCacheDirs();
+		if (externalCacheDirs == null || externalCacheDirs.length==0)
+			return null;
+		if (externalCacheDirs.length == 1) {
+			if (externalCacheDirs[0] == null)
+				return null;
+			final String storageState = Environment.getStorageState(externalCacheDirs[0]);
+			if (!Environment.MEDIA_MOUNTED.equals(storageState))
+				return null;
+			if (Environment.isExternalStorageEmulated())
+				return null;
+		}
+		final ArrayList<String> result = new ArrayList<>();
+		if (externalCacheDirs.length == 1)
+			result.add(getRootOfInnerSdCardFolder(externalCacheDirs[0]));
+		for (int i = 1; i < externalCacheDirs.length; ++i)
+		{
+			final File file = externalCacheDirs[i];
+			if (file == null)
+				continue;
+			final String storageState = Environment.getStorageState(file);
+			if (Environment.MEDIA_MOUNTED.equals(storageState)) {
+				String root = getRootOfInnerSdCardFolder(externalCacheDirs[i]);
+				if (root != null) {
+					result.add(root);
+				}
+			}
+		}
+		if (result.isEmpty())
+			return null;
+		return result;
+	}
+
+	/** Given any file/folder inside an sd card, this will return the path of the sd card */
+	private static String getRootOfInnerSdCardFolder(File file)
+	{
+		if (file == null)
+			return null;
+		final long totalSpace = file.getTotalSpace();
+		if (totalSpace <= 0) {
+			return null;
+		}
+		while (true) {
+			final File parentFile = file.getParentFile();
+			if (parentFile == null || !parentFile.canRead()) {
+				break;
+			}
+			if (parentFile.getTotalSpace() != totalSpace) {
+				break;
+			}
+			file = parentFile;
+		}
+		return file.getAbsolutePath();
+	}
+
 	public void Initialize() {
 		// Initialize audio classes. Do this here since detectOptimalAudioSettings()
 		// needs audioManager
@@ -292,9 +387,34 @@ public abstract class NativeActivity extends Activity {
 		isXperiaPlay = IsXperiaPlay();
 
 		String libraryDir = getApplicationLibraryDir(appInfo);
-		File sdcard = Environment.getExternalStorageDirectory();
 
-		String externalStorageDir = sdcard.getAbsolutePath();
+		String extStorageState = Environment.getExternalStorageState();
+		String extStorageDir = Environment.getExternalStorageDirectory().getAbsolutePath();
+
+		Log.i(TAG, "Ext storage: " + extStorageState + " " + extStorageDir);
+
+		String additionalStorageDirs = "";
+		try {
+			ArrayList<String> sdCards = getSdCardPaths(this);
+
+			// String.join doesn't exist on old devices (???).
+			StringBuilder s = new StringBuilder();
+			for (int i = 0; i < sdCards.size(); i++) {
+				String sdCard = sdCards.get(i);
+				Log.i(TAG, "SD card: " + sdCard);
+				s.append(sdCard);
+				if (i != sdCards.size() - 1) {
+					s.append(":");
+				}
+			}
+			additionalStorageDirs = s.toString();
+		}
+		catch (Exception e) {
+			Log.e(TAG, "Failed to get SD storage dirs: " + e.toString());
+		}
+
+		Log.i(TAG, "End of storage paths");
+
 		File filesDir = this.getFilesDir();
 		String dataDir = null;
 		if (filesDir != null) {
@@ -310,7 +430,7 @@ public abstract class NativeActivity extends Activity {
 		overrideShortcutParam = null;
 
 		NativeApp.audioConfig(optimalFramesPerBuffer, optimalSampleRate);
-		NativeApp.init(model, deviceType, languageRegion, apkFilePath, dataDir, externalStorageDir, libraryDir, cacheDir, shortcut, Build.VERSION.SDK_INT, Build.BOARD);
+		NativeApp.init(model, deviceType, languageRegion, apkFilePath, dataDir, extStorageDir, additionalStorageDirs, libraryDir, cacheDir, shortcut, Build.VERSION.SDK_INT, Build.BOARD);
 
 		// Allow C++ to tell us to use JavaGL or not.
 		javaGL = "true".equalsIgnoreCase(NativeApp.queryConfig("androidJavaGL"));
