@@ -25,6 +25,7 @@ import android.os.Bundle;
 import android.os.Environment;
 import android.os.PowerManager;
 import android.os.Vibrator;
+import android.provider.DocumentsContract;
 import android.provider.MediaStore;
 import android.text.InputType;
 import android.util.Log;
@@ -99,7 +100,10 @@ public abstract class NativeActivity extends Activity {
 	// This is to avoid losing the game/menu state etc when we are just
 	// switched-away from or rotated etc.
 	private boolean shuttingDown;
+
 	private static final int RESULT_LOAD_IMAGE = 1;
+	private static final int RESULT_BROWSE_FILE = 2;
+	private static final int RESULT_OPEN_DOCUMENT_TREE = 3;
 
 	// Allow for multiple connected gamepads but just consider them the same for now.
 	// Actually this is not entirely true, see the code.
@@ -266,7 +270,18 @@ public abstract class NativeActivity extends Activity {
 			}
 		}
 
-		// TODO: On older devices, try System.getenv(“EXTERNAL_SDCARD_STORAGE”)
+		if (list == null) {
+			String[] varNames = { "EXTERNAL_SDCARD_STORAGE", "SECONDARY_STORAGE" };
+			for (String var : varNames) {
+				Log.i(TAG, "getSdCardPaths: Checking env " + var);
+				String secStore = System.getenv("SECONDARY_STORAGE");
+				if (secStore != null && secStore.length() > 0) {
+					list = new ArrayList<String>();
+					list.add(secStore);
+					break;
+				}
+			}
+		}
 
 		if (list == null) {
 			return new ArrayList<String>();
@@ -275,9 +290,6 @@ public abstract class NativeActivity extends Activity {
 		}
 	}
 
-	/**
-	 * returns a list of all available sd cards paths, or null if not found.
-	 */
 	@TargetApi(Build.VERSION_CODES.KITKAT)
 	private static ArrayList<String> getSdCardPaths19(final Context context)
 	{
@@ -1113,7 +1125,10 @@ public abstract class NativeActivity extends Activity {
 	@Override
 	protected void onActivityResult(int requestCode, int resultCode, Intent data) {
 		super.onActivityResult(requestCode, resultCode, data);
-		if (requestCode == RESULT_LOAD_IMAGE && resultCode == RESULT_OK && null != data) {
+		if (resultCode != RESULT_OK || data == null) {
+			return;
+		}
+		if (requestCode == RESULT_LOAD_IMAGE) {
 			Uri selectedImage = data.getData();
 			if (selectedImage != null) {
 				String[] filePathColumn = {MediaStore.Images.Media.DATA};
@@ -1123,6 +1138,20 @@ public abstract class NativeActivity extends Activity {
 				String picturePath = cursor.getString(columnIndex);
 				cursor.close();
 				NativeApp.sendMessage("bgImage_updated", picturePath);
+			}
+		} else if (requestCode == RESULT_BROWSE_FILE) {
+			Uri selectedFile = data.getData();
+			if (selectedFile != null) {
+				// NativeApp.sendMessage("br");
+				Log.i(TAG, "Browse file finished:" + selectedFile.toString());
+			}
+		} else if (requestCode == RESULT_OPEN_DOCUMENT_TREE) {
+			Uri selectedFile = data.getData();
+			if (selectedFile != null) {
+				// Convert URI to normal path. (This might not be possible in Android 12+)
+				String path = selectedFile.toString();
+				Log.i(TAG, "Browse folder finished: " + path);
+				NativeApp.sendMessage("browse_folderSelect", path);
 			}
 		}
 	}
@@ -1252,6 +1281,30 @@ public abstract class NativeActivity extends Activity {
 				startActivityForResult(i, RESULT_LOAD_IMAGE);
 				return true;
 			} catch (Exception e) { // For example, android.content.ActivityNotFoundException
+				Log.e(TAG, e.toString());
+				return false;
+			}
+		} else if (command.equals("browse_file")) {
+			try {
+				Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+				intent.addCategory(Intent.CATEGORY_OPENABLE);
+				intent.setType("application/octet-stream");
+				//intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI, pickerInitialUri);
+				startActivityForResult(intent, RESULT_BROWSE_FILE);
+			} catch (Exception e) {
+				Log.e(TAG, e.toString());
+				return false;
+			}
+		} else if (command.equals("browse_folder")) {
+			try {
+				Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+				intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+				intent.addFlags(Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+				intent.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);  // not yet used properly
+				intent.putExtra(Intent.EXTRA_LOCAL_ONLY, true);  // Only allow local folders.
+				startActivityForResult(intent, RESULT_OPEN_DOCUMENT_TREE);
+				return true;
+			} catch (Exception e) {
 				Log.e(TAG, e.toString());
 				return false;
 			}
