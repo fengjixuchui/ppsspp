@@ -183,7 +183,6 @@ static const std::vector<Draw::ShaderSource> fsFlat = {
 
 static const std::vector<Draw::ShaderSource> vsFlat = {
 	{ GLSL_3xx,
-	"#version 300 es\n"
 	"in vec3 Position;\n"
 	"in vec2 TexCoord0;\n"
 	"in lowp vec4 Color0;\n"
@@ -626,6 +625,12 @@ void GPUDriverTestScreen::ShaderTest() {
 	// There is a "provoking vertex" difference here between GL and Vulkan when using flat shading. One gets one color, one gets the other.
 	// Wherever possible we should reconfigure the GL provoking vertex to match Vulkan, probably.
 	dc.DrawImageVGradient(ImageID("I_ICON"), 0xFFFFFFFF, 0xFF808080, bounds);
+	dc.Flush();
+
+	y += 120;
+
+	dc.Begin();
+	dc.DrawText("Test done", x, y, 0xFFFFFFFF, FLAG_DYNAMIC_ASCII);
 	dc.Flush();
 }
 
