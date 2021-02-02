@@ -30,6 +30,7 @@
 
 #include <locale.h>
 #include <algorithm>
+#include <cstdlib>
 #include <memory>
 #include <mutex>
 #include <thread>
@@ -559,18 +560,24 @@ void NativeInit(int argc, const char *argv[], const char *savegame_dir, const ch
 
 	// Parse command line
 	LogTypes::LOG_LEVELS logLevel = LogTypes::LINFO;
+	bool forceLogLevel = false;
+	const auto setLogLevel = [&logLevel, &forceLogLevel](LogTypes::LOG_LEVELS level) {
+		logLevel = level;
+		forceLogLevel = true;
+	};
+
 	for (int i = 1; i < argc; i++) {
 		if (argv[i][0] == '-') {
 			switch (argv[i][1]) {
 			case 'd':
 				// Enable debug logging
 				// Note that you must also change the max log level in Log.h.
-				logLevel = LogTypes::LDEBUG;
+				setLogLevel(LogTypes::LDEBUG);
 				break;
 			case 'v':
 				// Enable verbose logging
 				// Note that you must also change the max log level in Log.h.
-				logLevel = LogTypes::LVERBOSE;
+				setLogLevel(LogTypes::LVERBOSE);
 				break;
 			case 'j':
 				g_Config.iCpuCore = (int)CPUCore::JIT;
@@ -585,6 +592,8 @@ void NativeInit(int argc, const char *argv[], const char *savegame_dir, const ch
 				g_Config.bSaveSettings = false;
 				break;
 			case '-':
+				if (!strncmp(argv[i], "--loglevel=", strlen("--loglevel=")) && strlen(argv[i]) > strlen("--loglevel="))
+					setLogLevel(static_cast<LogTypes::LOG_LEVELS>(std::atoi(argv[i] + strlen("--loglevel="))));
 				if (!strncmp(argv[i], "--log=", strlen("--log=")) && strlen(argv[i]) > strlen("--log="))
 					fileToLog = argv[i] + strlen("--log=");
 				if (!strncmp(argv[i], "--state=", strlen("--state=")) && strlen(argv[i]) > strlen("--state="))
@@ -664,6 +673,9 @@ void NativeInit(int argc, const char *argv[], const char *savegame_dir, const ch
 
 	if (fileToLog)
 		LogManager::GetInstance()->ChangeFileLog(fileToLog);
+
+	if (forceLogLevel)
+		LogManager::GetInstance()->SetAllLogLevels(logLevel);
 
 	PostLoadConfig();
 

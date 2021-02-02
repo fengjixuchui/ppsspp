@@ -954,7 +954,9 @@ void GPUCommon::NotifySteppingExit() {
 		if (timeSteppingStarted_ <= 0.0) {
 			ERROR_LOG(G3D, "Mismatched stepping enter/exit.");
 		}
-		timeSpentStepping_ += time_now_d() - timeSteppingStarted_;
+		double total = time_now_d() - timeSteppingStarted_;
+		_dbg_assert_msg_(total >= 0.0, "Time spent stepping became negative");
+		timeSpentStepping_ += total;
 		timeSteppingStarted_ = 0.0;
 	}
 }
@@ -1028,6 +1030,7 @@ bool GPUCommon::InterpretList(DisplayList &list) {
 
 	if (coreCollectDebugStats) {
 		double total = time_now_d() - start - timeSpentStepping_;
+		_dbg_assert_msg_(total >= 0.0, "Time spent DL processing became negative");
 		hleSetSteppingTime(timeSpentStepping_);
 		timeSpentStepping_ = 0.0;
 		gpuStats.msProcessingDisplayLists += total;
@@ -1480,6 +1483,14 @@ void GPUCommon::Execute_End(u32 op, u32 diff) {
 		default:
 			currentList->subIntrToken = prev & 0xFFFF;
 			UpdateState(GPUSTATE_DONE);
+			// Since we marked done, we have to restore the context now before the next list runs.
+			if (currentList->started && currentList->context.IsValid()) {
+				gstate.Restore(currentList->context);
+				ReapplyGfxState();
+				// Don't restore the context again.
+				currentList->started = false;
+			}
+
 			if (currentList->interruptsEnabled && __GeTriggerInterrupt(currentList->id, currentList->pc, startingTicks + cyclesExecuted)) {
 				currentList->pendingInterrupt = true;
 			} else {
@@ -1487,10 +1498,6 @@ void GPUCommon::Execute_End(u32 op, u32 diff) {
 				currentList->waitTicks = startingTicks + cyclesExecuted;
 				busyTicks = std::max(busyTicks, currentList->waitTicks);
 				__GeTriggerSync(GPU_SYNC_LIST, currentList->id, currentList->waitTicks);
-				if (currentList->started && currentList->context.IsValid()) {
-					gstate.Restore(currentList->context);
-					ReapplyGfxState();
-				}
 			}
 			break;
 		}

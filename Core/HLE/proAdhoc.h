@@ -356,8 +356,8 @@ typedef struct SceNetAdhocPtpStat {
 	SceNetEtherAddr paddr;
 	u16_le lport;
 	u16_le pport;
-	s32_le snd_sb_cc; // Number of bytes existed in buffer to be sent/flushed?
-	s32_le rcv_sb_cc; // Number of bytes available in buffer to be received?
+	u32_le snd_sb_cc; // Number of bytes existed in sendBuffer to be sent/flushed
+	u32_le rcv_sb_cc; // Number of bytes available in recvBuffer to be received
 	s32_le state;
 } PACK SceNetAdhocPtpStat;
 
@@ -972,9 +972,11 @@ bool isPDPPortInUse(uint16_t port);
  * Check whether PTP Port is in use or not (only sockets with non-Listening state will be considered as in use)
  * @param port To-be-checked Port Number
  * @param forListen to check for listening or non-listening port
+ * @param dstmac destination address (non-listening only)
+ * @param dstport destination port (non-listening only)
  * @return 1 if in use or... 0
  */
-bool isPTPPortInUse(uint16_t port, bool forListen);
+bool isPTPPortInUse(uint16_t port, bool forListen, SceNetEtherAddr* dstmac = nullptr, uint16_t dstport = 0);
 
 // Convert MAC address to string
 std::string mac2str(SceNetEtherAddr* mac);

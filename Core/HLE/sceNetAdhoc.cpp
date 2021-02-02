@@ -181,8 +181,13 @@ static void __GameModeNotify(u64 userdata, int cyclesLate) {
 					int recvd = 0;
 					for (auto& gma : replicaGameModeAreas) {
 						// Either replicas new data has been received or that player has been disconnected
-						if (gma.dataUpdated || gma.updateTimestamp == 0)
+						if (gma.dataUpdated || gma.updateTimestamp == 0) {
 							recvd++;
+							// Since we're able to receive data, now we're certain that remote player is listening and ready to receive data, so we send initial data one more time in case they're not listening yet on previous attempt (ie. Pocket Pool)
+							if (gma.dataUpdated) {
+								sceNetAdhocPdpSend(gameModeSocket, (const char*)&gma.mac, ADHOC_GAMEMODE_PORT, masterGameModeArea.data, masterGameModeArea.size, 0, ADHOC_F_NONBLOCK);
+							}
+						}
 					}
 					// Resume blocked thread
 					u64 now = CoreTiming::GetGlobalTimeUsScaled();
@@ -2937,8 +2942,11 @@ static int sceNetAdhocGetPdpStat(u32 structSize, u32 structAddr) {
 				// Valid Socket Entry
 				auto sock = adhocSockets[j];
 				if (sock != NULL && sock->type == SOCK_PDP) {
-					// Set available bytes to be received. With FIOREAD There might be ghosting 1 byte in recv buffer when remote peer's socket got closed (ie. Warriors Orochi 2) Attempting to recv this ghost 1 byte will result to socket error 10054 (may need to disable SIO_UDP_CONNRESET error)
+					// Set available bytes to be received. With FIONREAD There might be ghosting 1 byte in recv buffer when remote peer's socket got closed (ie. Warriors Orochi 2) Attempting to recv this ghost 1 byte will result to socket error 10054 (may need to disable SIO_UDP_CONNRESET error)
 					sock->data.pdp.rcv_sb_cc = getAvailToRecv(sock->data.pdp.id);
+					// TODO: It seems real PSP respecting the socket buffer size arg, so we may need to cap the value to the buffer size arg since we use larger buffer, but may cause Warriors Orochi 2 to get slower performance.
+					// Note: Capping available data on UDP/PDP can causes data loss if the game tried to read the whole capped buffer size while containing partial/truncated message.
+					//sock->data.pdp.rcv_sb_cc = std::min(sock->data.pdp.rcv_sb_cc, (u32_le)sock->buffer_size); 
 
 					// Copy Socket Data from Internal Memory
 					memcpy(&buf[i], &sock->data.pdp, sizeof(SceNetAdhocPdpStat));
@@ -3031,6 +3039,8 @@ static int sceNetAdhocGetPtpStat(u32 structSize, u32 structAddr) {
 
 					// Set available bytes to be received
 					sock->data.ptp.rcv_sb_cc = getAvailToRecv(sock->data.ptp.id);
+					// It seems real PSP respecting the socket buffer size arg, so we may need to cap the value to the buffer size arg since we use larger buffer
+					sock->data.ptp.rcv_sb_cc = std::min(sock->data.ptp.rcv_sb_cc, (u32_le)sock->buffer_size);
 
 					// Copy Socket Data from internal Memory
 					memcpy(&buf[i], &sock->data.ptp, sizeof(SceNetAdhocPtpStat));
@@ -3098,7 +3108,7 @@ static int sceNetAdhocPtpOpen(const char *srcmac, int sport, const char *dstmac,
 		// Valid Addresses. FIXME: MAC only valid after successful attempt to Create/Connect/Join a Group? (ie. adhocctlCurrentMode != ADHOCCTL_MODE_NONE)
 		if ((adhocctlCurrentMode != ADHOCCTL_MODE_NONE) && saddr != NULL && isLocalMAC(saddr) && daddr != NULL && !isBroadcastMAC(daddr) && !isZeroMAC(daddr)) {
 			// Dissidia 012 will try to reOpen the port without Closing the old one first when PtpConnect failed to try again.
-			if (isPTPPortInUse(sport, false)) {
+			if (isPTPPortInUse(sport, false, daddr, dport)) {
 				// FIXME: When PORT_IN_USE error occured it seems the index to the socket id also increased, which means it tries to create & bind the socket first and then closes it due to failed to bind
 				return hleLogDebug(SCENET, ERROR_NET_ADHOC_PORT_IN_USE, "port in use");
 			}

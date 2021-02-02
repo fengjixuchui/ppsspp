@@ -394,6 +394,7 @@ void TextureCacheVulkan::CompileScalingShader() {
 		if (copyCS_ != VK_NULL_HANDLE)
 			vulkan_->Delete().QueueDeleteShaderModule(copyCS_);
 		textureShader_.clear();
+		maxScaleFactor_ = 255;
 	} else if (uploadCS_ || copyCS_) {
 		// No need to recreate.
 		return;
@@ -417,6 +418,7 @@ void TextureCacheVulkan::CompileScalingShader() {
 	_dbg_assert_msg_(copyCS_ != VK_NULL_HANDLE, "failed to compile copy shader");
 
 	textureShader_ = g_Config.sTextureShaderName;
+	maxScaleFactor_ = shaderInfo->maxScale;
 }
 
 void TextureCacheVulkan::ReleaseTexture(TexCacheEntry *entry, bool delete_them) {
@@ -762,6 +764,8 @@ void TextureCacheVulkan::BuildTexture(TexCacheEntry *const entry) {
 	VkFormat dstFmt = GetDestFormat(GETextureFormat(entry->format), gstate.getClutPaletteFormat());
 
 	int scaleFactor = standardScaleFactor_;
+	if (scaleFactor > maxScaleFactor_)
+		scaleFactor = maxScaleFactor_;
 
 	// Rachet down scale factor in low-memory mode.
 	if (lowMemoryMode_) {
@@ -926,6 +930,7 @@ void TextureCacheVulkan::BuildTexture(TexCacheEntry *const entry) {
 			void *data;
 			bool dataScaled = true;
 			if (replaced.Valid()) {
+				// Directly load the replaced image.
 				data = drawEngine_->GetPushBufferForTextureData()->PushAligned(size, &bufferOffset, &texBuf, pushAlignment);
 				replaced.Load(i, data, stride);
 				entry->vkTex->UploadMip(cmdInit, i, mipWidth, mipHeight, texBuf, bufferOffset, stride / bpp);
@@ -1006,7 +1011,7 @@ void TextureCacheVulkan::BuildTexture(TexCacheEntry *const entry) {
 
 		// Generate any additional mipmap levels.
 		for (int level = maxLevel + 1; level <= maxLevelToGenerate; level++) {
-			entry->vkTex->GenerateMip(cmdInit, level);
+			entry->vkTex->GenerateMip(cmdInit, level, computeUpload ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL);
 		}
 
 		if (maxLevel == 0) {
