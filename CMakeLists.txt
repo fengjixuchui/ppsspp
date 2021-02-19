@@ -189,6 +189,9 @@ if(NOT OPENGL_LIBRARIES AND USING_GLES2)
 endif()
 
 if(NOT OPENGL_LIBRARIES)
+	if(POLICY CMP0072)
+		cmake_policy(SET CMP0072 NEW)
+	endif()
 	find_package(OpenGL REQUIRED)
 endif()
 
@@ -1332,8 +1335,6 @@ set(GPU_D3D9
 	GPU/Directx9/TextureCacheDX9.h
 	GPU/Directx9/TextureScalerDX9.cpp
 	GPU/Directx9/TextureScalerDX9.h
-	GPU/Directx9/VertexShaderGeneratorHLSL.cpp
-	GPU/GLES/VertexShaderGeneratorGLES.h
 )
 
 set(GPU_D3D11
@@ -1912,9 +1913,7 @@ if(USE_MINIUPNPC)
 	endif()
 	if (WIN32)
 	  set_source_files_properties(${MINIUPNPC_SOURCES} PROPERTIES  COMPILE_DEFINITIONS "MINIUPNP_STATICLIB;MINIUPNP_EXPORTS")
-	  find_library(WINSOCK2_LIBRARY NAMES ws2_32 WS2_32 Ws2_32)
-	  find_library(IPHLPAPI_LIBRARY NAMES iphlpapi)
-	  set(LDLIBS ${WINSOCK2_LIBRARY} ${IPHLPAPI_LIBRARY} ${LDLIBS})
+	  set(LDLIBS ws2_32 iphlpapi ${LDLIBS})
 	#elseif (CMAKE_SYSTEM_NAME STREQUAL "Solaris")
 	#  find_library (SOCKET_LIBRARY NAMES socket)
 	#  find_library (NSL_LIBRARY NAMES nsl)
@@ -1970,7 +1969,6 @@ set(WindowsFiles
 	Windows/Debugger/CtrlMemView.h
 	Windows/Debugger/CtrlRegisterList.cpp
 	Windows/Debugger/CtrlRegisterList.h
-	Windows/Debugger/Debugger.h
 	Windows/Debugger/DebuggerShared.cpp
 	Windows/Debugger/DebuggerShared.h
 	Windows/Debugger/Debugger_Disasm.cpp
@@ -1979,8 +1977,6 @@ set(WindowsFiles
 	Windows/Debugger/Debugger_MemoryDlg.h
 	Windows/Debugger/Debugger_Lists.cpp
 	Windows/Debugger/Debugger_Lists.h
-	Windows/Debugger/Debugger_Misc.cpp
-	Windows/Debugger/Debugger_Misc.h
 	Windows/Debugger/Debugger_SymbolMap.h
 	Windows/Debugger/Debugger_VFPUDlg.cpp
 	Windows/Debugger/Debugger_VFPUDlg.h
@@ -2085,7 +2081,7 @@ set(NativeAssets
 
 
 if(HEADLESS)
-	add_executable(PPSSPPHeadless
+	set(HeadlessSource
 		headless/Headless.cpp
 		headless/StubHost.cpp
 		headless/StubHost.h
@@ -2094,6 +2090,25 @@ if(HEADLESS)
 		headless/SDLHeadlessHost.cpp
 		headless/SDLHeadlessHost.h
 	)
+	if(WIN32)
+		list(APPEND HeadlessSource
+			headless/WindowsHeadlessHost.cpp
+			headless/WindowsHeadlessHost.h
+			Windows/GPU/D3D9Context.cpp
+			Windows/GPU/D3D9Context.h
+			Windows/GPU/D3D11Context.cpp
+			Windows/GPU/D3D11Context.h
+			Windows/GPU/WindowsGLContext.cpp
+			Windows/GPU/WindowsVulkanContext.cpp
+			Windows/W32Util/ShellUtil.cpp
+			Windows/W32Util/ShellUtil.h
+			Windows/CaptureDevice.cpp
+			Windows/CaptureDevice.h
+			Windows/W32Util/Misc.cpp
+			Windows/W32Util/Misc.h
+		)
+	endif()
+	add_executable(PPSSPPHeadless ${HeadlessSource})
 	target_link_libraries(PPSSPPHeadless ${COCOA_LIBRARY} ${QUARTZ_CORE_LIBRARY} ${LinkCommon})
 	setup_target_project(PPSSPPHeadless headless)
 endif()

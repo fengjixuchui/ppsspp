@@ -20,7 +20,7 @@
 #include <algorithm>
 
 // For shell links
-#include "windows.h"
+#include "Common/CommonWindows.h"
 #include "winnls.h"
 #include "shobjidl.h"
 #include "objbase.h"
@@ -81,8 +81,8 @@ static BOOL PostDialogMessage(Dialog *dialog, UINT message, WPARAM wParam = 0, L
 
 WindowsHost::WindowsHost(HINSTANCE hInstance, HWND mainWindow, HWND displayWindow)
 	: hInstance_(hInstance),
-		mainWindow_(mainWindow),
-		displayWindow_(displayWindow)
+		displayWindow_(displayWindow),
+		mainWindow_(mainWindow)
 {
 	g_mouseDeltaX = 0;
 	g_mouseDeltaY = 0;

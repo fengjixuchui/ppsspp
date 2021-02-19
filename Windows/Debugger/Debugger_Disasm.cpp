@@ -2,7 +2,7 @@
 
 #include "Core/Config.h"
 #include "Core/MemMap.h"
-#include "Windows/Resource.h"
+#include "Windows/resource.h"
 #include "Windows/InputBox.h"
 
 #include "Core/Debugger/Breakpoints.h"
@@ -384,7 +384,6 @@ BOOL CDisasm::DlgProc(UINT message, WPARAM wParam, LPARAM lParam)
 	case WM_COMMAND:
 		{
 			CtrlDisAsmView *ptr = CtrlDisAsmView::getFrom(GetDlgItem(m_hDlg,IDC_DISASMVIEW));
-			CtrlRegisterList *reglist = CtrlRegisterList::getFrom(GetDlgItem(m_hDlg,IDC_REGLIST));
 			switch (LOWORD(wParam)) {
 			case ID_TOGGLE_BREAK:
 				SendMessage(MainWindow::GetHWND(), WM_COMMAND, ID_TOGGLE_BREAK, 0);
@@ -880,8 +879,8 @@ void CDisasm::Goto(u32 addr)
 
 void CDisasm::UpdateDialog(bool _bComplete)
 {
-	HWND gotoInt = GetDlgItem(m_hDlg, IDC_GOTOINT);
 	/*
+	HWND gotoInt = GetDlgItem(m_hDlg, IDC_GOTOINT);
 	ComboBox_ResetContent(gotoInt);
 	for (int i=0; i<numRegions; i++)
 	{

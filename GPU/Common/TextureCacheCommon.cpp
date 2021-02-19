@@ -100,9 +100,6 @@ inline int dimHeight(u16 dim) {
 // TODO
 TextureCacheCommon::TextureCacheCommon(Draw::DrawContext *draw)
 	: draw_(draw),
-		texelsScaledThisFrame_(0),
-		cacheSizeEstimate_(0),
-		secondCacheSizeEstimate_(0),
 		clutLastFormat_(0xFFFFFFFF),
 		clutTotalBytes_(0),
 		clutMaxBytes_(0),
@@ -564,7 +561,6 @@ TexCacheEntry *TextureCacheCommon::SetTexture() {
 
 std::vector<AttachCandidate> TextureCacheCommon::GetFramebufferCandidates(const TextureDefinition &entry, u32 texAddrOffset) {
 	gpuStats.numFramebufferEvaluations++;
-	bool success = false;
 
 	std::vector<AttachCandidate> candidates;
 
@@ -884,8 +880,6 @@ FramebufferMatchInfo TextureCacheCommon::MatchFramebuffer(
 			(channel == NOTIFY_FB_COLOR && framebuffer->format == GE_FORMAT_8888 && entry.format == GE_TFMT_CLUT32) ||
 			(channel == NOTIFY_FB_COLOR && framebuffer->format != GE_FORMAT_8888 && entry.format == GE_TFMT_CLUT16);
 
-		const bool clutFormat = IsClutFormat((GETextureFormat)(entry.format));
-
 		// To avoid ruining git blame, kept the same name as the old struct.
 		FramebufferMatchInfo fbInfo{ FramebufferMatch::VALID };
 
@@ -940,8 +934,8 @@ FramebufferMatchInfo TextureCacheCommon::MatchFramebuffer(
 		}
 
 		// This is either normal or we failed to generate a shader to depalettize
-		if (framebuffer->format == entry.format || matchingClutFormat) {
-			if (framebuffer->format != entry.format) {
+		if ((int)framebuffer->format == (int)entry.format || matchingClutFormat) {
+			if ((int)framebuffer->format != (int)entry.format) {
 				WARN_LOG_ONCE(diffFormat2, G3D, "Texturing from framebuffer with different formats %s != %s at %08x",
 					GeTextureFormatToString(entry.format), GeBufferFormatToString(framebuffer->format), fb_address);
 				return fbInfo;
@@ -1795,7 +1789,7 @@ void TextureCacheCommon::Invalidate(u32 addr, int size, GPUInvalidationType type
 	}
 
 	// If we're hashing every use, without backoff, then this isn't needed.
-	if (!g_Config.bTextureBackoffCache) {
+	if (!g_Config.bTextureBackoffCache && type != GPU_INVALIDATE_FORCE) {
 		return;
 	}
 
@@ -1806,28 +1800,34 @@ void TextureCacheCommon::Invalidate(u32 addr, int size, GPUInvalidationType type
 	}
 
 	for (TexCache::iterator iter = cache_.lower_bound(startKey), end = cache_.upper_bound(endKey); iter != end; ++iter) {
-		u32 texAddr = iter->second->addr;
-		u32 texEnd = iter->second->addr + iter->second->sizeInRAM;
+		auto &entry = iter->second;
+		u32 texAddr = entry->addr;
+		u32 texEnd = entry->addr + entry->sizeInRAM;
 
 		// Quick check for overlap. Yes the check is right.
 		if (addr < texEnd && addr_end > texAddr) {
-			if (iter->second->GetHashStatus() == TexCacheEntry::STATUS_RELIABLE) {
-				iter->second->SetHashStatus(TexCacheEntry::STATUS_HASHING);
+			if (entry->GetHashStatus() == TexCacheEntry::STATUS_RELIABLE) {
+				entry->SetHashStatus(TexCacheEntry::STATUS_HASHING);
+			}
+			if (type == GPU_INVALIDATE_FORCE) {
+				// Just random values to force the hash not to match.
+				entry->fullhash = (entry->fullhash ^ 0x12345678) + 13;
+				entry->hash = (entry->hash ^ 0x89ABCDEF) + 89;
 			}
 			if (type != GPU_INVALIDATE_ALL) {
 				gpuStats.numTextureInvalidations++;
 				// Start it over from 0 (unless it's safe.)
-				iter->second->numFrames = type == GPU_INVALIDATE_SAFE ? 256 : 0;
+				entry->numFrames = type == GPU_INVALIDATE_SAFE ? 256 : 0;
 				if (type == GPU_INVALIDATE_SAFE) {
-					u32 diff = gpuStats.numFlips - iter->second->lastFrame;
+					u32 diff = gpuStats.numFlips - entry->lastFrame;
 					// We still need to mark if the texture is frequently changing, even if it's safely changing.
 					if (diff < TEXCACHE_FRAME_CHANGE_FREQUENT) {
-						iter->second->status |= TexCacheEntry::STATUS_CHANGE_FREQUENT;
+						entry->status |= TexCacheEntry::STATUS_CHANGE_FREQUENT;
 					}
 				}
-				iter->second->framesUntilNextFullHash = 0;
+				entry->framesUntilNextFullHash = 0;
 			} else {
-				iter->second->invalidHint++;
+				entry->invalidHint++;
 			}
 		}
 	}

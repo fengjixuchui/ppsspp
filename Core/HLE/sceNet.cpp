@@ -153,9 +153,6 @@ static void __ApctlState(u64 userdata, int cyclesLate) {
 int ScheduleApctlState(int event, int newState, int usec, const char* reason) {
 	int uid = event + 1;
 
-	if (apctlStateEvent < 0)
-		apctlStateEvent = CoreTiming::RegisterEvent("__ApctlState", __ApctlState);
-
 	u64 param = ((u64)__KernelGetCurThread()) << 32 | uid;
 	CoreTiming::ScheduleEvent(usToCycles(usec), apctlStateEvent, param);
 	__KernelWaitCurThread(WAITTYPE_NET, uid, newState, 0, false, reason);
@@ -203,6 +200,7 @@ void __NetInit() {
 	g_adhocServerIP.in.sin_port = htons(SERVER_PORT); //27312 // Maybe read this from config too
 	g_adhocServerIP.in.sin_addr.s_addr = INADDR_NONE;
 
+	dummyPeekBuf64k = (char*)malloc(dummyPeekBuf64kSize);
 	InitLocalhostIP();
 
 	SceNetEtherAddr mac;
@@ -235,6 +233,8 @@ void __NetShutdown() {
 
 	// Since PortManager supposed to be general purpose for whatever port forwarding PPSSPP needed, may be we shouldn't clear & restore ports in here? it will be cleared and restored by PortManager's destructor when exiting PPSSPP anyway
 	__UPnPShutdown();
+
+	free(dummyPeekBuf64k);
 }
 
 static void __UpdateApctlHandlers(u32 oldState, u32 newState, u32 flag, u32 error) {
@@ -304,14 +304,11 @@ void __NetDoState(PointerWrap &p) {
 	}
 	if (s >= 5) {
 		Do(p, apctlStateEvent);
-		if (apctlStateEvent != -1) {
-			CoreTiming::RestoreRegisterEvent(apctlStateEvent, "__ApctlState", __ApctlState);
-		}
-	}
-	else {
+	} else {
 		apctlStateEvent = -1;
 	}
-	
+	CoreTiming::RestoreRegisterEvent(apctlStateEvent, "__ApctlState", __ApctlState);
+
 	if (p.mode == p.MODE_READ) {
 		// Let's not change "Inited" value when Loading SaveState in the middle of multiplayer to prevent memory & port leaks
 		netApctlInited = cur_netApctlInited;

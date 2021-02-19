@@ -484,6 +484,7 @@ void LogoScreen::update() {
 		Next();
 	}
 	frames_++;
+	sinceStart_ = (double)frames_ / rate;
 }
 
 void LogoScreen::sendMessage(const char *message, const char *value) {
@@ -516,15 +517,9 @@ void LogoScreen::render() {
 
 	const Bounds &bounds = dc.GetBounds();
 
-	float xres = bounds.w;
-	float yres = bounds.h;
-
 	dc.Begin();
 
-	double rate = std::max(30.0, (double)System_GetPropertyFloat(SYSPROP_DISPLAY_REFRESH_RATE));
-	double sinceStart = (double)frames_ / rate;
-
-	float t = (float)sinceStart / (logoScreenSeconds / 3.0f);
+	float t = (float)sinceStart_ / (logoScreenSeconds / 3.0f);
 
 	float alpha = t;
 	if (t > 1.0f)
@@ -547,13 +542,13 @@ void LogoScreen::render() {
 		dc.Draw()->DrawImage(ImageID("I_ICON"), bounds.centerX() - 120, bounds.centerY() - 30, 1.2f, textColor, ALIGN_CENTER);
 	}
 	dc.Draw()->DrawImage(ImageID("I_LOGO"), bounds.centerX() + 40, bounds.centerY() - 30, 1.5f, textColor, ALIGN_CENTER);
-	//dc.Draw()->DrawTextShadow(UBUNTU48, "PPSSPP", xres / 2, yres / 2 - 30, textColor, ALIGN_CENTER);
+	//dc.Draw()->DrawTextShadow(UBUNTU48, "PPSSPP", bounds.w / 2, bounds.h / 2 - 30, textColor, ALIGN_CENTER);
 	dc.SetFontScale(1.0f, 1.0f);
 	dc.SetFontStyle(dc.theme->uiFont);
 	dc.DrawText(temp, bounds.centerX(), bounds.centerY() + 40, textColor, ALIGN_CENTER);
 	dc.DrawText(cr->T("license", "Free Software under GPL 2.0+"), bounds.centerX(), bounds.centerY() + 70, textColor, ALIGN_CENTER);
 
-	int ppsspp_org_y = yres / 2 + 130;
+	int ppsspp_org_y = bounds.h / 2 + 130;
 	dc.DrawText("www.ppsspp.org", bounds.centerX(), ppsspp_org_y, textColor, ALIGN_CENTER);
 
 #if (defined(_WIN32) && !PPSSPP_PLATFORM(UWP)) || PPSSPP_PLATFORM(ANDROID) || PPSSPP_PLATFORM(LINUX)

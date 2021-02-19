@@ -246,7 +246,7 @@ public:
 
 class VKPipeline : public Pipeline {
 public:
-	VKPipeline(VulkanContext *vulkan, size_t size, PipelineFlags _flags) : vulkan_(vulkan), flags(_flags) {
+	VKPipeline(VulkanContext *vulkan, size_t size, PipelineFlags _flags) : flags(_flags), vulkan_(vulkan) {
 		uboSize_ = (int)size;
 		ubo_ = new uint8_t[uboSize_];
 	}
@@ -511,16 +511,16 @@ private:
 
 	VulkanTexture *nullTexture_ = nullptr;
 
-	VKPipeline *curPipeline_ = nullptr;
-	VKBuffer *curVBuffers_[4]{};
+	AutoRef<VKPipeline> curPipeline_;
+	AutoRef<VKBuffer> curVBuffers_[4];
 	int curVBufferOffsets_[4]{};
-	VKBuffer *curIBuffer_ = nullptr;
+	AutoRef<VKBuffer> curIBuffer_;
 	int curIBufferOffset_ = 0;
 
 	VkDescriptorSetLayout descriptorSetLayout_ = VK_NULL_HANDLE;
 	VkPipelineLayout pipelineLayout_ = VK_NULL_HANDLE;
 	VkPipelineCache pipelineCache_ = VK_NULL_HANDLE;
-	Framebuffer *curFramebuffer_ = nullptr;
+	AutoRef<Framebuffer> curFramebuffer_;
 
 	VkDevice device_;
 	VkQueue queue_;
@@ -529,8 +529,8 @@ private:
 	enum {
 		MAX_FRAME_COMMAND_BUFFERS = 256,
 	};
-	VKTexture *boundTextures_[MAX_BOUND_TEXTURES]{};
-	VKSamplerState *boundSamplers_[MAX_BOUND_TEXTURES]{};
+	AutoRef<VKTexture> boundTextures_[MAX_BOUND_TEXTURES];
+	AutoRef<VKSamplerState> boundSamplers_[MAX_BOUND_TEXTURES];
 	VkImageView boundImageView_[MAX_BOUND_TEXTURES]{};
 
 	struct FrameData {
@@ -763,7 +763,7 @@ bool VKTexture::Create(VkCommandBuffer cmd, VulkanPushBuffer *push, const Textur
 }
 
 VKContext::VKContext(VulkanContext *vulkan, bool splitSubmit)
-	: vulkan_(vulkan), caps_{}, renderManager_(vulkan) {
+	: vulkan_(vulkan), renderManager_(vulkan) {
 	shaderLanguageDesc_.Init(GLSL_VULKAN);
 
 	caps_.anisoSupported = vulkan->GetDeviceFeatures().enabled.samplerAnisotropy != 0;

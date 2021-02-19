@@ -367,10 +367,6 @@ void GPUCommon::Flush() {
 }
 
 GPUCommon::GPUCommon(GraphicsContext *gfxCtx, Draw::DrawContext *draw) :
-	dumpNextFrame_(false),
-	dumpThisFrame_(false),
-	framebufferManager_(nullptr),
-	resized_(false),
 	gfxCtx_(gfxCtx),
 	draw_(draw)
 {
@@ -675,7 +671,7 @@ int GPUCommon::GetStack(int index, u32 stackPtr) {
 	}
 
 	if (index >= 0) {
-		auto stack = PSPPointer<u32>::Create(stackPtr);
+		auto stack = PSPPointer<u32_le>::Create(stackPtr);
 		if (stack.IsValid()) {
 			auto entry = currentList->stack[index];
 			// Not really sure what most of these values are.
@@ -706,7 +702,7 @@ u32 GPUCommon::EnqueueList(u32 listpc, u32 stall, int subIntrBase, PSPPointer<Ps
 
 	int id = -1;
 	u64 currentTicks = CoreTiming::GetTicks();
-	u32_le stackAddr = args.IsValid() && args->size >= 16 ? args->stackAddr : 0;
+	u32 stackAddr = args.IsValid() && args->size >= 16 ? (u32)args->stackAddr : 0;
 	// Check compatibility
 	if (sceKernelGetCompiledSdkVersion() > 0x01FFFFFF) {
 		//numStacks = 0;
@@ -1045,7 +1041,7 @@ void GPUCommon::FastRunLoop(DisplayList &list) {
 	int dc = downcount;
 	for (; dc > 0; --dc) {
 		// We know that display list PCs have the upper nibble == 0 - no need to mask the pointer
-		const u32 op = *(const u32 *)(Memory::base + list.pc);
+		const u32 op = *(const u32_le *)(Memory::base + list.pc);
 		const u32 cmd = op >> 24;
 		const CommandInfo &info = cmdInfo[cmd];
 		const u32 diff = op ^ gstate.cmdmem[cmd];
@@ -1640,8 +1636,8 @@ void GPUCommon::Execute_Prim(u32 op, u32 diff) {
 	int totalVertCount = count;
 
 	// PRIMs are often followed by more PRIMs. Save some work and submit them immediately.
-	const u32 *src = (const u32 *)Memory::GetPointerUnchecked(currentList->pc + 4);
-	const u32 *stall = currentList->stall ? (const u32 *)Memory::GetPointerUnchecked(currentList->stall) : 0;
+	const u32_le *src = (const u32_le *)Memory::GetPointerUnchecked(currentList->pc + 4);
+	const u32_le *stall = currentList->stall ? (const u32_le *)Memory::GetPointerUnchecked(currentList->stall) : 0;
 	int cmdCount = 0;
 
 	// Optimized submission of sequences of PRIM. Allows us to avoid going through all the mess
@@ -2248,7 +2244,6 @@ void GPUCommon::Execute_ImmVertexAlphaPrim(u32 op, u32 diff) {
 		return;
 	}
 
-	uint32_t data = op & 0xFFFFFF;
 	TransformedVertex &v = immBuffer_[immCount_++];
 
 	// Formula deduced from ThrillVille's clear.

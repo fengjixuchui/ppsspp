@@ -104,6 +104,9 @@ static std::string restartArgs;
 HMENU g_hPopupMenus;
 int g_activeWindow = 0;
 
+static std::thread inputBoxThread;
+static bool inputBoxRunning = false;
+
 void OpenDirectory(const char *path) {
 	PIDLIST_ABSOLUTE pidl = ILCreateFromPath(ConvertUTF8ToWString(ReplaceAll(path, "/", "\\")).c_str());
 	if (pidl) {
@@ -386,12 +389,19 @@ void EnableCrashingOnCrashes() {
 }
 
 void System_InputBoxGetString(const std::string &title, const std::string &defaultValue, std::function<void(bool, const std::string &)> cb) {
-	std::string out;
-	if (InputBox_GetString(MainWindow::GetHInstance(), MainWindow::GetHWND(), ConvertUTF8ToWString(title).c_str(), defaultValue, out)) {
-		NativeInputBoxReceived(cb, true, out);
-	} else {
-		NativeInputBoxReceived(cb, false, "");
+	if (inputBoxRunning) {
+		inputBoxThread.join();
 	}
+
+	inputBoxRunning = true;
+	inputBoxThread = std::thread([=] {
+		std::string out;
+		if (InputBox_GetString(MainWindow::GetHInstance(), MainWindow::GetHWND(), ConvertUTF8ToWString(title).c_str(), defaultValue, out)) {
+			NativeInputBoxReceived(cb, true, out);
+		} else {
+			NativeInputBoxReceived(cb, false, "");
+		}
+	});
 }
 
 static std::string GetDefaultLangRegion() {
@@ -417,6 +427,7 @@ static std::string GetDefaultLangRegion() {
 
 static const int EXIT_CODE_VULKAN_WORKS = 42;
 
+#ifndef _DEBUG
 static bool DetectVulkanInExternalProcess() {
 	std::wstring workingDirectory;
 	std::wstring moduleFilename;
@@ -447,6 +458,7 @@ static bool DetectVulkanInExternalProcess() {
 
 	return exitCode == EXIT_CODE_VULKAN_WORKS;
 }
+#endif
 
 std::vector<std::wstring> GetWideCmdLine() {
 	wchar_t **wargv;
@@ -490,6 +502,10 @@ static void WinMainInit() {
 }
 
 static void WinMainCleanup() {
+	if (inputBoxRunning) {
+		inputBoxThread.join();
+		inputBoxRunning = false;
+	}
 	net::Shutdown();
 	CoUninitialize();
 
@@ -656,7 +672,6 @@ int WINAPI WinMain(HINSTANCE _hInstance, HINSTANCE hPrevInstance, LPSTR szCmdLin
 	MainWindow::Show(_hInstance);
 
 	HWND hwndMain = MainWindow::GetHWND();
-	HWND hwndDisplay = MainWindow::GetDisplayHWND();
 
 	//initialize custom controls
 	CtrlDisAsmView::init();

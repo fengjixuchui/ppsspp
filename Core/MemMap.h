@@ -175,9 +175,9 @@ inline u32 ReadUnchecked_U32(const u32 address) {
 
 inline float ReadUnchecked_Float(const u32 address) {
 #ifdef MASKED_PSP_MEMORY
-	return *(float *)(base + (address & MEMVIEW32_MASK));
+	return *(float_le *)(base + (address & MEMVIEW32_MASK));
 #else
-	return *(float *)(base + address);
+	return *(float_le *)(base + address);
 #endif
 }
 
@@ -207,9 +207,9 @@ inline void WriteUnchecked_U32(u32 data, u32 address) {
 
 inline void WriteUnchecked_Float(float data, u32 address) {
 #ifdef MASKED_PSP_MEMORY
-	*(float *)(base + (address & MEMVIEW32_MASK)) = data;
+	*(float_le *)(base + (address & MEMVIEW32_MASK)) = data;
 #else
-	*(float *)(base + address) = data;
+	*(float_le *)(base + address) = data;
 #endif
 }
 
@@ -465,8 +465,11 @@ inline u32 PSP_GetScratchpadMemoryEnd() { return 0x00014000;}
 inline u32 PSP_GetKernelMemoryBase() { return 0x08000000;}
 inline u32 PSP_GetUserMemoryEnd() { return PSP_GetKernelMemoryBase() + Memory::g_MemorySize;}
 inline u32 PSP_GetKernelMemoryEnd() { return 0x08400000;}
+
 // "Volatile" RAM is between 0x08400000 and 0x08800000, can be requested by the
 // game through sceKernelVolatileMemTryLock.
+inline u32 PSP_GetVolatileMemoryStart() { return 0x08400000; }
+inline u32 PSP_GetVolatileMemoryEnd() { return 0x08800000; }
 
 inline u32 PSP_GetUserMemoryBase() { return 0x08800000;}
 inline u32 PSP_GetDefaultLoadAddress() { return 0;}

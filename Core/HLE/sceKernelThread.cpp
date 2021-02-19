@@ -50,11 +50,10 @@
 #include "Core/HLE/KernelWaitHelpers.h"
 #include "Core/HLE/ThreadQueueList.h"
 
-typedef struct
-{
+struct WaitTypeNames {
 	WaitType type;
 	const char *name;
-} WaitTypeNames;
+};
 
 const WaitTypeNames waitTypeNames[] = {
 	{ WAITTYPE_NONE,            "None" },
@@ -83,18 +82,13 @@ const WaitTypeNames waitTypeNames[] = {
 	{ WAITTYPE_ASYNCIO,         "AsyncIO" },
 	{ WAITTYPE_MICINPUT,        "Microphone input"},
 	{ WAITTYPE_NET,             "Network"},
+	{ WAITTYPE_USB,             "USB" },
 };
 
-const char *getWaitTypeName(WaitType type)
-{
-	int waitTypeNamesAmount = sizeof(waitTypeNames)/sizeof(WaitTypeNames);
-
-	for (int i = 0; i < waitTypeNamesAmount; i++)
-	{
-		if (waitTypeNames[i].type == type)
-		{
-			return waitTypeNames[i].name;
-		}
+const char *getWaitTypeName(WaitType type) {
+	for (WaitTypeNames info : waitTypeNames) {
+		if (info.type == type)
+			return info.name;
 	}
 
 	return "Unknown";
@@ -757,8 +751,6 @@ u32 __KernelInterruptReturnAddress() {
 }
 
 static void __KernelDelayBeginCallback(SceUID threadID, SceUID prevCallbackId) {
-	SceUID pauseKey = prevCallbackId == 0 ? threadID : prevCallbackId;
-
 	u32 error;
 	SceUID waitID = __KernelGetWaitID(threadID, WAITTYPE_DELAY, error);
 	if (waitID == threadID) {
@@ -1195,7 +1187,7 @@ void __KernelThreadingShutdown() {
 
 std::string __KernelThreadingSummary() {
 	PSPThread *t = __GetCurrentThread();
-	return StringFromFormat("Cur thread: %s (attr %08x)", t ? t->GetName() : "(null)", t ? t->nt.attr : 0);
+	return StringFromFormat("Cur thread: %s (attr %08x)", t ? t->GetName() : "(null)", t ? (u32)t->nt.attr : 0);
 }
 
 const char *__KernelGetThreadName(SceUID threadID)
@@ -1212,7 +1204,15 @@ bool KernelIsThreadDormant(SceUID threadID) {
 	PSPThread *t = kernelObjects.Get<PSPThread>(threadID, error);
 	if (t)
 		return (t->nt.status & (THREADSTATUS_DEAD | THREADSTATUS_DORMANT)) != 0;
-	return 0;
+	return false;
+}
+
+bool KernelIsThreadWaiting(SceUID threadID) {
+	u32 error;
+	PSPThread *t = kernelObjects.Get<PSPThread>(threadID, error);
+	if (t)
+		return (t->nt.status & (THREADSTATUS_WAITSUSPEND)) != 0;
+	return false;
 }
 
 u32 __KernelGetWaitValue(SceUID threadID, u32 &error) {
@@ -1400,7 +1400,7 @@ u32 sceKernelGetThreadmanIdList(u32 type, u32 readBufPtr, u32 readBufSize, u32 i
 	}
 
 	u32 total = 0;
-	auto uids = PSPPointer<SceUID>::Create(readBufPtr);
+	auto uids = PSPPointer<SceUID_le>::Create(readBufPtr);
 	u32 error;
 	if (type > 0 && type <= SCE_KERNEL_TMID_Tlspl) {
 		DEBUG_LOG(SCEKERNEL, "sceKernelGetThreadmanIdList(%i, %08x, %i, %08x)", type, readBufPtr, readBufSize, idCountPtr);
@@ -1520,16 +1520,16 @@ u32 __KernelResumeThreadFromWait(SceUID threadID, u64 retval)
 }
 
 // makes the current thread wait for an event
-void __KernelWaitCurThread(WaitType type, SceUID waitID, u32 waitValue, u32 timeoutPtr, bool processCallbacks, const char *reason)
-{
-	if (!dispatchEnabled)
-	{
+void __KernelWaitCurThread(WaitType type, SceUID waitID, u32 waitValue, u32 timeoutPtr, bool processCallbacks, const char *reason) {
+	if (!dispatchEnabled) {
 		WARN_LOG_REPORT(SCEKERNEL, "Ignoring wait, dispatching disabled... right thing to do?");
 		return;
 	}
 
 	PSPThread *thread = __GetCurrentThread();
 	_assert_(thread != nullptr);
+	if ((thread->nt.status & THREADSTATUS_WAIT) != 0)
+		WARN_LOG_REPORT(SCEKERNEL, "Waiting thread for %d that was already waiting for %d", type, thread->nt.waitType);
 	thread->nt.waitID = waitID;
 	thread->nt.waitType = type;
 	__KernelChangeThreadState(thread, ThreadStatus(THREADSTATUS_WAIT | (thread->nt.status & THREADSTATUS_SUSPEND)));
@@ -1537,22 +1537,21 @@ void __KernelWaitCurThread(WaitType type, SceUID waitID, u32 waitValue, u32 time
 	thread->waitInfo.waitValue = waitValue;
 	thread->waitInfo.timeoutPtr = timeoutPtr;
 
-	// TODO: time waster
 	if (!reason)
 		reason = "started wait";
 
 	hleReSchedule(processCallbacks, reason);
 }
 
-void __KernelWaitCallbacksCurThread(WaitType type, SceUID waitID, u32 waitValue, u32 timeoutPtr)
-{
-	if (!dispatchEnabled)
-	{
+void __KernelWaitCallbacksCurThread(WaitType type, SceUID waitID, u32 waitValue, u32 timeoutPtr) {
+	if (!dispatchEnabled) {
 		WARN_LOG_REPORT(SCEKERNEL, "Ignoring wait, dispatching disabled... right thing to do?");
 		return;
 	}
 
 	PSPThread *thread = __GetCurrentThread();
+	if ((thread->nt.status & THREADSTATUS_WAIT) != 0)
+		WARN_LOG_REPORT(SCEKERNEL, "Waiting thread for %d that was already waiting for %d", type, thread->nt.waitType);
 	thread->nt.waitID = waitID;
 	thread->nt.waitType = type;
 	__KernelChangeThreadState(thread, ThreadStatus(THREADSTATUS_WAIT | (thread->nt.status & THREADSTATUS_SUSPEND)));
@@ -2021,7 +2020,7 @@ int __KernelStartThread(SceUID threadToStartID, int argSize, u32 argBlockPtr, bo
 		return error;
 
 	PSPThread *cur = __GetCurrentThread();
-	__KernelResetThread(startThread, cur ? cur->nt.currentPriority : 0);
+	__KernelResetThread(startThread, cur ? (s32)cur->nt.currentPriority : 0);
 
 	u32 &sp = startThread->context.r[MIPS_REG_SP];
 	// Force args means just use those as a0/a1 without any special treatment.

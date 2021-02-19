@@ -20,7 +20,9 @@
 #include <unordered_map>
 
 #include "Common/Common.h"
+#include "Common/Data/Convert/SmallDataConvert.h"
 #include "Common/Log.h"
+#include "Common/Swap.h"
 #include "Core/Config.h"
 #include "Core/Debugger/Breakpoints.h"
 #include "Core/Debugger/SymbolMap.h"
@@ -406,13 +408,25 @@ static int Replace_fabsf() {
 }
 
 static int Replace_vmmul_q_transp() {
-	float *out = (float *)Memory::GetPointer(PARAM(0));
-	const float *a = (const float *)Memory::GetPointer(PARAM(1));
-	const float *b = (const float *)Memory::GetPointer(PARAM(2));
+	float_le *out = (float_le *)Memory::GetPointer(PARAM(0));
+	const float_le *a = (const float_le *)Memory::GetPointer(PARAM(1));
+	const float_le *b = (const float_le *)Memory::GetPointer(PARAM(2));
 
 	// TODO: Actually use an optimized matrix multiply here...
 	if (out && b && a) {
+#ifdef COMMON_BIG_ENDIAN
+		float outn[16], an[16], bn[16];
+		for (int i = 0; i < 16; ++i) {
+			an[i] = a[i];
+			bn[i] = b[i];
+		}
+		Matrix4ByMatrix4(outn, bn, an);
+		for (int i = 0; i < 16; ++i) {
+			out[i] = outn[i];
+		}
+#else
 		Matrix4ByMatrix4(out, b, a);
+#endif
 	}
 	return 16;
 }
@@ -421,8 +435,8 @@ static int Replace_vmmul_q_transp() {
 // a1 = matrix
 // a2 = source address
 static int Replace_gta_dl_write_matrix() {
-	u32 *ptr = (u32 *)Memory::GetPointer(PARAM(0));
-	u32 *src = (u32_le *)Memory::GetPointer(PARAM(2));
+	u32_le *ptr = (u32_le *)Memory::GetPointer(PARAM(0));
+	u32_le *src = (u32_le *)Memory::GetPointer(PARAM(2));
 	u32 matrix = PARAM(1) << 24;
 
 	if (!ptr || !src) {
@@ -430,7 +444,7 @@ static int Replace_gta_dl_write_matrix() {
 		return 38;
 	}
 
-	u32 *dest = (u32_le *)Memory::GetPointer(ptr[0]);
+	u32_le *dest = (u32_le *)Memory::GetPointer(ptr[0]);
 	if (!dest) {
 		RETURN(0);
 		return 38;
@@ -480,15 +494,15 @@ static int Replace_gta_dl_write_matrix() {
 // TODO: Inline into a few NEON or SSE instructions - especially if a1 is a known immediate!
 // Anyway, not sure if worth it. There's not that many matrices written per frame normally.
 static int Replace_dl_write_matrix() {
-	u32 *dlStruct = (u32 *)Memory::GetPointer(PARAM(0));
-	u32 *src = (u32 *)Memory::GetPointer(PARAM(2));
+	u32_le *dlStruct = (u32_le *)Memory::GetPointer(PARAM(0));
+	u32_le *src = (u32_le *)Memory::GetPointer(PARAM(2));
 
 	if (!dlStruct || !src) {
 		RETURN(0);
 		return 60;
 	}
 
-	u32 *dest = (u32 *)Memory::GetPointer(dlStruct[2]);
+	u32_le *dest = (u32_le *)Memory::GetPointer(dlStruct[2]);
 	if (!dest) {
 		RETURN(0);
 		return 60;
@@ -1053,6 +1067,20 @@ static int Hook_youkosohitsujimura_download_frame() {
 	return 0;
 }
 
+static int Hook_zettai_hero_update_minimap_tex() {
+	const MIPSOpcode storeOffset = Memory::Read_Instruction(currentMIPS->pc + 4, true);
+	const uint32_t texAddr = currentMIPS->r[MIPS_REG_A0] + SignExtend16ToS32(storeOffset);
+	const uint32_t texSize = 64 * 64 * 1;
+	const uint32_t writeAddr = currentMIPS->r[MIPS_REG_V1] + SignExtend16ToS32(storeOffset);
+	if (Memory::IsValidRange(texAddr, texSize) && writeAddr >= texAddr && writeAddr < texAddr + texSize) {
+		const uint8_t currentValue = Memory::Read_U8(writeAddr);
+		if (currentValue != currentMIPS->r[MIPS_REG_A3]) {
+			gpu->InvalidateCache(texAddr, texSize, GPU_INVALIDATE_FORCE);
+		}
+	}
+	return 0;
+}
+
 static int Hook_tonyhawkp8_upload_tutorial_frame() {
 	const u32 fb_address = currentMIPS->r[MIPS_REG_A0];
 	if (Memory::IsVRAMAddress(fb_address)) {
@@ -1238,6 +1266,17 @@ static int Hook_motorstorm_pixel_read() {
 	return 0;
 }
 
+static int Hook_worms_copy_normalize_alpha() {
+	// At this point in the function (0x0CC), s1 is the framebuf and a2 is the size.
+	u32 fb_address = currentMIPS->r[MIPS_REG_S1];
+	u32 fb_size = currentMIPS->r[MIPS_REG_A2];
+	if (Memory::IsVRAMAddress(fb_address) && Memory::IsValidRange(fb_address, fb_size)) {
+		gpu->PerformMemoryDownload(fb_address, fb_size);
+		CBreakPoints::ExecMemCheck(fb_address, true, fb_size, currentMIPS->pc);
+	}
+	return 0;
+}
+
 #define JITFUNC(f) (&MIPSComp::MIPSFrontendInterface::f)
 
 // Can either replace with C functions or functions emitted in Asm/ArmAsm.
@@ -1323,6 +1362,7 @@ static const ReplacementTableEntry entries[] = {
 	{ "photokano_download_frame_2", &Hook_photokano_download_frame_2, 0, REPFLAG_HOOKENTER, },
 	{ "gakuenheaven_download_frame", &Hook_gakuenheaven_download_frame, 0, REPFLAG_HOOKENTER, },
 	{ "youkosohitsujimura_download_frame", &Hook_youkosohitsujimura_download_frame, 0, REPFLAG_HOOKENTER, 0x94 },
+	{ "zettai_hero_update_minimap_tex", &Hook_zettai_hero_update_minimap_tex, 0, REPFLAG_HOOKEXIT, },
 	{ "tonyhawkp8_upload_tutorial_frame", &Hook_tonyhawkp8_upload_tutorial_frame, 0, REPFLAG_HOOKENTER, },
 	{ "sdgundamggenerationportable_download_frame", &Hook_sdgundamggenerationportable_download_frame, 0, REPFLAG_HOOKENTER, 0x34 },
 	{ "atvoffroadfurypro_download_frame", &Hook_atvoffroadfurypro_download_frame, 0, REPFLAG_HOOKENTER, 0xA0 },
@@ -1350,6 +1390,7 @@ static const ReplacementTableEntry entries[] = {
 	{ "starocean_clear_framebuf", &Hook_starocean_clear_framebuf_before, 0, REPFLAG_HOOKENTER, 0 },
 	{ "starocean_clear_framebuf", &Hook_starocean_clear_framebuf_after, 0, REPFLAG_HOOKEXIT, 0 },
 	{ "motorstorm_pixel_read", &Hook_motorstorm_pixel_read, 0, REPFLAG_HOOKENTER, 0 },
+	{ "worms_copy_normalize_alpha", &Hook_worms_copy_normalize_alpha, 0, REPFLAG_HOOKENTER, 0x0CC },
 	{}
 };
 

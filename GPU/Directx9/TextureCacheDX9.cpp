@@ -315,7 +315,7 @@ public:
 		device_->SetViewport(&vp);
 		HRESULT hr = device_->DrawPrimitiveUP(D3DPT_TRIANGLESTRIP, 2, verts_, (3 + 2) * sizeof(float));
 		if (FAILED(hr)) {
-			ERROR_LOG_REPORT(G3D, "Depal render failed: %08x", hr);
+			ERROR_LOG_REPORT(G3D, "Depal render failed: %08x", (uint32_t)hr);
 		}
 
 		dxstate.Restore();
@@ -685,8 +685,6 @@ void TextureCacheDX9::LoadTextureLevel(TexCacheEntry &entry, ReplacedTexture &re
 bool TextureCacheDX9::GetCurrentTextureDebug(GPUDebugBuffer &buffer, int level) {
 	SetTexture();
 	ApplyTexture();
-	int w = gstate.getTextureWidth(level);
-	int h = gstate.getTextureHeight(level);
 
 	LPDIRECT3DBASETEXTURE9 baseTex;
 	LPDIRECT3DTEXTURE9 tex;

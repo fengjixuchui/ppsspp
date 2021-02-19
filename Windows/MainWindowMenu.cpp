@@ -535,15 +535,6 @@ namespace MainWindow {
 		osm.Show(messageStream.str());
 	}
 
-	static void enableCheats(bool cheats) {
-		g_Config.bEnableCheats = cheats;
-	}
-
-	static void setDisplayOptions(int options) {
-		g_Config.iSmallDisplayZoomType = options;
-		NativeMessageReceived("gpu_resized", "");
-	}
-
 	static void RestartApp() {
 		if (IsDebuggerPresent()) {
 			PostMessage(MainWindow::GetHWND(), WM_USER_RESTART_EMUTHREAD, 0, 0);
@@ -559,7 +550,6 @@ namespace MainWindow {
 		auto gr = GetI18NCategory("Graphics");
 
 		int wmId = LOWORD(wParam);
-		int wmEvent = HIWORD(wParam);
 		// Parse the menu selections:
 		switch (wmId) {
 		case ID_FILE_LOAD:
@@ -636,6 +626,10 @@ namespace MainWindow {
 			osm.ShowOnOff(gr->T("Cheats"), g_Config.bEnableCheats);
 			break;
 		case ID_EMULATION_CHAT:
+			if (!g_Config.bEnableNetworkChat) {
+				g_Config.bEnableNetworkChat = true;
+				UpdateCommands();
+			}
 			if (GetUIState() == UISTATE_INGAME) {
 				NativeMessageReceived("chat screen", "");
 			}
@@ -1377,6 +1371,7 @@ namespace MainWindow {
 
 		bool isPaused = Core_IsStepping() && GetUIState() == UISTATE_INGAME;
 		TranslateMenuItem(menu, ID_TOGGLE_BREAK, L"\tF8", isPaused ? "Run" : "Break");
+		TranslateMenuItem(menu, ID_EMULATION_CHAT, L"\tCtrl+C", g_Config.bEnableNetworkChat ? "Open Chat" : "Enable Chat");
 	}
 
 	void UpdateSwitchUMD() {
