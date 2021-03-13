@@ -519,7 +519,7 @@ void TextureCacheVulkan::BindTexture(TexCacheEntry *entry) {
 	entry->vkTex->Touch();
 	imageView_ = entry->vkTex->GetImageView();
 	int maxLevel = (entry->status & TexCacheEntry::STATUS_BAD_MIPS) ? 0 : entry->maxLevel;
-	SamplerCacheKey samplerKey = GetSamplingParams(maxLevel, entry->addr);
+	SamplerCacheKey samplerKey = GetSamplingParams(maxLevel, entry);
 	curSampler_ = samplerCache_.GetOrCreateSampler(samplerKey);
 	drawEngine_->SetDepalTexture(VK_NULL_HANDLE);
 	gstate_c.SetUseShaderDepal(false);
@@ -862,7 +862,7 @@ void TextureCacheVulkan::BuildTexture(TexCacheEntry *const entry) {
 		}
 
 		char texName[128]{};
-		snprintf(texName, sizeof(texName), "texture_%08x_%s", entry->addr, GeTextureFormatToString((GETextureFormat)entry->format));
+		snprintf(texName, sizeof(texName), "texture_%08x_%s", entry->addr, GeTextureFormatToString((GETextureFormat)entry->format, gstate.getClutPaletteFormat()));
 		image->SetTag(texName);
 
 		bool allocSuccess = image->CreateDirect(cmdInit, allocator_, w * scaleFactor, h * scaleFactor, maxLevelToGenerate + 1, actualFmt, imageLayout, usage, mapping);
@@ -899,7 +899,7 @@ void TextureCacheVulkan::BuildTexture(TexCacheEntry *const entry) {
 		replacedInfo.cachekey = cachekey;
 		replacedInfo.hash = entry->fullhash;
 		replacedInfo.addr = entry->addr;
-		replacedInfo.isVideo = videos_.find(entry->addr & 0x3FFFFFFF) != videos_.end();
+		replacedInfo.isVideo = IsVideo(entry->addr);
 		replacedInfo.isFinal = (entry->status & TexCacheEntry::STATUS_TO_SCALE) == 0;
 		replacedInfo.scaleFactor = scaleFactor;
 		replacedInfo.fmt = FromVulkanFormat(actualFmt);

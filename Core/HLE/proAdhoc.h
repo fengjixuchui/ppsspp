@@ -85,6 +85,9 @@ inline bool isDisconnected(int errcode) { return (errcode == WSAECONNRESET || er
 #define INVALID_SOCKET -1
 #define SOCKET_ERROR -1
 #define closesocket close
+#ifndef ESHUTDOWN
+#define ESHUTDOWN ENETDOWN
+#endif
 inline bool connectInProgress(int errcode){ return (errcode == EAGAIN || errcode == EWOULDBLOCK || errcode == EINPROGRESS || errcode == EALREADY); }
 inline bool isDisconnected(int errcode) { return (errcode == EPIPE || errcode == ECONNRESET || errcode == ECONNABORTED || errcode == ESHUTDOWN); }
 #endif
@@ -981,6 +984,9 @@ bool isPDPPortInUse(uint16_t port);
  * @return 1 if in use or... 0
  */
 bool isPTPPortInUse(uint16_t port, bool forListen, SceNetEtherAddr* dstmac = nullptr, uint16_t dstport = 0);
+
+// Convert IPv4 address to string (Replacement for inet_ntoa since it's getting deprecated)
+std::string ip2str(in_addr in);
 
 // Convert MAC address to string
 std::string mac2str(SceNetEtherAddr* mac);

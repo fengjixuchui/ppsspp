@@ -21,7 +21,9 @@
 #include "Common/Profiler/Profiler.h"
 #include "Common/ColorConv.h"
 #include "Common/MemoryUtil.h"
+#include "Common/StringUtils.h"
 #include "Core/Config.h"
+#include "Core/Debugger/MemBlockInfo.h"
 #include "Core/Reporting.h"
 #include "Core/System.h"
 #include "GPU/Common/FramebufferManagerCommon.h"
@@ -145,7 +147,7 @@ static int TexLog2(float delta) {
 	return useful - 127 * 256;
 }
 
-SamplerCacheKey TextureCacheCommon::GetSamplingParams(int maxLevel, u32 texAddr) {
+SamplerCacheKey TextureCacheCommon::GetSamplingParams(int maxLevel, const TexCacheEntry *entry) {
 	SamplerCacheKey key;
 
 	int minFilt = gstate.texfilter & 0x7;
@@ -212,39 +214,49 @@ SamplerCacheKey TextureCacheCommon::GetSamplingParams(int maxLevel, u32 texAddr)
 	}
 
 	// Video bilinear override
-	if (!key.magFilt && texAddr != 0) {
-		if (videos_.find(texAddr & 0x3FFFFFFF) != videos_.end()) {
-			// Enforce bilinear filtering on magnification.
-			key.magFilt = 1;
+	if (!key.magFilt && entry != nullptr && IsVideo(entry->addr)) {
+		// Enforce bilinear filtering on magnification.
+		key.magFilt = 1;
+	}
+
+	// Filtering overrides from replacements or settings.
+	TextureFiltering forceFiltering = TEX_FILTER_AUTO;
+	u64 cachekey = replacer_.Enabled() ? (entry ? entry->CacheKey() : 0) : 0;
+	if (!replacer_.Enabled() || entry == nullptr || !replacer_.FindFiltering(cachekey, entry->fullhash, &forceFiltering)) {
+		switch (g_Config.iTexFiltering) {
+		case TEX_FILTER_AUTO:
+			// Follow what the game wants. We just do a single heuristic change to avoid bleeding of wacky color test colors
+			// in higher resolution (used by some games for sprites, and they accidentally have linear filter on).
+			if (gstate.isModeThrough() && g_Config.iInternalResolution != 1) {
+				bool uglyColorTest = gstate.isColorTestEnabled() && !IsColorTestTriviallyTrue() && gstate.getColorTestRef() != 0;
+				if (uglyColorTest)
+					forceFiltering = TEX_FILTER_FORCE_NEAREST;
+			}
+			break;
+		case TEX_FILTER_FORCE_LINEAR:
+			// Override to linear filtering if there's no alpha or color testing going on.
+			if ((!gstate.isColorTestEnabled() || IsColorTestTriviallyTrue()) &&
+				(!gstate.isAlphaTestEnabled() || IsAlphaTestTriviallyTrue())) {
+				forceFiltering = TEX_FILTER_FORCE_LINEAR;
+			}
+			break;
+		case TEX_FILTER_FORCE_NEAREST:
+		default:
+			// Just force to nearest without checks. Safe (but ugly).
+			forceFiltering = TEX_FILTER_FORCE_NEAREST;
+			break;
 		}
 	}
 
-	// Filtering overrides
-	switch (g_Config.iTexFiltering) {
+	switch (forceFiltering) {
 	case TEX_FILTER_AUTO:
-		// Follow what the game wants. We just do a single heuristic change to avoid bleeding of wacky color test colors
-		// in higher resolution (used by some games for sprites, and they accidentally have linear filter on).
-		if (gstate.isModeThrough() && g_Config.iInternalResolution != 1) {
-			bool uglyColorTest = gstate.isColorTestEnabled() && !IsColorTestTriviallyTrue() && gstate.getColorTestRef() != 0;
-			if (uglyColorTest) {
-				// Force to nearest.
-				key.magFilt = 0;
-				key.minFilt = 0;
-			}
-		}
 		break;
 	case TEX_FILTER_FORCE_LINEAR:
-		// Override to linear filtering if there's no alpha or color testing going on.
-		if ((!gstate.isColorTestEnabled() || IsColorTestTriviallyTrue()) &&
-			(!gstate.isAlphaTestEnabled() || IsAlphaTestTriviallyTrue())) {
-			key.magFilt = 1;
-			key.minFilt = 1;
-			key.mipFilt = 1;
-		}
+		key.magFilt = 1;
+		key.minFilt = 1;
+		key.mipFilt = 1;
 		break;
 	case TEX_FILTER_FORCE_NEAREST:
-	default:
-		// Just force to nearest without checks. Safe (but ugly).
 		key.magFilt = 0;
 		key.minFilt = 0;
 		break;
@@ -254,7 +266,7 @@ SamplerCacheKey TextureCacheCommon::GetSamplingParams(int maxLevel, u32 texAddr)
 }
 
 SamplerCacheKey TextureCacheCommon::GetFramebufferSamplingParams(u16 bufferWidth, u16 bufferHeight) {
-	SamplerCacheKey key = GetSamplingParams(0, 0);
+	SamplerCacheKey key = GetSamplingParams(0, nullptr);
 
 	// Kill any mipmapping settings.
 	key.mipEnable = false;
@@ -427,6 +439,7 @@ TexCacheEntry *TextureCacheCommon::SetTexture() {
 
 			if (texhash != entry->hash) {
 				match = false;
+				reason = "minihash";
 			} else if (entry->GetHashStatus() == TexCacheEntry::STATUS_RELIABLE) {
 				rehash = false;
 			}
@@ -690,15 +703,26 @@ void TextureCacheCommon::Decimate(bool forcePressure) {
 }
 
 void TextureCacheCommon::DecimateVideos() {
-	if (!videos_.empty()) {
-		for (auto iter = videos_.begin(); iter != videos_.end(); ) {
-			if (iter->second + VIDEO_DECIMATE_AGE < gpuStats.numFlips) {
-				videos_.erase(iter++);
-			} else {
-				++iter;
-			}
+	for (auto iter = videos_.begin(); iter != videos_.end(); ) {
+		if (iter->flips + VIDEO_DECIMATE_AGE < gpuStats.numFlips) {
+			iter = videos_.erase(iter++);
+		} else {
+			++iter;
 		}
 	}
+}
+
+bool TextureCacheCommon::IsVideo(u32 texaddr) {
+	texaddr &= 0x3FFFFFFF;
+	for (auto info : videos_) {
+		if (texaddr < info.addr) {
+			continue;
+		}
+		if (texaddr < info.addr + info.size) {
+			return true;
+		}
+	}
+	return false;
 }
 
 void TextureCacheCommon::HandleTextureChange(TexCacheEntry *const entry, const char *reason, bool initialMatch, bool doDelete) {
@@ -1076,7 +1100,7 @@ void TextureCacheCommon::NotifyConfigChanged() {
 
 void TextureCacheCommon::NotifyVideoUpload(u32 addr, int size, int width, GEBufferFormat fmt) {
 	addr &= 0x3FFFFFFF;
-	videos_[addr] = gpuStats.numFlips;
+	videos_.push_back({ addr, (u32)size, gpuStats.numFlips });
 }
 
 void TextureCacheCommon::LoadClut(u32 clutAddr, u32 loadBytes) {
@@ -1111,6 +1135,8 @@ void TextureCacheCommon::LoadClut(u32 clutAddr, u32 loadBytes) {
 					}
 				}
 			}
+
+			NotifyMemInfo(MemBlockFlags::ALLOC, clutAddr, loadBytes, "CLUT");
 		}
 
 		// It's possible for a game to (successfully) access outside valid memory.
@@ -1295,6 +1321,9 @@ void TextureCacheCommon::DecodeTextureLevel(u8 *out, int outPitch, GETextureForm
 	int w = gstate.getTextureWidth(level);
 	int h = gstate.getTextureHeight(level);
 	const u8 *texptr = Memory::GetPointer(texaddr);
+	const uint32_t byteSize = (textureBitsPerPixel[format] * bufw * h) / 8;
+
+	NotifyMemInfo(MemBlockFlags::TEXTURE, texaddr, byteSize, StringFromFormat("Texture_%08x_%dx%d_%s", texaddr, w, h, GeTextureFormatToString(format, clutformat)));
 
 	switch (format) {
 	case GE_TFMT_CLUT4:
@@ -1620,8 +1649,7 @@ void TextureCacheCommon::ApplyTexture() {
 	if (nextNeedsRebuild_) {
 		// Regardless of hash fails or otherwise, if this is a video, mark it frequently changing.
 		// This prevents temporary scaling perf hits on the first second of video.
-		bool isVideo = videos_.find(entry->addr & 0x3FFFFFFF) != videos_.end();
-		if (isVideo) {
+		if (IsVideo(entry->addr)) {
 			entry->status |= TexCacheEntry::STATUS_CHANGE_FREQUENT;
 		}
 

@@ -398,6 +398,8 @@ public:
 	float fMouseSensitivity;
 	float fMouseSmoothing;
 
+	bool bSystemControls;
+
 	// Use the hardware scaler to scale up the image to save fillrate. Similar to Windows' window size, really.
 	int iAndroidHwScale;  // 0 = device resolution. 1 = 480x272 (extended to correct aspect), 2 = 960x544 etc.
 
@@ -470,6 +472,7 @@ public:
 	// Volatile development settings
 	bool bShowFrameProfiler;
 
+	// Various directories. Autoconfigured, not read from ini.
 	std::string currentDirectory;
 	std::string externalDirectory;
 	std::string memStickDirectory;

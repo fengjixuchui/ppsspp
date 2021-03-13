@@ -228,7 +228,7 @@ void TextureCacheGLES::BindTexture(TexCacheEntry *entry) {
 		lastBoundTexture = entry->textureName;
 	}
 	int maxLevel = (entry->status & TexCacheEntry::STATUS_BAD_MIPS) ? 0 : entry->maxLevel;
-	SamplerCacheKey samplerKey = GetSamplingParams(maxLevel, entry->addr);
+	SamplerCacheKey samplerKey = GetSamplingParams(maxLevel, entry);
 	ApplySamplingParams(samplerKey);
 	gstate_c.SetUseShaderDepal(false);
 }
@@ -696,7 +696,7 @@ void TextureCacheGLES::LoadTextureLevel(TexCacheEntry &entry, ReplacedTexture &r
 			replacedInfo.cachekey = entry.CacheKey();
 			replacedInfo.hash = entry.fullhash;
 			replacedInfo.addr = entry.addr;
-			replacedInfo.isVideo = videos_.find(entry.addr & 0x3FFFFFFF) != videos_.end();
+			replacedInfo.isVideo = IsVideo(entry.addr);
 			replacedInfo.isFinal = (entry.status & TexCacheEntry::STATUS_TO_SCALE) == 0;
 			replacedInfo.scaleFactor = scaleFactor;
 			replacedInfo.fmt = FromDataFormat(dstFmt);

@@ -959,6 +959,8 @@ static ConfigSetting controlSettings[] = {
 	ConfigSetting("MouseSensitivity", &g_Config.fMouseSensitivity, 0.1f, true, true),
 	ConfigSetting("MouseSmoothing", &g_Config.fMouseSmoothing, 0.9f, true, true),
 
+	ConfigSetting("SystemControls", &g_Config.bSystemControls, true, true, false),
+
 	ConfigSetting(false),
 };
 
@@ -968,7 +970,7 @@ static ConfigSetting networkSettings[] = {
 	ConfigSetting("proAdhocServer", &g_Config.proAdhocServer, "myneighborsushicat.com", true, true),
 	ConfigSetting("PortOffset", &g_Config.iPortOffset, 0, true, true),
 	ConfigSetting("MinTimeout", &g_Config.iMinTimeout, 0, true, true),
-	ConfigSetting("TCPNoDelay", &g_Config.bTCPNoDelay, false, true, true),
+	ConfigSetting("TCPNoDelay", &g_Config.bTCPNoDelay, true, true, true),
 	ConfigSetting("ForcedFirstConnect", &g_Config.bForcedFirstConnect, false, true, true),
 	ConfigSetting("EnableUPnP", &g_Config.bEnableUPnP, false, true, true),
 	ConfigSetting("UPnPUseOriginalPort", &g_Config.bUPnPUseOriginalPort, false, true, true),
@@ -988,7 +990,7 @@ static ConfigSetting networkSettings[] = {
 
 static int DefaultPSPModel() {
 	// TODO: Can probably default this on, but not sure about its memory differences.
-#if !defined(_M_X64) && !defined(_WIN32)
+#if !PPSSPP_ARCH(AMD64) && !defined(_WIN32)
 	return PSP_MODEL_FAT;
 #else
 	return PSP_MODEL_SLIM;

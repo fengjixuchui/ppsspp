@@ -48,6 +48,11 @@
 #include "Core/Reporting.h"
 #include "Core/Instance.h"
 
+#if PPSSPP_PLATFORM(SWITCH) && !defined(INADDR_NONE)
+// Missing toolchain define
+#define INADDR_NONE 0xFFFFFFFF
+#endif
+
 static bool netInited;
 bool netInetInited;
 
@@ -205,7 +210,7 @@ void __NetInit() {
 
 	SceNetEtherAddr mac;
 	getLocalMac(&mac);
-	NOTICE_LOG(SCENET, "LocalHost IP will be %s [%s]", inet_ntoa(g_localhostIP.in.sin_addr), mac2str(&mac).c_str());
+	NOTICE_LOG(SCENET, "LocalHost IP will be %s [%s]", ip2str(g_localhostIP.in.sin_addr).c_str(), mac2str(&mac).c_str());
 	
 	// TODO: May be we should initialize & cleanup somewhere else than here for PortManager to be used as general purpose for whatever port forwarding PPSSPP needed
 	__UPnPInit();
@@ -678,15 +683,14 @@ static u32 sceWlanGetEtherAddr(u32 addrAddr) {
 		Memory::Memset(addrAddr, PPSSPP_ID, 6);
 		// Making sure the 1st 2-bits on the 1st byte of OUI are zero to prevent issue with some games (ie. Gran Turismo)
 		addr[0] &= 0xfc;
-	}
-	else
-	// Read MAC Address from config
-	if (!ParseMacAddress(g_Config.sMACAddress.c_str(), addr)) {
-		ERROR_LOG(SCENET, "Error parsing mac address %s", g_Config.sMACAddress.c_str());
-		Memory::Memset(addrAddr, 0, 6);
 	} else {
-		CBreakPoints::ExecMemCheck(addrAddr, true, 6, currentMIPS->pc);
+		// Read MAC Address from config
+		if (!ParseMacAddress(g_Config.sMACAddress.c_str(), addr)) {
+			ERROR_LOG(SCENET, "Error parsing mac address %s", g_Config.sMACAddress.c_str());
+			Memory::Memset(addrAddr, 0, 6);
+		}
 	}
+	NotifyMemInfo(MemBlockFlags::WRITE, addrAddr, 6, "WlanEtherAddr");
 
 	return hleLogSuccessI(SCENET, hleDelayResult(0, "get ether mac", 200));
 }

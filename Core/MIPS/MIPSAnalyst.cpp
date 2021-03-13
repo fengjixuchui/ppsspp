@@ -15,6 +15,7 @@
 // Official git repository and contact information can be found at
 // https://github.com/hrydgard/ppsspp and http://www.ppsspp.org/.
 
+#include "ppsspp_config.h"
 #include <map>
 #include <set>
 #include <unordered_map>
@@ -504,6 +505,7 @@ static const HardHashTableEntry hardcodedHashes[] = {
 	{ 0xfe4f0280240008e9, 28, "vavg_q", },
 	{ 0xfe5dd338ab862291, 216, "memset", }, // Metal Gear Solid: Peace Walker demo
 	{ 0xffc8f5f8f946152c, 192, "dl_write_light_color", },
+	{ 0x249a3c5981c73480, 1472, "openseason_data_decode", },  // Open Season
 };
 
 namespace MIPSAnalyst {
@@ -759,7 +761,7 @@ namespace MIPSAnalyst {
 		std::lock_guard<std::recursive_mutex> guard(functions_lock);
 		hashToFunction.clear();
 		// Really need to detect C++11 features with better defines.
-#if !defined(IOS)
+#if !PPSSPP_PLATFORM(IOS)
 		hashToFunction.reserve(functions.size());
 #endif
 		for (auto iter = functions.begin(); iter != functions.end(); iter++) {

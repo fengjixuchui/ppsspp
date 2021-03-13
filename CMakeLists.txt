@@ -1,6 +1,7 @@
 # vim:noexpandtab:
 cmake_minimum_required(VERSION 3.6)
 project(PPSSPP)
+enable_testing()
 
 #This is supposed to work but doesn't!
 if(NOT ANDROID)
@@ -304,12 +305,6 @@ if(NOT MSVC)
 	set(CMAKE_C_FLAGS_MINSIZEREL "${CMAKE_C_FLAGS_MINSIZEREL} -Os -D_NDEBUG")
 	set(CMAKE_C_FLAGS_RELEASE "${CMAKE_C_FLAGS_RELEASE} -O2 -D_NDEBUG")
 	set(CMAKE_C_FLAGS_RELWITHDEBINFO "${CMAKE_C_FLAGS_RELWITHDEBINFO} -O2 -g -D_NDEBUG")
-	#TODO: Remove this and include the file properly everywhere it makes sense
-	# First step is too use the macros everywhere
-	# Second step is to remove the compatibility defines
-	# Third step is to include the file
-	# Fourth step is to remove that line!
-	add_compile_options(-include ${CMAKE_CURRENT_SOURCE_DIR}/ppsspp_config.h)
 
 	# Disable some warnings
 	add_definitions(-Wno-multichar)
@@ -1485,6 +1480,8 @@ add_library(${CoreLibName} ${CoreLinkType}
 	Core/Debugger/Breakpoints.cpp
 	Core/Debugger/Breakpoints.h
 	Core/Debugger/DebugInterface.h
+	Core/Debugger/MemBlockInfo.cpp
+	Core/Debugger/MemBlockInfo.h
 	Core/Debugger/SymbolMap.cpp
 	Core/Debugger/SymbolMap.h
 	Core/Debugger/DisassemblyManager.cpp
@@ -2116,6 +2113,7 @@ endif()
 if(UNITTEST)
 	add_executable(unitTest
 		unittest/UnitTest.cpp
+		unittest/TestShaderGenerators.cpp
 		unittest/TestArmEmitter.cpp
 		unittest/TestArm64Emitter.cpp
 		unittest/TestX64Emitter.cpp
@@ -2126,6 +2124,21 @@ if(UNITTEST)
 	)
 	target_link_libraries(unitTest ${COCOA_LIBRARY} ${QUARTZ_CORE_LIBRARY} ${LinkCommon} Common)
 	setup_target_project(unitTest unittest)
+	add_test(arm64_emitter unitTest Arm64Emitter)
+	add_test(arm_emitter unitTest ArmEmitter)
+	add_test(x64_emitter unitTest X64Emitter)
+	add_test(vertex_jit unitTest VertexJit)
+	add_test(asin unitTest Asin)
+	add_test(sincos unitTest SinCos)
+	add_test(vfpu_sincos unitTest VFPUSinCos)
+	add_test(math_util unitTest MathUtil)
+	add_test(parsers unitTest Parsers)
+	add_test(jit unitTest Jit)
+	add_test(matrix_transpose unitTest MatrixTranspose)
+	add_test(parse_lbn unitTest ParseLBN)
+	add_test(quick_texhash unitTest QuickTexHash)
+	add_test(clz unitTest CLZ)
+	add_test(shadergen unitTest ShaderGenerators)
 endif()
 
 if(LIBRETRO)

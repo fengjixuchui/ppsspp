@@ -133,7 +133,7 @@ Atlas g_ui_atlas;
 #include "../../android/jni/Arm64EmitterTest.h"
 #endif
 
-#ifdef IOS
+#if PPSSPP_PLATFORM(IOS)
 #include "ios/iOSCoreAudio.h"
 #elif defined(__APPLE__)
 #include <mach-o/dyld.h>
@@ -211,13 +211,13 @@ static LogListener *logger = nullptr;
 std::string boot_filename = "";
 
 void NativeHost::InitSound() {
-#ifdef IOS
+#if PPSSPP_PLATFORM(IOS)
 	iOSCoreAudioInit();
 #endif
 }
 
 void NativeHost::ShutdownSound() {
-#ifdef IOS
+#if PPSSPP_PLATFORM(IOS)
 	iOSCoreAudioShutdown();
 #endif
 }
@@ -323,7 +323,7 @@ static void PostLoadConfig() {
 	if (g_Config.currentDirectory.empty()) {
 #if defined(__ANDROID__)
 		g_Config.currentDirectory = g_Config.externalDirectory;
-#elif defined(IOS)
+#elif PPSSPP_PLATFORM(IOS)
 		g_Config.currentDirectory = g_Config.internalDataDirectory;
 #elif PPSSPP_PLATFORM(SWITCH)
 		g_Config.currentDirectory = "/";
@@ -454,12 +454,12 @@ void NativeInit(int argc, const char *argv[], const char *savegame_dir, const ch
 	std::string user_data_path = savegame_dir;
 	pendingMessages.clear();
 	pendingInputBoxes.clear();
-#ifdef IOS
+#if PPSSPP_PLATFORM(IOS)
 	user_data_path += "/";
 #endif
 
 	// We want this to be FIRST.
-#if defined(IOS)
+#if PPSSPP_PLATFORM(IOS)
 	// Packed assets are included in app
 	VFSRegister("", new DirectoryAssetReader(external_dir));
 #endif
@@ -492,6 +492,8 @@ void NativeInit(int argc, const char *argv[], const char *savegame_dir, const ch
 	g_Config.externalDirectory = external_dir;
 
 #if defined(__ANDROID__)
+	// TODO: This needs to change in Android 12.
+	//
 	// Maybe there should be an option to use internal memory instead, but I think
 	// that for most people, using external memory (SDCard/USB Storage) makes the
 	// most sense.
@@ -506,7 +508,7 @@ void NativeInit(int argc, const char *argv[], const char *savegame_dir, const ch
 			g_Config.memStickDirectory = memstickDir + "/";
 		}
 	}
-#elif defined(IOS)
+#elif PPSSPP_PLATFORM(IOS)
 	g_Config.memStickDirectory = user_data_path;
 	g_Config.flash0Directory = std::string(external_dir) + "/flash0/";
 #elif PPSSPP_PLATFORM(SWITCH)
@@ -694,6 +696,12 @@ void NativeInit(int argc, const char *argv[], const char *savegame_dir, const ch
 		}
 	}
 
+	if (System_GetPropertyBool(SYSPROP_CAN_JIT) == false && g_Config.iCpuCore == (int)CPUCore::JIT) {
+		// Just gonna force it to the IR interpreter on startup.
+		// We don't hide the option, but we make sure it's off on bootup. In case someone wants
+		// to experiment in future iOS versions or something...
+		g_Config.iCpuCore = (int)CPUCore::IR_JIT;
+	}
 
 	auto des = GetI18NCategory("DesktopUI");
 	// Note to translators: do not translate this/add this to PPSSPP-lang's files.

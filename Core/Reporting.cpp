@@ -15,6 +15,7 @@
 // Official git repository and contact information can be found at
 // https://github.com/hrydgard/ppsspp and http://www.ppsspp.org/.
 
+#include "ppsspp_config.h"
 #include <deque>
 #include <thread>
 #include <mutex>
@@ -301,7 +302,7 @@ namespace Reporting
 		return "Windows ARM32";
 #elif defined(_WIN32)
 		return "Windows";
-#elif defined(IOS)
+#elif PPSSPP_PLATFORM(IOS)
 		return "iOS";
 #elif defined(__APPLE__)
 		return "Mac";
@@ -400,7 +401,7 @@ namespace Reporting
 	std::string CurrentGameID()
 	{
 		// TODO: Maybe ParamSFOData shouldn't include nulls in std::strings?  Don't work to break savedata, though...
-		const std::string disc_id = StripTrailingNull(g_paramSFO.GetValueString("DISC_ID"));
+		const std::string disc_id = StripTrailingNull(g_paramSFO.GetDiscID());
 		const std::string disc_version = StripTrailingNull(g_paramSFO.GetValueString("DISC_VERSION"));
 		return disc_id + "_" + disc_version;
 	}

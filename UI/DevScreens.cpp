@@ -59,6 +59,12 @@
 int GetD3DCompilerVersion();
 #endif
 
+#if PPSSPP_PLATFORM(ANDROID)
+
+#include "android/jni/app-android.h"
+
+#endif
+
 static const char *logLevelList[] = {
 	"Notice",
 	"Error",
@@ -207,7 +213,7 @@ void LogScreen::CreateViews() {
 	scroll_ = outer->Add(new ScrollView(ORIENT_VERTICAL, new LinearLayoutParams(1.0)));
 	LinearLayout *bottom = outer->Add(new LinearLayout(ORIENT_HORIZONTAL, new LayoutParams(FILL_PARENT, WRAP_CONTENT)));
 	bottom->Add(new Button(di->T("Back")))->OnClick.Handle<UIScreen>(this, &UIScreen::OnBack);
-	cmdLine_ = bottom->Add(new TextEdit("", "Command Line", new LinearLayoutParams(1.0)));
+	cmdLine_ = bottom->Add(new TextEdit("", "Command", "Command Line", new LinearLayoutParams(1.0)));
 	cmdLine_->OnEnter.Handle(this, &LogScreen::OnSubmit);
 	bottom->Add(new Button(di->T("Submit")))->OnClick.Handle(this, &LogScreen::OnSubmit);
 
@@ -258,7 +264,7 @@ void LogConfigScreen::CreateViews() {
 
 	UI::GridLayoutSettings gridsettings(cellSize, 64, 5);
 	gridsettings.fillCells = true;
-	GridLayout *grid = vert->Add(new GridLayout(gridsettings, new LayoutParams(FILL_PARENT, WRAP_CONTENT)));
+	GridLayout *grid = vert->Add(new GridLayoutList(gridsettings, new LayoutParams(FILL_PARENT, WRAP_CONTENT)));
 
 	for (int i = 0; i < LogManager::GetNumChannels(); i++) {
 		LogTypes::LOG_TYPE type = (LogTypes::LOG_TYPE)i;
@@ -443,7 +449,7 @@ void SystemInfoScreen::CreateViews() {
 	root_->Add(tabHolder);
 	ViewGroup *deviceSpecsScroll = new ScrollView(ORIENT_VERTICAL, new LinearLayoutParams(FILL_PARENT, FILL_PARENT));
 	deviceSpecsScroll->SetTag("DevSystemInfoDeviceSpecs");
-	LinearLayout *deviceSpecs = new LinearLayout(ORIENT_VERTICAL);
+	LinearLayout *deviceSpecs = new LinearLayoutList(ORIENT_VERTICAL);
 	deviceSpecs->SetSpacing(0);
 	deviceSpecsScroll->Add(deviceSpecs);
 	tabHolder->AddTab(si->T("Device Info"), deviceSpecsScroll);
@@ -472,6 +478,9 @@ void SystemInfoScreen::CreateViews() {
 	int totalThreads = cpu_info.num_cores * cpu_info.logical_cpu_count;
 	std::string cores = StringFromFormat(si->T("%d (%d per core, %d cores)"), totalThreads, cpu_info.logical_cpu_count, cpu_info.num_cores);
 	deviceSpecs->Add(new InfoItem(si->T("Threads"), cores));
+#endif
+#if PPSSPP_PLATFORM(IOS)
+	deviceSpecs->Add(new InfoItem(si->T("JIT available"), System_GetPropertyBool(SYSPROP_CAN_JIT) ? di->T("Yes") : di->T("No")));
 #endif
 	deviceSpecs->Add(new ItemHeader(si->T("GPU Information")));
 
@@ -571,9 +580,30 @@ void SystemInfoScreen::CreateViews() {
 	deviceSpecs->Add(new InfoItem("Moga", moga));
 #endif
 
+	ViewGroup *storageScroll = new ScrollView(ORIENT_VERTICAL, new LinearLayoutParams(FILL_PARENT, FILL_PARENT));
+	storageScroll->SetTag("DevSystemInfoBuildConfig");
+	LinearLayout *storage = new LinearLayout(ORIENT_VERTICAL);
+	storage->SetSpacing(0);
+	storageScroll->Add(storage);
+	tabHolder->AddTab(si->T("Storage"), storageScroll);
+
+	storage->Add(new ItemHeader(si->T("Directories")));
+	// Intentionally non-translated
+	storage->Add(new InfoItem("MemStickDirectory", g_Config.memStickDirectory));
+	storage->Add(new InfoItem("InternalDataDirectory", g_Config.internalDataDirectory));
+	storage->Add(new InfoItem("AppCacheDir", g_Config.appCacheDirectory));
+	storage->Add(new InfoItem("ExtStorageDir", g_Config.externalDirectory));
+
+#if PPSSPP_PLATFORM(ANDROID)
+	storage->Add(new InfoItem("ExtFilesDir", g_extFilesDir));
+	if (System_GetPropertyBool(SYSPROP_ANDROID_SCOPED_STORAGE)) {
+		storage->Add(new InfoItem("Scoped Storage", di->T("Yes")));
+	}
+#endif
+
 	ViewGroup *buildConfigScroll = new ScrollView(ORIENT_VERTICAL, new LinearLayoutParams(FILL_PARENT, FILL_PARENT));
 	buildConfigScroll->SetTag("DevSystemInfoBuildConfig");
-	LinearLayout *buildConfig = new LinearLayout(ORIENT_VERTICAL);
+	LinearLayout *buildConfig = new LinearLayoutList(ORIENT_VERTICAL);
 	buildConfig->SetSpacing(0);
 	buildConfigScroll->Add(buildConfig);
 	tabHolder->AddTab(si->T("Build Config"), buildConfigScroll);
@@ -611,7 +641,7 @@ void SystemInfoScreen::CreateViews() {
 
 	ViewGroup *cpuExtensionsScroll = new ScrollView(ORIENT_VERTICAL, new LinearLayoutParams(FILL_PARENT, FILL_PARENT));
 	cpuExtensionsScroll->SetTag("DevSystemInfoCPUExt");
-	LinearLayout *cpuExtensions = new LinearLayout(ORIENT_VERTICAL);
+	LinearLayout *cpuExtensions = new LinearLayoutList(ORIENT_VERTICAL);
 	cpuExtensions->SetSpacing(0);
 	cpuExtensionsScroll->Add(cpuExtensions);
 
@@ -626,7 +656,7 @@ void SystemInfoScreen::CreateViews() {
 
 	ViewGroup *gpuExtensionsScroll = new ScrollView(ORIENT_VERTICAL, new LinearLayoutParams(FILL_PARENT, FILL_PARENT));
 	gpuExtensionsScroll->SetTag("DevSystemInfoOGLExt");
-	LinearLayout *gpuExtensions = new LinearLayout(ORIENT_VERTICAL);
+	LinearLayout *gpuExtensions = new LinearLayoutList(ORIENT_VERTICAL);
 	gpuExtensions->SetSpacing(0);
 	gpuExtensionsScroll->Add(gpuExtensions);
 
@@ -655,7 +685,7 @@ void SystemInfoScreen::CreateViews() {
 		if (exts.size() > 0) {
 			ViewGroup *eglExtensionsScroll = new ScrollView(ORIENT_VERTICAL, new LinearLayoutParams(FILL_PARENT, FILL_PARENT));
 			eglExtensionsScroll->SetTag("DevSystemInfoEGLExt");
-			LinearLayout *eglExtensions = new LinearLayout(ORIENT_VERTICAL);
+			LinearLayout *eglExtensions = new LinearLayoutList(ORIENT_VERTICAL);
 			eglExtensions->SetSpacing(0);
 			eglExtensionsScroll->Add(eglExtensions);
 
@@ -805,7 +835,7 @@ void JitCompareScreen::CreateViews() {
 	leftColumn->Add(new Choice(dev->T("Stats")))->OnClick.Handle(this, &JitCompareScreen::OnShowStats);
 	leftColumn->Add(new Choice(di->T("Back")))->OnClick.Handle<UIScreen>(this, &UIScreen::OnBack);
 	blockName_ = leftColumn->Add(new TextView(dev->T("No block")));
-	blockAddr_ = leftColumn->Add(new TextEdit("", "", new LayoutParams(FILL_PARENT, WRAP_CONTENT)));
+	blockAddr_ = leftColumn->Add(new TextEdit("", dev->T("Block address"), "", new LayoutParams(FILL_PARENT, WRAP_CONTENT)));
 	blockAddr_->OnTextChange.Handle(this, &JitCompareScreen::OnAddressChange);
 	blockStats_ = leftColumn->Add(new TextView(""));
 
@@ -1065,7 +1095,7 @@ void ShaderListScreen::CreateViews() {
 	layout->Add(new Button(di->T("Back")))->OnClick.Handle<UIScreen>(this, &UIScreen::OnBack);
 	for (size_t i = 0; i < ARRAY_SIZE(shaderTypes); i++) {
 		ScrollView *scroll = new ScrollView(ORIENT_VERTICAL, new LinearLayoutParams(1.0));
-		LinearLayout *shaderList = new LinearLayout(ORIENT_VERTICAL, new LayoutParams(FILL_PARENT, WRAP_CONTENT));
+		LinearLayout *shaderList = new LinearLayoutList(ORIENT_VERTICAL, new LayoutParams(FILL_PARENT, WRAP_CONTENT));
 		int count = ListShaders(shaderTypes[i].type, shaderList);
 		scroll->Add(shaderList);
 		tabs_->AddTab(StringFromFormat("%s (%d)", shaderTypes[i].name, count), scroll);
@@ -1094,7 +1124,7 @@ void ShaderViewScreen::CreateViews() {
 	scroll->SetTag("DevShaderView");
 	layout->Add(scroll);
 
-	LinearLayout *lineLayout = new LinearLayout(ORIENT_VERTICAL, new LinearLayoutParams(FILL_PARENT, WRAP_CONTENT));
+	LinearLayout *lineLayout = new LinearLayoutList(ORIENT_VERTICAL, new LinearLayoutParams(FILL_PARENT, WRAP_CONTENT));
 	lineLayout->SetSpacing(0.0);
 	scroll->Add(lineLayout);
 
@@ -1133,7 +1163,7 @@ void FrameDumpTestScreen::CreateViews() {
 
 	ViewGroup *dumpsScroll = new ScrollView(ORIENT_VERTICAL, new LinearLayoutParams(FILL_PARENT, FILL_PARENT));
 	dumpsScroll->SetTag("GameSettingsGraphics");
-	LinearLayout *dumps = new LinearLayout(ORIENT_VERTICAL);
+	LinearLayout *dumps = new LinearLayoutList(ORIENT_VERTICAL);
 	dumps->SetSpacing(0);
 	dumpsScroll->Add(dumps);
 	tabHolder->AddTab("Dumps", dumps);

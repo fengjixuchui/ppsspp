@@ -56,12 +56,7 @@ const static int SAVEDATA_DIALOG_SIZE_V2 = 1500;
 const static int SAVEDATA_DIALOG_SIZE_V3 = 1536;
 
 
-PSPSaveDialog::PSPSaveDialog()
-	: PSPDialog()
-	, display(DS_NONE)
-	, currentSelectedSave(0)
-	, ioThread(0)
-{
+PSPSaveDialog::PSPSaveDialog(UtilityDialogType type) : PSPDialog(type) {
 	param.SetPspParam(0);
 }
 
@@ -1032,7 +1027,7 @@ int PSPSaveDialog::Update(int animSpeed)
 	}
 
 	if (ReadStatus() == SCE_UTILITY_STATUS_FINISHED || pendingStatus == SCE_UTILITY_STATUS_FINISHED)
-		Memory::Memcpy(requestAddr, &request, request.common.size);
+		Memory::Memcpy(requestAddr, &request, request.common.size, "SaveDialogParam");
 	
 	return 0;
 }

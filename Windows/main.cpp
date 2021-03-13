@@ -310,6 +310,8 @@ bool System_GetPropertyBool(SystemProperty prop) {
 #else
 		return false;
 #endif
+	case SYSPROP_CAN_JIT:
+		return true;
 	default:
 		return false;
 	}
@@ -495,7 +497,7 @@ static void WinMainInit() {
 #endif
 	PROFILE_INIT();
 
-#if defined(_M_X64) && defined(_MSC_VER) && _MSC_VER < 1900
+#if PPSSPP_ARCH(AMD64) && defined(_MSC_VER) && _MSC_VER < 1900
 	// FMA3 support in the 2013 CRT is broken on Vista and Windows 7 RTM (fixed in SP1). Just disable it.
 	_set_FMA3_enable(0);
 #endif
@@ -718,16 +720,16 @@ int WINAPI WinMain(HINSTANCE _hInstance, HINSTANCE hPrevInstance, LPSTR szCmdLin
 		{
 		case WINDOW_MAINWINDOW:
 			wnd = hwndMain;
-			accel = hAccelTable;
+			accel = g_Config.bSystemControls ? hAccelTable : NULL;
 			break;
 		case WINDOW_CPUDEBUGGER:
-			wnd = disasmWindow ? disasmWindow->GetDlgHandle() : 0;
-			accel = hDebugAccelTable;
+			wnd = disasmWindow ? disasmWindow->GetDlgHandle() : NULL;
+			accel = g_Config.bSystemControls ? hDebugAccelTable : NULL;
 			break;
 		case WINDOW_GEDEBUGGER:
 		default:
-			wnd = 0;
-			accel = 0;
+			wnd = NULL;
+			accel = NULL;
 			break;
 		}
 

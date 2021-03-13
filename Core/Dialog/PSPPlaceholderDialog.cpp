@@ -17,7 +17,7 @@
 
 #include "PSPPlaceholderDialog.h"
 
-PSPPlaceholderDialog::PSPPlaceholderDialog() : PSPDialog() {
+PSPPlaceholderDialog::PSPPlaceholderDialog(UtilityDialogType type) : PSPDialog(type) {
 
 }
 
