@@ -1431,8 +1431,14 @@ static PSPModule *__KernelLoadELFFromPtr(const u8 *ptr, size_t elfSize, u32 load
 		u8 unknown2;
 	};
 
+	module->nm.ent_top = modinfo->libent;
+	module->nm.ent_size = modinfo->libentend - modinfo->libent;
+	module->nm.stub_top = modinfo->libstub;
+	module->nm.stub_size = modinfo->libstubend - modinfo->libstub;
+
 	const u32_le *entPos = (u32_le *)Memory::GetPointer(modinfo->libent);
 	const u32_le *entEnd = (u32_le *)Memory::GetPointer(modinfo->libentend);
+
 	for (int m = 0; entPos < entEnd; ++m) {
 		const PspLibEntEntry *ent = (const PspLibEntEntry *)entPos;
 		entPos += ent->size;
@@ -2085,16 +2091,6 @@ int KernelStartModule(SceUID moduleId, u32 argsize, u32 argAddr, u32 returnValue
 		entryAddr = module->nm.module_start_func;
 		if (module->nm.module_start_thread_attr != 0)
 			attribute = module->nm.module_start_thread_attr;
-	} else if (entryAddr == (u32)-1 || entryAddr == module->memoryBlockAddr - 1) {
-		if (smoption) {
-			// TODO: Does sceKernelStartModule() really give an error when no entry only if you pass options?
-			attribute = smoption->attribute;
-		} else {
-			// TODO: Why are we just returning the module ID in this case?
-			WARN_LOG(SCEMODULE, "sceKernelStartModule(): module has no start or entry func");
-			module->nm.status = MODULE_STATUS_STARTED;
-			return moduleId;
-		}
 	}
 
 	if (Memory::IsValidAddress(entryAddr)) {
@@ -2110,6 +2106,8 @@ int KernelStartModule(SceUID moduleId, u32 argsize, u32 argAddr, u32 returnValue
 			stacksize = module->nm.module_start_thread_stacksize;
 		}
 
+		// TODO: Why do we skip smoption->attribute here?
+
 		SceUID threadID = __KernelCreateThread(module->nm.name, moduleId, entryAddr, priority, stacksize, attribute, 0, (module->nm.attribute & 0x1000) != 0);
 		__KernelStartThreadValidate(threadID, argsize, argAddr);
 		__KernelSetThreadRA(threadID, NID_MODULERETURN);
@@ -2117,7 +2115,7 @@ int KernelStartModule(SceUID moduleId, u32 argsize, u32 argAddr, u32 returnValue
 		if (needsWait) {
 			*needsWait = true;
 		}
-	} else if (entryAddr == 0) {
+	} else if (entryAddr == 0 || entryAddr == (u32)-1) {
 		INFO_LOG(SCEMODULE, "sceKernelStartModule(%d,asize=%08x,aptr=%08x,retptr=%08x): no entry address", moduleId, argsize, argAddr, returnValueAddr);
 		module->nm.status = MODULE_STATUS_STARTED;
 	} else {

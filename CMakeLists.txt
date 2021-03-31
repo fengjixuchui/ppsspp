@@ -219,7 +219,7 @@ if(USING_EGL)
 	add_definitions(-DUSING_EGL)
 endif()
 if(USING_FBDEV)
-	add_definitions(-DUSING_FBDEV)
+	add_definitions(-DUSING_FBDEV -DEGL_NO_X11)
 endif()
 if(USING_GLES2)
 	add_definitions(-DUSING_GLES2)
@@ -420,14 +420,6 @@ set(CommonMIPS
 )
 source_group(MIPS FILES ${CommonMIPS})
 
-if(NOT (X86 OR ARM OR MIPS))
-	set(CommonFake
-		Common/FakeCPUDetect.cpp
-		Common/FakeEmitter.h
-	)
-	source_group(Fake FILES ${CommonFake})
-endif()
-
 if(WIN32)
 	set(CommonD3D
 		Common/GPU/D3D9/D3D9ShaderCompiler.cpp
@@ -447,7 +439,6 @@ add_library(Common STATIC
 	${CommonARM}
 	${CommonARM64}
 	${CommonMIPS}
-	${CommonFake}
 	${CommonD3D}
 	Common/Serialize/Serializer.cpp
 	Common/Serialize/Serializer.h
@@ -644,6 +635,7 @@ add_library(Common STATIC
 	Common/ConsoleListener.h
 	Common/DbgNew.h
 	Common/FakeEmitter.h
+	Common/FakeCPUDetect.cpp
 	Common/ExceptionHandlerSetup.cpp
 	Common/ExceptionHandlerSetup.h
 	Common/Log.h
@@ -1251,7 +1243,6 @@ list(APPEND CoreExtra
 list(APPEND CoreExtra
 	Core/MIPS/MIPS/MipsJit.cpp
 	Core/MIPS/MIPS/MipsJit.h
-	GPU/Common/VertexDecoderFake.cpp
 )
 
 if(NOT MOBILE_DEVICE)
@@ -1831,7 +1822,11 @@ set(CoreExtraLibs ${CoreExtraLibs} armips)
 #	target_link_libraries(native X11-xcb X11)
 #endif()
 
-set(GlslangLibs glslang OGLCompiler OSDependent SPIRV SPVRemapper spirv-cross-glsl)
+set(GlslangLibs glslang OGLCompiler OSDependent SPIRV spirv-cross-glsl)
+
+if (ENABLE_SPVREMAPPER)
+	list(APPEND GlslangLibs SPVRemapper)
+endif()
 
 if(WIN32)
 	set(GlslangLibs ${GlslangLibs} spirv-cross-hlsl)
@@ -1882,7 +1877,7 @@ if(USE_MINIUPNPC)
 		add_definitions(-fPIC)
 	endif()
 	
-	add_definitions(-DMINIUPNP_STATICLIB)
+	add_definitions(-DWITH_UPNP -DMINIUPNP_STATICLIB)
 	set(MINIUPNP_DIR "ext/miniupnp/miniupnpc")
 	include_directories(${CMAKE_CURRENT_BINARY_DIR})
 	configure_file(${MINIUPNP_DIR}/miniupnpcstrings.h.cmake ${CMAKE_CURRENT_BINARY_DIR}/miniupnpcstrings.h) # by default miniupnp repo doesn't contains miniupnpcstrings.h and need to be generated

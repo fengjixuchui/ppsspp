@@ -44,6 +44,7 @@
 #include "ext/disarm.h"
 #include "Common/Math/math_util.h"
 #include "Common/Data/Text/Parsers.h"
+#include "Common/Data/Encoding/Utf8.h"
 
 #include "Common/ArmEmitter.h"
 #include "Common/BitScan.h"
@@ -566,6 +567,8 @@ static bool TestMemMap() {
 			EXPECT_EQ_HEX(Memory::ValidSize(base, 0x40000001), range.size);
 			EXPECT_EQ_HEX(Memory::ValidSize(base, 0x20000001), range.size);
 			EXPECT_EQ_HEX(Memory::ValidSize(base, 0x10000001), range.size);
+
+			EXPECT_EQ_HEX(Memory::ValidSize(base + range.size - 0x10, 0x20000001), 0x10);
 		}
 	}
 
@@ -606,6 +609,7 @@ TestItem availableTests[] = {
 	TEST_ITEM(ParseLBN),
 	TEST_ITEM(QuickTexHash),
 	TEST_ITEM(CLZ),
+	TEST_ITEM(MemMap),
 	TEST_ITEM(ShaderGenerators),
 };
 
