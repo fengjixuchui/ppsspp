@@ -117,6 +117,8 @@ bool RemoteISOConnectScreen::FindServer(std::string &resultHost, int &resultPort
 		statusMessage_ = formatted;
 	};
 
+	http.SetUserAgent(StringFromFormat("PPSSPP/%s", PPSSPP_GIT_VERSION));
+
 	auto TryServer = [&](const std::string &host, int port) {
 		SetStatus("Resolving [URL]...", host, port);
 		if (!http.Resolve(host.c_str(), port)) {
@@ -134,7 +136,8 @@ bool RemoteISOConnectScreen::FindServer(std::string &resultHost, int &resultPort
 		}
 
 		SetStatus("Loading game list from [URL]...", host, port);
-		code = http.GET(subdir.c_str(), &result);
+		http::RequestProgress progress(&scanCancelled);
+		code = http.GET(subdir.c_str(), &result, &progress);
 		http.Disconnect();
 
 		if (code != 200) {
@@ -187,7 +190,8 @@ bool RemoteISOConnectScreen::FindServer(std::string &resultHost, int &resultPort
 	SetStatus("Looking for peers...", "", 0);
 	if (http.Resolve(REPORT_HOSTNAME, REPORT_PORT)) {
 		if (http.Connect(2, 20.0, &scanCancelled)) {
-			code = http.GET("/match/list", &result);
+			http::RequestProgress progress(&scanCancelled);
+			code = http.GET("/match/list", &result, &progress);
 			http.Disconnect();
 		}
 	}
@@ -241,7 +245,7 @@ bool RemoteISOConnectScreen::FindServer(std::string &resultHost, int &resultPort
 
 static bool LoadGameList(const std::string &url, std::vector<std::string> &games) {
 	PathBrowser browser(url);
-	std::vector<FileInfo> files;
+	std::vector<File::FileInfo> files;
 	browser.GetListing(files, "iso:cso:pbp:elf:prx:ppdmp:", &scanCancelled);
 	if (scanCancelled) {
 		return false;

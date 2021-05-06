@@ -303,7 +303,7 @@ bool TestParsers() {
 
 bool TestVFPUSinCos() {
 	float sine, cosine;
-	InitVFPUSinCos(false);
+	InitVFPUSinCos();
 	EXPECT_FALSE(vfpu_sincos == nullptr);
 	vfpu_sincos(0.0f, sine, cosine);
 	EXPECT_EQ_FLOAT(sine, 0.0f);
@@ -571,6 +571,11 @@ static bool TestMemMap() {
 			EXPECT_EQ_HEX(Memory::ValidSize(base + range.size - 0x10, 0x20000001), 0x10);
 		}
 	}
+
+	EXPECT_FALSE(Memory::IsValidAddress(0x00015000));
+	EXPECT_FALSE(Memory::IsValidAddress(0x04900000));
+	EXPECT_EQ_HEX(Memory::ValidSize(0x00015000, 4), 0);
+	EXPECT_EQ_HEX(Memory::ValidSize(0x04900000, 4), 0);
 
 	return true;
 }

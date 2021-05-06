@@ -144,7 +144,6 @@ std::string config_filename;
 
 // Really need to clean this mess of globals up... but instead I add more :P
 bool g_TakeScreenshot;
-bool g_ShaderNameListChanged = false;
 static bool isOuya;
 static bool resized = false;
 static bool restarting = false;
@@ -387,7 +386,7 @@ static void CheckFailedGPUBackends() {
 
 	if (System_GetPropertyBool(SYSPROP_SUPPORTS_PERMISSIONS)) {
 		std::string data;
-		if (readFileToString(true, cache.c_str(), data))
+		if (File::ReadFileToString(true, cache.c_str(), data))
 			g_Config.sFailedGPUBackends = data;
 	}
 
@@ -415,7 +414,7 @@ static void CheckFailedGPUBackends() {
 		// Let's try to create, in case it doesn't exist.
 		if (!File::Exists(GetSysDirectory(DIRECTORY_APP_CACHE)))
 			File::CreateDir(GetSysDirectory(DIRECTORY_APP_CACHE));
-		writeStringToFile(true, g_Config.sFailedGPUBackends, cache.c_str());
+		File::WriteStringToFile(true, g_Config.sFailedGPUBackends, cache.c_str());
 	} else {
 		// Just save immediately, since we have storage.
 		g_Config.Save("got storage permission");
@@ -503,7 +502,7 @@ void NativeInit(int argc, const char *argv[], const char *savegame_dir, const ch
 	std::string memstickDirFile = g_Config.internalDataDirectory + "/memstick_dir.txt";
 	if (File::Exists(memstickDirFile)) {
 		std::string memstickDir;
-		readFileToString(true, memstickDirFile.c_str(), memstickDir);
+		File::ReadFileToString(true, memstickDirFile.c_str(), memstickDir);
 		if (!memstickDir.empty() && File::Exists(memstickDir)) {
 			g_Config.memStickDirectory = memstickDir + "/";
 		}
@@ -1024,8 +1023,8 @@ void TakeScreenshot() {
 			snprintf(filename, sizeof(filename), "%s/%s_%05d.png", path.c_str(), gameId.c_str(), i);
 		else
 			snprintf(filename, sizeof(filename), "%s/%s_%05d.jpg", path.c_str(), gameId.c_str(), i);
-		FileInfo info;
-		if (!getFileInfo(filename, &info))
+		File::FileInfo info;
+		if (!File::Exists(filename))
 			break;
 		i++;
 	}
@@ -1171,7 +1170,7 @@ void HandleGlobalMessage(const std::string &msg, const std::string &value) {
 			File::Copy(value, dest);
 		}
 		UIBackgroundShutdown();
-		UIBackgroundInit(*uiContext);
+		// It will init again automatically.  We can't init outside a frame on Vulkan.
 	}
 	if (msg == "savestate_displayslot") {
 		auto sy = GetI18NCategory("System");

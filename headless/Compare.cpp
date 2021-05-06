@@ -23,7 +23,7 @@
 #include <vector>
 #include "headless/Compare.h"
 
-#include "Common/ColorConv.h"
+#include "Common/Data/Convert/ColorConv.h"
 #include "Common/Data/Format/PNGLoad.h"
 #include "Common/File/FileUtil.h"
 #include "Common/StringUtils.h"
@@ -297,7 +297,7 @@ bool CompareOutput(const std::string &bootFilename, const std::string &output, b
 				printf("%s", output.c_str());
 				printf("============== expected output:\n");
 				std::string fullExpected;
-				if (readFileToString(true, expect_filename.c_str(), fullExpected))
+				if (File::ReadFileToString(true, expect_filename.c_str(), fullExpected))
 					printf("%s", fullExpected.c_str());
 				printf("===============================\n");
 			}

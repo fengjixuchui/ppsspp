@@ -36,6 +36,7 @@
 #include "Common/File/FileUtil.h"
 #include "Common/File/DiskFree.h"
 #include "Common/File/VFS/VFS.h"
+#include "Common/SysError.h"
 #include "Core/FileSystems/DirectoryFileSystem.h"
 #include "Core/FileSystems/ISOFileSystem.h"
 #include "Core/HLE/sceKernel.h"
@@ -631,7 +632,8 @@ int DirectoryFileSystem::OpenFile(std::string filename, FileAccess access, const
 	err = ReplayApplyDisk(ReplayAction::FILE_OPEN, err, CoreTiming::GetGlobalTimeUs());
 	if (err != 0) {
 #ifdef _WIN32
-		ERROR_LOG(FILESYS, "DirectoryFileSystem::OpenFile: FAILED, %i - access = %i", (int)GetLastError(), (int)access);
+		auto win32err = GetLastError();
+		ERROR_LOG(FILESYS, "DirectoryFileSystem::OpenFile: FAILED, %i - access = %i, %s", (int)win32err, (int)access, GetStringErrorMsg(win32err).c_str());
 #else
 		ERROR_LOG(FILESYS, "DirectoryFileSystem::OpenFile: FAILED, %i - access = %i", errno, (int)access);
 #endif
@@ -751,15 +753,15 @@ PSPFileInfo DirectoryFileSystem::GetFileInfo(std::string filename) {
 	x.exists = true;
 
 	if (x.type != FILETYPE_DIRECTORY) {
-		File::FileDetails details;
-		if (!File::GetFileDetails(fullName, &details)) {
-			ERROR_LOG(FILESYS, "DirectoryFileSystem::GetFileInfo: GetFileDetails failed: %s", fullName.c_str());
+		File::FileInfo info;
+		if (!File::GetFileInfo(fullName.c_str(), &info)) {
+			ERROR_LOG(FILESYS, "DirectoryFileSystem::GetFileInfo: GetFileInfo failed: %s", fullName.c_str());
 		} else {
-			x.size = details.size;
-			x.access = details.access;
-			time_t atime = details.atime;
-			time_t ctime = details.ctime;
-			time_t mtime = details.mtime;
+			x.size = info.size;
+			x.access = info.access;
+			time_t atime = info.atime;
+			time_t ctime = info.ctime;
+			time_t mtime = info.mtime;
 
 			localtime_r((time_t*)&atime, &x.atime);
 			localtime_r((time_t*)&ctime, &x.ctime);
@@ -1095,7 +1097,7 @@ PSPFileInfo VFSFileSystem::GetFileInfo(std::string filename) {
 	x.name = filename;
 
 	std::string fullName = GetLocalPath(filename);
-	FileInfo fo;
+	File::FileInfo fo;
 	if (VFSGetFileInfo(fullName.c_str(), &fo)) {
 		x.exists = fo.exists;
 		if (x.exists) {

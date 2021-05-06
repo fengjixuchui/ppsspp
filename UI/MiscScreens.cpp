@@ -203,6 +203,7 @@ private:
 
 static BackgroundAnimation g_CurBackgroundAnimation = BackgroundAnimation::OFF;
 static std::unique_ptr<Animation> g_Animation;
+static bool bgTextureInited = false;
 
 void UIBackgroundInit(UIContext &dc) {
 	const std::string bgPng = GetSysDirectory(DIRECTORY_SYSTEM) + "background.png";
@@ -216,9 +217,15 @@ void UIBackgroundInit(UIContext &dc) {
 void UIBackgroundShutdown() {
 	bgTexture.reset(nullptr);
 	g_Animation.reset(nullptr);
+	g_CurBackgroundAnimation = BackgroundAnimation::OFF;
+	bgTextureInited = false;
 }
 
 void DrawBackground(UIContext &dc, float alpha) {
+	if (!bgTextureInited) {
+		UIBackgroundInit(dc);
+		bgTextureInited = true;
+	}
 	if (g_CurBackgroundAnimation != (BackgroundAnimation)g_Config.iBackgroundAnimation) {
 		g_CurBackgroundAnimation = (BackgroundAnimation)g_Config.iBackgroundAnimation;
 
@@ -430,10 +437,11 @@ PostProcScreen::PostProcScreen(const std::string &title, int id) : ListPopupScre
 	shaders_ = GetAllPostShaderInfo();
 	std::vector<std::string> items;
 	int selected = -1;
+	const std::string selectedName = id_ >= g_Config.vPostShaderNames.size() ? "Off" : g_Config.vPostShaderNames[id_];
 	for (int i = 0; i < (int)shaders_.size(); i++) {
 		if (!shaders_[i].visible)
 			continue;
-		if (shaders_[i].section == g_Config.vPostShaderNames[id_])
+		if (shaders_[i].section == selectedName)
 			selected = i;
 		items.push_back(ps->T(shaders_[i].section.c_str(), shaders_[i].name.c_str()));
 	}
@@ -443,7 +451,11 @@ PostProcScreen::PostProcScreen(const std::string &title, int id) : ListPopupScre
 void PostProcScreen::OnCompleted(DialogResult result) {
 	if (result != DR_OK)
 		return;
-	g_Config.vPostShaderNames[id_] = shaders_[listView_->GetSelected()].section;
+	const std::string &value = shaders_[listView_->GetSelected()].section;
+	if (id_ < g_Config.vPostShaderNames.size())
+		g_Config.vPostShaderNames[id_] = value;
+	else
+		g_Config.vPostShaderNames.push_back(value);
 }
 
 TextureShaderScreen::TextureShaderScreen(const std::string &title) : ListPopupScreen(title) {
@@ -473,7 +485,7 @@ NewLanguageScreen::NewLanguageScreen(const std::string &title) : ListPopupScreen
 #endif
 	langValuesMapping = GetLangValuesMapping();
 
-	std::vector<FileInfo> tempLangs;
+	std::vector<File::FileInfo> tempLangs;
 	VFSGetFileListing("lang", &tempLangs, "ini");
 	std::vector<std::string> listing;
 	int selected = -1;
@@ -496,7 +508,7 @@ NewLanguageScreen::NewLanguageScreen(const std::string &title) : ListPopupScreen
 		}
 #endif
 
-		FileInfo lang = tempLangs[i];
+		File::FileInfo lang = tempLangs[i];
 		langs_.push_back(lang);
 
 		std::string code;

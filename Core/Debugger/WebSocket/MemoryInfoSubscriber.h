@@ -1,4 +1,4 @@
-// Copyright (c) 2015- PPSSPP Project.
+// Copyright (c) 2021- PPSSPP Project.
 
 // This program is free software: you can redistribute it and/or modify
 // it under the terms of the GNU General Public License as published by
@@ -17,8 +17,6 @@
 
 #pragma once
 
-#include "ColorConv.h"
+#include "Core/Debugger/WebSocket/WebSocketUtils.h"
 
-void ConvertRGBA4444ToABGR4444NEON(u16 *dst, const u16 *src, u32 numPixels);
-void ConvertRGBA5551ToABGR1555NEON(u16 *dst, const u16 *src, u32 numPixels);
-void ConvertRGB565ToBGR565NEON(u16 *dst, const u16 *src, u32 numPixels);
+DebuggerSubscriber *WebSocketMemoryInfoInit(DebuggerEventHandlerMap &map);

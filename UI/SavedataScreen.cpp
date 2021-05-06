@@ -25,7 +25,7 @@
 #include "Common/Math/curves.h"
 #include "Common/System/NativeApp.h"
 #include "Common/System/System.h"
-#include "Common/Thread/PrioritizedWorkQueue.h"
+#include "Common/Data/Encoding/Utf8.h"
 #include "Common/UI/Context.h"
 #include "Common/UI/View.h"
 #include "Common/UI/ViewGroup.h"
@@ -114,8 +114,7 @@ public:
 		} else {
 			std::string image_path = ReplaceAll(savePath_, ".ppst", ".jpg");
 			if (File::Exists(image_path)) {
-				PrioritizedWorkQueue *wq = g_gameInfoCache->WorkQueue();
-				toprow->Add(new AsyncImageFileView(image_path, IS_KEEP_ASPECT, wq, new LinearLayoutParams(480, 272, Margins(10, 0))));
+				toprow->Add(new AsyncImageFileView(image_path, IS_KEEP_ASPECT, new LinearLayoutParams(480, 272, Margins(10, 0))));
 			} else {
 				toprow->Add(new TextView(sa->T("No screenshot"), new LinearLayoutParams(Margins(10, 5))))->SetTextColor(textStyle.fgColor);
 			}
@@ -430,7 +429,7 @@ static time_t GetTotalSize(const SavedataButton *b) {
 	switch (Identify_File(fileLoader.get())) {
 	case IdentifiedFileType::PSP_PBP_DIRECTORY:
 	case IdentifiedFileType::PSP_SAVEDATA_DIRECTORY:
-		return getDirectoryRecursiveSize(ResolvePBPDirectory(b->GamePath()), nullptr, GETFILES_GETHIDDEN);
+		return File::GetDirectoryRecursiveSize(ResolvePBPDirectory(b->GamePath()), nullptr, File::GETFILES_GETHIDDEN);
 
 	default:
 		return fileLoader->FileSize();
@@ -488,8 +487,8 @@ void SavedataBrowser::Refresh() {
 	// Find games in the current directory and create new ones.
 	std::vector<SavedataButton *> savedataButtons;
 
-	std::vector<FileInfo> fileInfo;
-	getFilesInDir(path_.c_str(), &fileInfo, "ppst:");
+	std::vector<File::FileInfo> fileInfo;
+	GetFilesInDir(path_.c_str(), &fileInfo, "ppst:");
 
 	for (size_t i = 0; i < fileInfo.size(); i++) {
 		bool isState = !fileInfo[i].isDirectory;

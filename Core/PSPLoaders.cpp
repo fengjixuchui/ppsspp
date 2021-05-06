@@ -194,13 +194,15 @@ void InitMemoryForGamePBP(FileLoader *fileLoader) {
 				}
 
 				std::string discID = paramSFO.GetValueString("DISC_ID");
+				std::string systemVer = paramSFO.GetValueString("PSP_SYSTEM_VER");
 				// Homebrew typically always leave this zero.
 				bool discTotalCheck = paramSFO.GetValueInt("DISC_TOTAL") != 0;
 				// A lot of homebrew reuse real game disc IDs - avoid.
 				bool formatCheck = discID.substr(0, 2) != "NP" && discID.substr(0, 2) != "UL" && discID.substr(0, 2) != "UC";
 				char region = discID.size() > 3 ? discID[2] : '\0';
 				bool regionCheck = region != 'A' && region != 'E' && region != 'H' && region != 'I' && region != 'J' && region != 'K' && region != 'U' && region != 'X';
-				if (formatCheck || regionCheck || discTotalCheck) {
+				bool systemVerCheck = !systemVer.empty() && systemVer[0] >= '5';
+				if ((formatCheck || regionCheck || discTotalCheck || systemVerCheck) && !discID.empty()) {
 					g_paramSFO.SetValue("DISC_ID", discID, (int)discID.size());
 					std::string ver = paramSFO.GetValueString("DISC_VERSION");
 					if (ver.empty())
@@ -313,7 +315,7 @@ bool Load_PSP_ISO(FileLoader *fileLoader, std::string *error_string) {
 	// To do something deterministically when the game starts, disabling this thread won't be enough.
 	// Instead: Use Core_ListenLifecycle() or watch coreState.
 	loadingThread = std::thread([bootpath] {
-		setCurrentThreadName("ExecLoader");
+		SetCurrentThreadName("ExecLoader");
 		PSP_LoadingLock guard;
 		if (coreState != CORE_POWERUP)
 			return;
@@ -448,7 +450,7 @@ bool Load_PSP_ELF_PBP(FileLoader *fileLoader, std::string *error_string) {
 	PSPLoaders_Shutdown();
 	// Note: See Load_PSP_ISO for notes about this thread.
 	loadingThread = std::thread([finalName] {
-		setCurrentThreadName("ExecLoader");
+		SetCurrentThreadName("ExecLoader");
 		PSP_LoadingLock guard;
 		if (coreState != CORE_POWERUP)
 			return;
@@ -472,7 +474,7 @@ bool Load_PSP_GE_Dump(FileLoader *fileLoader, std::string *error_string) {
 	PSPLoaders_Shutdown();
 	// Note: See Load_PSP_ISO for notes about this thread.
 	loadingThread = std::thread([] {
-		setCurrentThreadName("ExecLoader");
+		SetCurrentThreadName("ExecLoader");
 		PSP_LoadingLock guard;
 		if (coreState != CORE_POWERUP)
 			return;

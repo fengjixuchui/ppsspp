@@ -284,7 +284,7 @@ bool CPU_Init() {
 	// likely to collide with any commercial ones.
 	coreParameter.compat.Load(g_paramSFO.GetDiscID());
 
-	InitVFPUSinCos(coreParameter.compat.flags().DoublePrecisionSinCos);
+	InitVFPUSinCos();
 
 	if (allowPlugins)
 		HLEPlugins::Init();
@@ -412,7 +412,10 @@ bool PSP_InitStart(const CoreParameter &coreParam, std::string *error_string) {
 	PSP_SetLoading("Loading game...");
 
 	if (!CPU_Init()) {
-		*error_string = "Failed initializing CPU/Memory";
+		*error_string = coreParameter.errorString;
+		if (error_string->empty()) {
+			*error_string = "Failed initializing CPU/Memory";
+		}
 		pspIsIniting = false;
 		return false;
 	}

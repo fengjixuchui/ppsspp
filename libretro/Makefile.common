@@ -6,6 +6,7 @@ GPUCOMMONDIR		= $(CORE_DIR)/GPU/Common
 GPUDIR			= $(CORE_DIR)/GPU
 EXTDIR			= $(CORE_DIR)/ext
 NATIVEDIR		= $(EXTDIR)/native
+ZSTDDIR                 = $(EXTDIR)/zstd/lib
 
 SOURCES_CXX   :=
 SOURCES_C     :=
@@ -18,11 +19,13 @@ INCFLAGS += \
 	-I$(EXTDIR)/glslang \
 	-I$(EXTDIR)/native \
 	-I$(EXTDIR)/zlib \
+	-I$(ZSTDDIR) \
 	-I$(EXTDIR)/snappy \
 	-I$(FFMPEGDIR) \
 	$(FFMPEGINCFLAGS) \
 	-I$(EXTDIR)/cityhash \
 	-I$(EXTDIR)/armips \
+	-I$(EXTDIR)/zstd/lib \
 	-I$(EXTDIR) \
 	-I$(NATIVEDIR) \
 	-I$(EXTDIR)/libpng17 \
@@ -194,6 +197,7 @@ SOURCES_CXX += \
 	$(COMMONDIR)/Net/HTTPClient.cpp \
 	$(COMMONDIR)/Net/HTTPHeaders.cpp \
 	$(COMMONDIR)/Net/HTTPServer.cpp \
+	$(COMMONDIR)/Net/NetBuffer.cpp \
 	$(COMMONDIR)/Net/Resolve.cpp \
 	$(COMMONDIR)/Net/Sinks.cpp \
 	$(COMMONDIR)/Net/URL.cpp \
@@ -201,7 +205,6 @@ SOURCES_CXX += \
 	$(COMMONDIR)/Render/DrawBuffer.cpp \
 	$(COMMONDIR)/Render/TextureAtlas.cpp \
 	$(COMMONDIR)/Serialize/Serializer.cpp \
-	$(COMMONDIR)/Thread/Executor.cpp \
 	$(COMMONDIR)/Thread/ThreadUtil.cpp \
 	$(COMMONDIR)/Thread/ThreadPool.cpp \
 	$(COMMONDIR)/Thread/PrioritizedWorkQueue.cpp \
@@ -249,7 +252,7 @@ SOURCES_CXX += \
 	$(GPUCOMMONDIR)/IndexGenerator.cpp \
 	$(GPUCOMMONDIR)/TextureDecoder.cpp \
 	$(GPUCOMMONDIR)/PostShader.cpp \
-	$(COMMONDIR)/ColorConv.cpp \
+	$(COMMONDIR)/Data/Convert/ColorConv.cpp \
 	$(GPUDIR)/Debugger/Breakpoints.cpp \
 	$(GPUDIR)/Debugger/Debugger.cpp \
 	$(GPUDIR)/Debugger/Playback.cpp \
@@ -541,7 +544,7 @@ ifeq ($(WITH_DYNAREC),1)
 					 $(COREDIR)/MIPS/ARM/ArmCompVFPUNEON.cpp \
 					 $(COREDIR)/MIPS/ARM/ArmCompVFPUNEONUtil.cpp \
 					 $(COREDIR)/Util/AudioFormatNEON.cpp \
-					 $(COMMONDIR)/ColorConvNEON.cpp \
+					 $(COMMONDIR)/Data/Convert/ColorConvNEON.cpp \
 					 $(GPUDIR)/Common/TextureDecoderNEON.cpp
 
 			SOURCES_C += $(EXTDIR)/libpng17/arm/arm_init.c \
@@ -570,7 +573,7 @@ ifeq ($(WITH_DYNAREC),1)
 					 $(COREDIR)/MIPS/ARM/ArmCompVFPUNEON.cpp \
 					 $(COREDIR)/MIPS/ARM/ArmCompVFPUNEONUtil.cpp \
 					 $(COREDIR)/Util/AudioFormatNEON.cpp \
-					 $(COMMONDIR)/ColorConvNEON.cpp \
+					 $(COMMONDIR)/Data/Convert/ColorConvNEON.cpp \
 					 $(GPUDIR)/Common/TextureDecoderNEON.cpp
 
 			SOURCES_C += $(EXTDIR)/libpng17/arm/arm_init.c \
@@ -626,6 +629,7 @@ SOURCES_C += $(EXTDIR)/udis86/decode.c \
 
 INCFLAGS += -I$(EXTDIR)/miniupnp-build
 SOURCES_C += \
+    $(EXTDIR)/miniupnp/miniupnpc/addr_is_reserved.c \
     $(EXTDIR)/miniupnp/miniupnpc/connecthostport.c \
     $(EXTDIR)/miniupnp/miniupnpc/igd_desc_parse.c \
     $(EXTDIR)/miniupnp/miniupnpc/minisoap.c \
@@ -699,6 +703,40 @@ SOURCES_CXX += \
 		$(LIBRETRODIR)/LibretroGraphicsContext.cpp \
 		$(LIBRETRODIR)/LibretroGLContext.cpp \
 		$(LIBRETRODIR)/LibretroGLCoreContext.cpp
+
+SOURCES_C +=   $(ZSTDDIR)/common/debug.c \
+               $(ZSTDDIR)/common/entropy_common.c \
+               $(ZSTDDIR)/common/error_private.c \
+               $(ZSTDDIR)/common/fse_decompress.c \
+               $(ZSTDDIR)/common/pool.c \
+               $(ZSTDDIR)/common/threading.c
+
+#SOURCES_C +=   $(ZSTDDIR)/common/xxhash.c
+
+SOURCES_C +=   \
+               $(ZSTDDIR)/common/zstd_common.c \
+               $(ZSTDDIR)/common/zstd_trace.c \
+               $(ZSTDDIR)/compress/fse_compress.c \
+               $(ZSTDDIR)/compress/hist.c \
+               $(ZSTDDIR)/compress/huf_compress.c \
+               $(ZSTDDIR)/compress/zstd_compress.c \
+               $(ZSTDDIR)/compress/zstd_compress_literals.c \
+               $(ZSTDDIR)/compress/zstd_compress_sequences.c \
+               $(ZSTDDIR)/compress/zstd_compress_superblock.c \
+               $(ZSTDDIR)/compress/zstd_double_fast.c \
+               $(ZSTDDIR)/compress/zstd_fast.c \
+               $(ZSTDDIR)/compress/zstd_lazy.c \
+               $(ZSTDDIR)/compress/zstd_ldm.c \
+               $(ZSTDDIR)/compress/zstd_opt.c \
+               $(ZSTDDIR)/compress/zstdmt_compress.c \
+               $(ZSTDDIR)/decompress/huf_decompress.c \
+               $(ZSTDDIR)/decompress/zstd_ddict.c \
+               $(ZSTDDIR)/decompress/zstd_decompress.c \
+               $(ZSTDDIR)/decompress/zstd_decompress_block.c \
+               $(ZSTDDIR)/dictBuilder/cover.c \
+               $(ZSTDDIR)/dictBuilder/divsufsort.c \
+               $(ZSTDDIR)/dictBuilder/fastcover.c \
+               $(ZSTDDIR)/dictBuilder/zdict.c
 
 ifneq ($(STATIC_LINKING), 1)
 SOURCES_C += \

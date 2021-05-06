@@ -400,7 +400,7 @@ set(CommonARM
 	Common/ArmCPUDetect.cpp
 	Common/ArmEmitter.h
 	Common/ArmEmitter.cpp
-	Common/ColorConvNEON.cpp
+	Common/Data/Convert/ColorConvNEON.cpp
 )
 source_group(ARM FILES ${CommonARM})
 
@@ -460,6 +460,8 @@ add_library(Common STATIC
 	Common/Data/Collections/ThreadSafeList.h
 	Common/Data/Color/RGBAUtil.cpp
 	Common/Data/Color/RGBAUtil.h
+	Common/Data/Convert/ColorConv.cpp
+	Common/Data/Convert/ColorConv.h
 	Common/Data/Convert/SmallDataConvert.cpp
 	Common/Data/Convert/SmallDataConvert.h
 	Common/Data/Encoding/Base64.cpp
@@ -573,6 +575,8 @@ add_library(Common STATIC
 	Common/Net/HTTPHeaders.h
 	Common/Net/HTTPServer.cpp
 	Common/Net/HTTPServer.h
+	Common/Net/NetBuffer.cpp
+	Common/Net/NetBuffer.h
 	Common/Net/Resolve.cpp
 	Common/Net/Resolve.h
 	Common/Net/Sinks.cpp
@@ -597,8 +601,6 @@ add_library(Common STATIC
 	Common/Render/Text/draw_text_uwp.h
 	Common/System/Display.cpp
 	Common/System/Display.h
-	Common/Thread/Executor.cpp
-	Common/Thread/Executor.h
 	Common/Thread/PrioritizedWorkQueue.cpp
 	Common/Thread/PrioritizedWorkQueue.h
 	Common/Thread/ThreadUtil.cpp
@@ -626,8 +628,6 @@ add_library(Common STATIC
 	Common/Buffer.h
 	Common/Buffer.cpp
 	Common/CodeBlock.h
-	Common/ColorConv.cpp
-	Common/ColorConv.h
 	Common/Common.h
 	Common/CommonFuncs.h
 	Common/CommonTypes.h
@@ -1501,6 +1501,8 @@ add_library(${CoreLibName} ${CoreLinkType}
 	Core/Debugger/WebSocket/InputSubscriber.h
 	Core/Debugger/WebSocket/LogBroadcaster.cpp
 	Core/Debugger/WebSocket/LogBroadcaster.h
+	Core/Debugger/WebSocket/MemoryInfoSubscriber.cpp
+	Core/Debugger/WebSocket/MemoryInfoSubscriber.h
 	Core/Debugger/WebSocket/MemorySubscriber.cpp
 	Core/Debugger/WebSocket/MemorySubscriber.h
 	Core/Debugger/WebSocket/SteppingBroadcaster.cpp
@@ -1815,7 +1817,8 @@ if(ANDROID)
 	endif()
 endif()
 
-set(CoreExtraLibs ${CoreExtraLibs} armips)
+set(CoreExtraLibs ${CoreExtraLibs} armips libzstd_static)
+include_directories(ext/zstd/lib)
 
 # needed for VK_USE_PLATFORM_XCB_KHR only
 #if(VULKAN AND NOT WIN32)
@@ -1883,6 +1886,7 @@ if(USE_MINIUPNPC)
 	configure_file(${MINIUPNP_DIR}/miniupnpcstrings.h.cmake ${CMAKE_CURRENT_BINARY_DIR}/miniupnpcstrings.h) # by default miniupnp repo doesn't contains miniupnpcstrings.h and need to be generated
 	set(MINIUPNPC_SOURCES
         # the needed bits of miniupnpc (no python module, no tests, no cli)
+		${MINIUPNP_DIR}/addr_is_reserved.c
 		${MINIUPNP_DIR}/connecthostport.c
         ${MINIUPNP_DIR}/igd_desc_parse.c
         ${MINIUPNP_DIR}/minisoap.c
