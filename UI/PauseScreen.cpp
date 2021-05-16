@@ -48,7 +48,7 @@
 #include "UI/OnScreenDisplay.h"
 #include "UI/GameInfoCache.h"
 
-AsyncImageFileView::AsyncImageFileView(const std::string &filename, UI::ImageSizeMode sizeMode, UI::LayoutParams *layoutParams)
+AsyncImageFileView::AsyncImageFileView(const Path &filename, UI::ImageSizeMode sizeMode, UI::LayoutParams *layoutParams)
 	: UI::Clickable(layoutParams), canFocus_(true), filename_(filename), color_(0xFFFFFFFF), sizeMode_(sizeMode), textureFailed_(false), fixedSizeW_(0.0f), fixedSizeH_(0.0f) {}
 
 AsyncImageFileView::~AsyncImageFileView() {}
@@ -102,7 +102,7 @@ void AsyncImageFileView::GetContentDimensionsBySpec(const UIContext &dc, UI::Mea
 	}
 }
 
-void AsyncImageFileView::SetFilename(std::string filename) {
+void AsyncImageFileView::SetFilename(const Path &filename) {
 	if (filename_ != filename) {
 		textureFailed_ = false;
 		filename_ = filename;
@@ -159,7 +159,7 @@ void AsyncImageFileView::Draw(UIContext &dc) {
 
 class ScreenshotViewScreen : public PopupScreen {
 public:
-	ScreenshotViewScreen(std::string filename, std::string title, int slot, std::shared_ptr<I18NCategory> i18n)
+	ScreenshotViewScreen(const Path &filename, std::string title, int slot, std::shared_ptr<I18NCategory> i18n)
 		: PopupScreen(title, i18n->T("Load State"), "Back"), filename_(filename), slot_(slot) {}   // PopupScreen will translate Back on its own
 
 	int GetSlot() const {
@@ -183,13 +183,13 @@ protected:
 	}
 
 private:
-	std::string filename_;
+	Path filename_;
 	int slot_;
 };
 
 class SaveSlotView : public UI::LinearLayout {
 public:
-	SaveSlotView(const std::string &gamePath, int slot, UI::LayoutParams *layoutParams = nullptr);
+	SaveSlotView(const Path &gamePath, int slot, UI::LayoutParams *layoutParams = nullptr);
 
 	void GetContentDimensions(const UIContext &dc, float &w, float &h) const override {
 		w = 500; h = 90;
@@ -201,7 +201,7 @@ public:
 		return slot_;
 	}
 
-	std::string GetScreenshotFilename() const {
+	Path GetScreenshotFilename() const {
 		return screenshotFilename_;
 	}
 
@@ -222,11 +222,11 @@ private:
 	UI::Button *loadStateButton_ = nullptr;
 
 	int slot_;
-	std::string gamePath_;
-	std::string screenshotFilename_;
+	Path gamePath_;
+	Path screenshotFilename_;
 };
 
-SaveSlotView::SaveSlotView(const std::string &gameFilename, int slot, UI::LayoutParams *layoutParams) : UI::LinearLayout(UI::ORIENT_HORIZONTAL, layoutParams), slot_(slot), gamePath_(gameFilename) {
+SaveSlotView::SaveSlotView(const Path &gameFilename, int slot, UI::LayoutParams *layoutParams) : UI::LinearLayout(UI::ORIENT_HORIZONTAL, layoutParams), slot_(slot), gamePath_(gameFilename) {
 	using namespace UI;
 
 	screenshotFilename_ = SaveState::GenerateSaveSlotFilename(gamePath_, slot, SaveState::SCREENSHOT_EXTENSION);
@@ -261,7 +261,7 @@ SaveSlotView::SaveSlotView(const std::string &gameFilename, int slot, UI::Layout
 			}
 		}
 	} else {
-		fv->SetFilename("");
+		fv->SetFilename(Path());
 	}
 }
 
@@ -422,7 +422,7 @@ UI::EventReturn GamePauseScreen::OnScreenshotClicked(UI::EventParams &e) {
 	int slot = v->GetSlot();
 	g_Config.iCurrentStateSlot = v->GetSlot();
 	if (SaveState::HasSaveInSlot(gamePath_, slot)) {
-		std::string fn = v->GetScreenshotFilename();
+		Path fn = v->GetScreenshotFilename();
 		std::string title = v->GetScreenshotTitle();
 		auto pa = GetI18NCategory("Pause");
 		Screen *screen = new ScreenshotViewScreen(fn, title, v->GetSlot(), pa);

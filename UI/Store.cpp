@@ -134,7 +134,7 @@ void HttpImageFileView::DownloadCompletedCallback(http::Download &download) {
 void HttpImageFileView::Draw(UIContext &dc) {
 	using namespace Draw;
 	if (!texture_ && !textureFailed_ && !path_.empty() && !download_) {
-		download_ = downloader_->StartDownloadWithCallback(path_, "", std::bind(&HttpImageFileView::DownloadCompletedCallback, this, std::placeholders::_1));
+		download_ = downloader_->StartDownloadWithCallback(path_, Path(), std::bind(&HttpImageFileView::DownloadCompletedCallback, this, std::placeholders::_1));
 		download_->SetHidden(true);
 	}
 
@@ -257,6 +257,7 @@ void ProductView::CreateViews() {
 		Add(progressDisplay);
 	} else {
 		installButton_ = nullptr;
+		speedView_ = nullptr;
 		Add(new TextView(st->T("Already Installed")));
 		Add(new Button(st->T("Uninstall")))->OnClick.Handle(this, &ProductView::OnUninstall);
 		launchButton_ = new Button(st->T("Launch Game"));
@@ -348,14 +349,11 @@ UI::EventReturn ProductView::OnLaunchClick(UI::EventParams &e) {
 		return UI::EVENT_DONE;
 	}
 
-	std::string pspGame = GetSysDirectory(DIRECTORY_GAME);
-	std::string path = pspGame + entry_.file;
-#ifdef _WIN32
-	path = ReplaceAll(path, "\\", "/");
-#endif
+	Path pspGame = GetSysDirectory(DIRECTORY_GAME);
+	Path path = pspGame / entry_.file;
 	UI::EventParams e2{};
 	e2.v = e.v;
-	e2.s = path;
+	e2.s = path.ToString();
 	// Insta-update - here we know we are already on the right thread.
 	OnClickLaunch.Trigger(e2);
 	return UI::EVENT_DONE;
@@ -369,7 +367,7 @@ StoreScreen::StoreScreen() {
 
 	std::string indexPath = storeBaseUrl + "index.json";
 
-	listing_ = g_DownloadManager.StartDownload(indexPath, "");
+	listing_ = g_DownloadManager.StartDownload(indexPath, Path());
 }
 
 StoreScreen::~StoreScreen() {
@@ -547,7 +545,7 @@ UI::EventReturn StoreScreen::OnGameSelected(UI::EventParams &e) {
 
 UI::EventReturn StoreScreen::OnGameLaunch(UI::EventParams &e) {
 	std::string path = e.s;
-	screenManager()->switchScreen(new EmuScreen(path));
+	screenManager()->switchScreen(new EmuScreen(Path(path)));
 	return UI::EVENT_DONE;
 }
 

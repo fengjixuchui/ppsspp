@@ -55,12 +55,14 @@ void TextureReplacer::NotifyConfigChanged() {
 
 	enabled_ = g_Config.bReplaceTextures || g_Config.bSaveNewTextures;
 	if (enabled_) {
-		basePath_ = GetSysDirectory(DIRECTORY_TEXTURES) + gameID_ + "/";
+		basePath_ = GetSysDirectory(DIRECTORY_TEXTURES) / gameID_;
+
+		Path newTextureDir = basePath_ / NEW_TEXTURE_DIR;
 
 		// If we're saving, auto-create the directory.
-		if (g_Config.bSaveNewTextures && !File::Exists(basePath_ + NEW_TEXTURE_DIR)) {
-			File::CreateFullPath(basePath_ + NEW_TEXTURE_DIR);
-			File::CreateEmptyFile(basePath_ + NEW_TEXTURE_DIR + "/.nomedia");
+		if (g_Config.bSaveNewTextures && !File::Exists(newTextureDir)) {
+			File::CreateFullPath(newTextureDir);
+			File::CreateEmptyFile(newTextureDir / ".nomedia");
 		}
 
 		enabled_ = File::Exists(basePath_) && File::IsDirectory(basePath_);
@@ -86,9 +88,9 @@ bool TextureReplacer::LoadIni() {
 	// Prevents dumping the mipmaps.
 	ignoreMipmap_ = false;
 
-	if (File::Exists(basePath_ + INI_FILENAME)) {
+	if (File::Exists(basePath_ / INI_FILENAME)) {
 		IniFile ini;
-		ini.LoadFromVFS(basePath_ + INI_FILENAME);
+		ini.LoadFromVFS((basePath_ / INI_FILENAME).ToString());
 
 		if (!LoadIniValues(ini)) {
 			return false;
@@ -100,7 +102,7 @@ bool TextureReplacer::LoadIni() {
 			if (!overrideFilename.empty() && overrideFilename != INI_FILENAME) {
 				INFO_LOG(G3D, "Loading extra texture ini: %s", overrideFilename.c_str());
 				IniFile overrideIni;
-				overrideIni.LoadFromVFS(basePath_ + overrideFilename);
+				overrideIni.LoadFromVFS((basePath_ / overrideFilename).ToString());
 
 				if (!LoadIniValues(overrideIni, true)) {
 					return false;
@@ -389,7 +391,7 @@ void TextureReplacer::PopulateReplacement(ReplacedTexture *result, u64 cachekey,
 
 	for (int i = 0; i < MAX_MIP_LEVELS; ++i) {
 		const std::string hashfile = LookupHashFile(cachekey, hash, i);
-		const std::string filename = basePath_ + hashfile;
+		const Path filename = basePath_ / hashfile;
 		if (hashfile.empty() || !File::Exists(filename)) {
 			// Out of valid mip levels.  Bail out.
 			break;
@@ -433,7 +435,7 @@ void TextureReplacer::PopulateReplacement(ReplacedTexture *result, u64 cachekey,
 	result->alphaStatus_ = ReplacedTextureAlpha::UNKNOWN;
 }
 
-static bool WriteTextureToPNG(png_imagep image, const std::string &filename, int convert_to_8bit, const void *buffer, png_int_32 row_stride, const void *colormap) {
+static bool WriteTextureToPNG(png_imagep image, const Path &filename, int convert_to_8bit, const void *buffer, png_int_32 row_stride, const void *colormap) {
 	FILE *fp = File::OpenCFile(filename, "wb");
 	if (!fp) {
 		ERROR_LOG(IO, "Unable to open texture file for writing.");
@@ -473,8 +475,8 @@ void TextureReplacer::NotifyTextureDecoded(const ReplacedTextureDecodeInfo &repl
 	}
 
 	std::string hashfile = LookupHashFile(cachekey, replacedInfo.hash, level);
-	const std::string filename = basePath_ + hashfile;
-	const std::string saveFilename = basePath_ + NEW_TEXTURE_DIR + hashfile;
+	const Path filename = basePath_ / hashfile;
+	const Path saveFilename = basePath_ / NEW_TEXTURE_DIR / hashfile;
 
 	// If it's empty, it's an ignored hash, we intentionally don't save.
 	if (hashfile.empty() || File::Exists(filename)) {
@@ -498,10 +500,10 @@ void TextureReplacer::NotifyTextureDecoded(const ReplacedTextureDecodeInfo &repl
 #endif
 	if (slash != hashfile.npos) {
 		// Create any directory structure as needed.
-		const std::string saveDirectory = basePath_ + NEW_TEXTURE_DIR + hashfile.substr(0, slash);
+		const Path saveDirectory = basePath_ / NEW_TEXTURE_DIR / hashfile.substr(0, slash);
 		if (!File::Exists(saveDirectory)) {
 			File::CreateFullPath(saveDirectory);
-			File::CreateEmptyFile(saveDirectory + "/.nomedia");
+			File::CreateEmptyFile(saveDirectory / ".nomedia");
 		}
 	}
 
@@ -727,51 +729,47 @@ void ReplacedTexture::Load(int level, void *out, int rowPitch) {
 	png_image_free(&png);
 }
 
-bool TextureReplacer::GenerateIni(const std::string &gameID, std::string *generatedFilename) {
+bool TextureReplacer::GenerateIni(const std::string &gameID, Path &generatedFilename) {
 	if (gameID.empty())
 		return false;
 
-	std::string texturesDirectory = GetSysDirectory(DIRECTORY_TEXTURES) + gameID + "/";
+	Path texturesDirectory = GetSysDirectory(DIRECTORY_TEXTURES) / gameID;
 	if (!File::Exists(texturesDirectory)) {
 		File::CreateFullPath(texturesDirectory);
 	}
 
-	if (generatedFilename)
-		*generatedFilename = texturesDirectory + INI_FILENAME;
-	if (File::Exists(texturesDirectory + INI_FILENAME))
+	generatedFilename = texturesDirectory / INI_FILENAME;
+	if (File::Exists(generatedFilename))
 		return true;
 
-	FILE *f = File::OpenCFile(texturesDirectory + INI_FILENAME, "wb");
+	FILE *f = File::OpenCFile(generatedFilename, "wb");
 	if (f) {
-		fwrite("\xEF\xBB\xBF", 0, 3, f);
-		fclose(f);
+		fwrite("\xEF\xBB\xBF", 1, 3, f);
 
 		// Let's also write some defaults.
-		std::fstream fs;
-		File::OpenCPPFile(fs, texturesDirectory + INI_FILENAME, std::ios::out | std::ios::ate);
-		fs << "# This file is optional and describes your textures.\n";
-		fs << "# Some information on syntax available here:\n";
-		fs << "# https://github.com/hrydgard/ppsspp/wiki/Texture-replacement-ini-syntax\n";
-		fs << "[options]\n";
-		fs << "version = 1\n";
-		fs << "hash = quick\n";
-		fs << "ignoreMipmap = false\n";
-		fs << "\n";
-		fs << "[games]\n";
-		fs << "# Used to make it easier to install, and override settings for other regions.\n";
-		fs << "# Files still have to be copied to each TEXTURES folder.";
-		fs << gameID << " = " << INI_FILENAME << "\n";
-		fs << "\n";
-		fs << "[hashes]\n";
-		fs << "# Use / for folders not \\, avoid special characters, and stick to lowercase.\n";
-		fs << "# See wiki for more info.\n";
-		fs << "\n";
-		fs << "[hashranges]\n";
-		fs << "\n";
-		fs << "[filtering]\n";
-		fs << "\n";
-		fs << "[reducehashranges]\n";
-		fs.close();
+		fprintf(f, "# This file is optional and describes your textures.\n");
+		fprintf(f, "# Some information on syntax available here:\n");
+		fprintf(f, "# https://github.com/hrydgard/ppsspp/wiki/Texture-replacement-ini-syntax \n");
+		fprintf(f, "[options]\n");
+		fprintf(f, "version = 1\n");
+		fprintf(f, "hash = quick\n");
+		fprintf(f, "ignoreMipmap = false\n");
+		fprintf(f, "\n");
+		fprintf(f, "[games]\n");
+		fprintf(f, "# Used to make it easier to install, and override settings for other regions.\n");
+		fprintf(f, "# Files still have to be copied to each TEXTURES folder.");
+		fprintf(f, "%s = %s\n", gameID.c_str(), INI_FILENAME.c_str());
+		fprintf(f, "\n");
+		fprintf(f, "[hashes]\n");
+		fprintf(f, "# Use / for folders not \\, avoid special characters, and stick to lowercase.\n");
+		fprintf(f, "# See wiki for more info.\n");
+		fprintf(f, "\n");
+		fprintf(f, "[hashranges]\n");
+		fprintf(f, "\n");
+		fprintf(f, "[filtering]\n");
+		fprintf(f, "\n");
+		fprintf(f, "[reducehashranges]\n");
+		fclose(f);
 	}
-	return File::Exists(texturesDirectory + INI_FILENAME);
+	return File::Exists(generatedFilename);
 }
