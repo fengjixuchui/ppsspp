@@ -505,7 +505,7 @@ void GameBrowser::FocusGame(const Path &gamePath) {
 
 void GameBrowser::SetPath(const Path &path) {
 	path_.SetPath(path);
-	g_Config.currentDirectory = path_.GetPath().ToString();
+	g_Config.currentDirectory = path_.GetPath();
 	Refresh();
 }
 
@@ -541,12 +541,16 @@ UI::EventReturn GameBrowser::StorageClick(UI::EventParams &e) {
 }
 
 UI::EventReturn GameBrowser::HomeClick(UI::EventParams &e) {
-#if PPSSPP_PLATFORM(ANDROID) || PPSSPP_PLATFORM(SWITCH) || defined(USING_WIN_UI) || PPSSPP_PLATFORM(UWP)
-	SetPath(g_Config.memStickDirectory);
-#else
-	SetPath(Path(getenv("HOME")));
-#endif
+	SetPath(HomePath());
 	return UI::EVENT_DONE;
+}
+
+Path GameBrowser::HomePath() {
+#if PPSSPP_PLATFORM(ANDROID) || PPSSPP_PLATFORM(SWITCH) || defined(USING_WIN_UI) || PPSSPP_PLATFORM(UWP)
+	return g_Config.memStickDirectory;
+#else
+	return Path(getenv("HOME"));
+#endif
 }
 
 UI::EventReturn GameBrowser::PinToggleClick(UI::EventParams &e) {
@@ -901,7 +905,7 @@ UI::EventReturn GameBrowser::NavigateClick(UI::EventParams &e) {
 	} else {
 		path_.Navigate(text.ToString());
 	}
-	g_Config.currentDirectory = path_.GetPath().ToString();
+	g_Config.currentDirectory = path_.GetPath();
 	Refresh();
 	return UI::EVENT_DONE;
 }
