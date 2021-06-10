@@ -1212,17 +1212,22 @@ void Config::Reload() {
 	reload_ = false;
 }
 
-void Config::Load(const char *iniFileName, const char *controllerIniFilename) {
+// Call this if you change the search path (such as when changing memstick directory. can't
+// really think of any other legit uses).
+void Config::UpdateIniLocation(const char *iniFileName, const char *controllerIniFilename) {
 	const bool useIniFilename = iniFileName != nullptr && strlen(iniFileName) > 0;
 	iniFilename_ = FindConfigFile(useIniFilename ? iniFileName : "ppsspp.ini");
+	const bool useControllerIniFilename = controllerIniFilename != nullptr && strlen(controllerIniFilename) > 0;
+	controllerIniFilename_ = FindConfigFile(useControllerIniFilename ? controllerIniFilename : "controls.ini");
+}
 
+void Config::Load(const char *iniFileName, const char *controllerIniFilename) {
 	if (!bUpdatedInstanceCounter) {
 		InitInstanceCounter();
 		bUpdatedInstanceCounter = true;
 	}
 
-	const bool useControllerIniFilename = controllerIniFilename != nullptr && strlen(controllerIniFilename) > 0;
-	controllerIniFilename_ = FindConfigFile(useControllerIniFilename ? controllerIniFilename : "controls.ini");
+	UpdateIniLocation(iniFileName, controllerIniFilename);
 
 	INFO_LOG(LOADER, "Loading config: %s", iniFilename_.c_str());
 	bSaveSettings = true;
@@ -1240,7 +1245,10 @@ void Config::Load(const char *iniFileName, const char *controllerIniFilename) {
 	});
 
 	iRunCount++;
-	if (!File::Exists(Path(currentDirectory)))
+
+	// This check is probably not really necessary here anyway, you can always
+	// press Home or Browse if you're in a bad directory.
+	if (!File::Exists(currentDirectory))
 		currentDirectory = defaultCurrentDirectory;
 
 	Section *log = iniFile.GetOrCreateSection(logSectionName);
@@ -1577,12 +1585,8 @@ void Config::CleanRecent() {
 	recentIsos = cleanedRecent;
 }
 
-void Config::SetDefaultPath(const Path &defaultPath) {
-	defaultPath_ = defaultPath;
-}
-
-void Config::AddSearchPath(const Path &path) {
-	searchPath_.push_back(path);
+void Config::SetSearchPath(const Path &searchPath) {
+	searchPath_ = searchPath;
 }
 
 const Path Config::FindConfigFile(const std::string &baseFilename) {
@@ -1596,17 +1600,15 @@ const Path Config::FindConfigFile(const std::string &baseFilename) {
 	}
 #endif
 
-	for (size_t i = 0; i < searchPath_.size(); ++i) {
-		Path filename = searchPath_[i] / baseFilename;
-		if (File::Exists(filename)) {
-			return filename;
-		}
+	Path filename = searchPath_ / baseFilename;
+	if (File::Exists(filename)) {
+		return filename;
 	}
 
-	const Path filename = defaultPath_ / baseFilename;
-	if (!File::Exists(filename)) {
-		// Make sure at least the directory it's supposed to be in exists.
-		Path path = filename.NavigateUp();
+	// Make sure at least the directory it's supposed to be in exists.
+	Path path = filename.NavigateUp();
+	// This check is just to avoid logging.
+	if (!File::Exists(path)) {
 		File::CreateFullPath(path);
 	}
 	return filename;

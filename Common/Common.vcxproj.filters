@@ -394,6 +394,10 @@
     <ClInclude Include="File\Path.h">
       <Filter>File</Filter>
     </ClInclude>
+    <ClInclude Include="LogReporting.h" />
+    <ClInclude Include="File\AndroidStorage.h">
+      <Filter>File</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="ABI.cpp" />
@@ -758,6 +762,10 @@
       <Filter>Net</Filter>
     </ClCompile>
     <ClCompile Include="File\Path.cpp">
+      <Filter>File</Filter>
+    </ClCompile>
+    <ClCompile Include="LogReporting.cpp" />
+    <ClCompile Include="File\AndroidStorage.cpp">
       <Filter>File</Filter>
     </ClCompile>
   </ItemGroup>

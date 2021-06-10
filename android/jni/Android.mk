@@ -249,6 +249,7 @@ EXEC_AND_LIB_FILES := \
   $(SRC)/Common/Data/Text/I18n.cpp \
   $(SRC)/Common/Data/Text/Parsers.cpp \
   $(SRC)/Common/Data/Text/WrapText.cpp \
+  $(SRC)/Common/File/AndroidStorage.cpp \
   $(SRC)/Common/File/VFS/VFS.cpp \
   $(SRC)/Common/File/VFS/AssetReader.cpp \
   $(SRC)/Common/File/DiskFree.cpp \
@@ -302,6 +303,7 @@ EXEC_AND_LIB_FILES := \
   $(SRC)/Common/FakeCPUDetect.cpp \
   $(SRC)/Common/Log.cpp \
   $(SRC)/Common/LogManager.cpp \
+  $(SRC)/Common/LogReporting.cpp \
   $(SRC)/Common/MemArenaAndroid.cpp \
   $(SRC)/Common/MemArenaDarwin.cpp \
   $(SRC)/Common/MemArenaWin32.cpp \
@@ -422,6 +424,7 @@ EXEC_AND_LIB_FILES := \
   $(SRC)/Core/Debugger/WebSocket/LogBroadcaster.cpp \
   $(SRC)/Core/Debugger/WebSocket/MemorySubscriber.cpp \
   $(SRC)/Core/Debugger/WebSocket/MemoryInfoSubscriber.cpp \
+  $(SRC)/Core/Debugger/WebSocket/ReplaySubscriber.cpp \
   $(SRC)/Core/Debugger/WebSocket/SteppingBroadcaster.cpp \
   $(SRC)/Core/Debugger/WebSocket/SteppingSubscriber.cpp \
   $(SRC)/Core/Debugger/WebSocket/WebSocketUtils.cpp \
@@ -645,6 +648,7 @@ LOCAL_SRC_FILES := \
   $(SRC)/UI/DisplayLayoutScreen.cpp \
   $(SRC)/UI/EmuScreen.cpp \
   $(SRC)/UI/MainScreen.cpp \
+  $(SRC)/UI/MemStickScreen.cpp \
   $(SRC)/UI/MiscScreens.cpp \
   $(SRC)/UI/RemoteISOScreen.cpp \
   $(SRC)/UI/ReportScreen.cpp \

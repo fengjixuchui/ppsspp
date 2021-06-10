@@ -270,6 +270,9 @@ foreach (LANGUAGE C CXX)
 endforeach()
 
 if(NOT MSVC)
+	# NEON optimizations in libpng17 seem to cause PNG load errors, see #14485.
+	add_definitions(-DPNG_ARM_NEON_OPT=0)
+
 	if(ANDROID)
 		set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=gnu++11")
 	endif()
@@ -499,6 +502,8 @@ add_library(Common STATIC
 	Common/File/VFS/VFS.cpp
 	Common/File/VFS/AssetReader.cpp
 	Common/File/VFS/AssetReader.h
+	Common/File/AndroidStorage.h
+	Common/File/AndroidStorage.cpp
 	Common/File/DiskFree.h
 	Common/File/DiskFree.cpp
 	Common/File/Path.h
@@ -644,6 +649,8 @@ add_library(Common STATIC
 	Common/Log.cpp
 	Common/LogManager.cpp
 	Common/LogManager.h
+	Common/LogReporting.cpp
+	Common/LogReporting.h
 	Common/MakeUnique.h
 	Common/MemArenaAndroid.cpp
 	Common/MemArenaDarwin.cpp
@@ -1125,34 +1132,65 @@ list(APPEND NativeAppSource
 	android/jni/TestRunner.cpp
 	UI/DiscordIntegration.cpp
 	UI/NativeApp.cpp
+	UI/BackgroundAudio.h
 	UI/BackgroundAudio.cpp
+	UI/ChatScreen.h
 	UI/ChatScreen.cpp
 	UI/DevScreens.cpp
+	UI/DevScreens.h
 	UI/DisplayLayoutEditor.cpp
+	UI/DisplayLayoutEditor.h
 	UI/DisplayLayoutScreen.cpp
+	UI/DisplayLayoutScreen.h
+	UI/EmuScreen.h
 	UI/EmuScreen.cpp
+	UI/GameInfoCache.h
 	UI/GameInfoCache.cpp
+	UI/MainScreen.h
 	UI/MainScreen.cpp
+	UI/MiscScreens.h
 	UI/MiscScreens.cpp
+	UI/PauseScreen.h
 	UI/PauseScreen.cpp
+	UI/GameScreen.h
 	UI/GameScreen.cpp
+	UI/GameSettingsScreen.h
 	UI/GameSettingsScreen.cpp
+	UI/GPUDriverTestScreen.h
 	UI/GPUDriverTestScreen.cpp
+	UI/TiltAnalogSettingsScreen.h
 	UI/TiltAnalogSettingsScreen.cpp
+	UI/TiltEventProcessor.h
 	UI/TiltEventProcessor.cpp
+	UI/TouchControlLayoutScreen.h
 	UI/TouchControlLayoutScreen.cpp
+	UI/TouchControlVisibilityScreen.h
 	UI/TouchControlVisibilityScreen.cpp
+	UI/GamepadEmu.h
 	UI/GamepadEmu.cpp
+	UI/OnScreenDisplay.h
 	UI/OnScreenDisplay.cpp
+	UI/ControlMappingScreen.h
 	UI/ControlMappingScreen.cpp
+	UI/RemoteISOScreen.h
 	UI/RemoteISOScreen.cpp
+	UI/ReportScreen.h
 	UI/ReportScreen.cpp
+	UI/SavedataScreen.h
 	UI/SavedataScreen.cpp
+	UI/Store.h
 	UI/Store.cpp
+	UI/CwCheatScreen.h
 	UI/CwCheatScreen.cpp
+	UI/InstallZipScreen.h
 	UI/InstallZipScreen.cpp
+	UI/MemStickScreen.h
+	UI/MemStickScreen.cpp
+	UI/ProfilerDraw.h
 	UI/ProfilerDraw.cpp
+	UI/TextureUtil.h
 	UI/TextureUtil.cpp
+	UI/ComboKeyMappingScreen.h
 	UI/ComboKeyMappingScreen.cpp
 )
 
@@ -1580,6 +1618,8 @@ add_library(${CoreLibName} ${CoreLinkType}
 	Core/Debugger/WebSocket/MemoryInfoSubscriber.h
 	Core/Debugger/WebSocket/MemorySubscriber.cpp
 	Core/Debugger/WebSocket/MemorySubscriber.h
+	Core/Debugger/WebSocket/ReplaySubscriber.cpp
+	Core/Debugger/WebSocket/ReplaySubscriber.h
 	Core/Debugger/WebSocket/SteppingBroadcaster.cpp
 	Core/Debugger/WebSocket/SteppingBroadcaster.h
 	Core/Debugger/WebSocket/SteppingSubscriber.cpp

@@ -505,11 +505,10 @@ public:
 	Path getGameConfigFile(const std::string &gameId);
 	bool hasGameConfig(const std::string &game_id);
 
-	// Used when the file is not found in the search path.  Trailing slash.
-	void SetDefaultPath(const Path &defaultPath);
-	// Use a trailing slash.
-	void AddSearchPath(const Path &path);
+	void SetSearchPath(const Path &path);
 	const Path FindConfigFile(const std::string &baseFilename);
+
+	void UpdateIniLocation(const char *iniFileName = nullptr, const char *controllerIniFilename = nullptr);
 
 	// Utility functions for "recent" management
 	void AddRecent(const std::string &file);
@@ -536,8 +535,7 @@ private:
 	std::string gameIdTitle_;
 	Path iniFilename_;
 	Path controllerIniFilename_;
-	std::vector<Path> searchPath_;
-	Path defaultPath_;
+	Path searchPath_;
 };
 
 std::map<std::string, std::pair<std::string, int>> GetLangValuesMapping();
