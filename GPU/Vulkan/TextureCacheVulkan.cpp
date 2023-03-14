@@ -411,6 +411,11 @@ static VkFormat ToVulkanFormat(Draw::DataFormat fmt) {
 	case Draw::DataFormat::BC4_UNORM_BLOCK: return VK_FORMAT_BC4_UNORM_BLOCK;
 	case Draw::DataFormat::BC5_UNORM_BLOCK: return VK_FORMAT_BC5_UNORM_BLOCK;
 	case Draw::DataFormat::BC7_UNORM_BLOCK: return VK_FORMAT_BC7_UNORM_BLOCK;
+	case Draw::DataFormat::ASTC_4x4_UNORM_BLOCK: return VK_FORMAT_ASTC_4x4_UNORM_BLOCK;
+	case Draw::DataFormat::ETC2_R8G8B8_UNORM_BLOCK: return VK_FORMAT_ETC2_R8G8B8_UNORM_BLOCK;
+	case Draw::DataFormat::ETC2_R8G8B8A1_UNORM_BLOCK: return VK_FORMAT_ETC2_R8G8B8A1_UNORM_BLOCK;
+	case Draw::DataFormat::ETC2_R8G8B8A8_UNORM_BLOCK: return VK_FORMAT_ETC2_R8G8B8A8_UNORM_BLOCK;
+
 	case Draw::DataFormat::R8G8B8A8_UNORM: return VULKAN_8888_FORMAT;
 	default: _assert_msg_(false, "Bad texture pixel format"); return VULKAN_8888_FORMAT;
 	}
@@ -430,6 +435,7 @@ void TextureCacheVulkan::BuildTexture(TexCacheEntry *const entry) {
 	VkFormat dstFmt = GetDestFormat(GETextureFormat(entry->format), gstate.getClutPaletteFormat());
 
 	if (plan.scaleFactor > 1) {
+		_dbg_assert_(!plan.replaceValid);
 		// Whether hardware or software scaling, this is the dest format.
 		dstFmt = VULKAN_8888_FORMAT;
 	} else if (plan.decodeToClut8) {
@@ -438,9 +444,10 @@ void TextureCacheVulkan::BuildTexture(TexCacheEntry *const entry) {
 
 	// We don't generate mipmaps for 512x512 textures because they're almost exclusively used for menu backgrounds
 	// and similar, which don't really need it.
-	if (g_Config.iTexFiltering == TEX_FILTER_AUTO_MAX_QUALITY && plan.w <= 256 && plan.h <= 256) {
+	// Also, if using replacements, check that we really can generate mips for this format - that's not possible for compressed ones.
+	if (g_Config.iTexFiltering == TEX_FILTER_AUTO_MAX_QUALITY && plan.w <= 256 && plan.h <= 256 && (!plan.replaceValid || plan.replaced->Format() == Draw::DataFormat::R8G8B8A8_UNORM)) {
 		// Boost the number of mipmaps.
-		if (plan.maxPossibleLevels > plan.levelsToCreate) {
+		if (plan.maxPossibleLevels > plan.levelsToCreate) { // TODO: Should check against levelsToLoad, no?
 			// We have to generate mips with a shader. This requires decoding to R8G8B8A8_UNORM format to avoid extra complications.
 			dstFmt = VULKAN_8888_FORMAT;
 		}
@@ -545,6 +552,10 @@ void TextureCacheVulkan::BuildTexture(TexCacheEntry *const entry) {
 
 	VulkanPushBuffer *pushBuffer = drawEngine_->GetPushBufferForTextureData();
 
+	// Batch the copies.
+	TextureCopyBatch copyBatch;
+	copyBatch.reserve(levels);
+
 	for (int i = 0; i < levels; i++) {
 		int mipUnscaledWidth = gstate.getTextureWidth(i);
 		int mipUnscaledHeight = gstate.getTextureHeight(i);
@@ -595,15 +606,12 @@ void TextureCacheVulkan::BuildTexture(TexCacheEntry *const entry) {
 				// TODO: Fill with some pattern?
 			}
 			replacementTimeThisFrame_ += time_now_d() - replaceStart;
-			VK_PROFILE_BEGIN(vulkan, cmdInit, VK_PIPELINE_STAGE_TRANSFER_BIT,
-				"Copy Upload (replaced): %dx%d", mipWidth, mipHeight);
-			entry->vkTex->UploadMip(cmdInit, i, mipWidth, mipHeight, 0, texBuf, bufferOffset, rowLength);
-			VK_PROFILE_END(vulkan, cmdInit, VK_PIPELINE_STAGE_TRANSFER_BIT);
+			entry->vkTex->CopyBufferToMipLevel(cmdInit, &copyBatch, i, mipWidth, mipHeight, 0, texBuf, bufferOffset, rowLength);
 		} else {
 			if (plan.depth != 1) {
 				// 3D texturing.
 				loadLevel(uploadSize, i, byteStride, plan.scaleFactor);
-				entry->vkTex->UploadMip(cmdInit, 0, mipWidth, mipHeight, i, texBuf, bufferOffset, pixelStride);
+				entry->vkTex->CopyBufferToMipLevel(cmdInit, &copyBatch, 0, mipWidth, mipHeight, i, texBuf, bufferOffset, pixelStride);
 			} else if (computeUpload) {
 				int srcBpp = VkFormatBytesPerPixel(dstFmt);
 				int srcStride = mipUnscaledWidth * srcBpp;
@@ -625,10 +633,7 @@ void TextureCacheVulkan::BuildTexture(TexCacheEntry *const entry) {
 				vulkan->Delete().QueueDeleteImageView(view);
 			} else {
 				loadLevel(uploadSize, i == 0 ? plan.baseLevelSrc : i, byteStride, plan.scaleFactor);
-				VK_PROFILE_BEGIN(vulkan, cmdInit, VK_PIPELINE_STAGE_TRANSFER_BIT,
-					"Copy Upload: %dx%d", mipWidth, mipHeight);
-				entry->vkTex->UploadMip(cmdInit, i, mipWidth, mipHeight, 0, texBuf, bufferOffset, pixelStride);
-				VK_PROFILE_END(vulkan, cmdInit, VK_PIPELINE_STAGE_TRANSFER_BIT);
+				entry->vkTex->CopyBufferToMipLevel(cmdInit, &copyBatch, i, mipWidth, mipHeight, 0, texBuf, bufferOffset, pixelStride);
 			}
 			// Format might be wrong in lowMemoryMode_, so don't save.
 			if (plan.saveTexture && !lowMemoryMode_) {
@@ -648,6 +653,13 @@ void TextureCacheVulkan::BuildTexture(TexCacheEntry *const entry) {
 				replacer_.NotifyTextureDecoded(replacedInfo, data, byteStride, plan.baseLevelSrc + i, w, h);
 			}
 		}
+	}
+
+	if (!copyBatch.empty()) {
+		VK_PROFILE_BEGIN(vulkan, cmdInit, VK_PIPELINE_STAGE_TRANSFER_BIT, "Copy Upload");
+		// Submit the whole batch of mip uploads.
+		entry->vkTex->FinishCopyBatch(cmdInit, &copyBatch);
+		VK_PROFILE_END(vulkan, cmdInit, VK_PIPELINE_STAGE_TRANSFER_BIT);
 	}
 
 	VkImageLayout layout = computeUpload ? VK_IMAGE_LAYOUT_GENERAL : VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
