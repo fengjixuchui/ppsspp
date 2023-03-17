@@ -93,11 +93,15 @@ private:
 	LimitedWaitable *waitable_;
 };
 
+ReplacedTexture::ReplacedTexture(VFSBackend *vfs, const ReplacementDesc &desc) : vfs_(vfs), desc_(desc) {
+	logId_ = desc.logId;
+}
+
 ReplacedTexture::~ReplacedTexture() {
 	if (threadWaitable_) {
 		SetState(ReplacementState::CANCEL_INIT);
 
-		std::unique_lock<std::mutex> lock(mutex_);
+		std::unique_lock<std::mutex> lock(lock_);
 		threadWaitable_->WaitAndRelease();
 		threadWaitable_ = nullptr;
 	}
@@ -108,19 +112,36 @@ ReplacedTexture::~ReplacedTexture() {
 	}
 }
 
-void ReplacedTexture::PurgeIfOlder(double t) {
-	if (threadWaitable_ && !threadWaitable_->WaitFor(0.0))
+void ReplacedTexture::PurgeIfNotUsedSinceTime(double t) {
+	if (State() != ReplacementState::ACTIVE) {
 		return;
-	if (lastUsed_ >= t)
-		return;
-
-	if (levelData_->lastUsed < t) {
-		// We have to lock since multiple textures might reference this same data.
-		std::lock_guard<std::mutex> guard(levelData_->lock);
-		levelData_->data.clear();
-		// This means we have to reload.  If we never purge any, there's no need.
-		SetState(ReplacementState::POPULATED);
 	}
+
+	// If there's some leftover threadWaitable, get rid of it.
+	if (threadWaitable_) {
+		if (threadWaitable_->WaitFor(0.0)) {
+			delete threadWaitable_;
+			threadWaitable_ = nullptr;
+			// Continue with purging.
+		} else {
+			// Try next time.
+			return;
+		}
+	}
+
+	// This is the only place except shutdown where a texture can transition
+	// from ACTIVE to anything else, so we don't actually need to lock here.
+	if (lastUsed_ >= t) {
+		return;
+	}
+
+	data_.clear();
+	levels_.clear();
+	fmt = Draw::DataFormat::UNDEFINED;
+	alphaStatus_ = ReplacedTextureAlpha::UNKNOWN;
+
+	// This means we have to reload.  If we never purge any, there's no need.
+	SetState(ReplacementState::POPULATED);
 }
 
 // This can only return true if ACTIVE or NOT_FOUND.
@@ -140,9 +161,7 @@ bool ReplacedTexture::IsReady(double budget) {
 			// Successfully waited! Can get rid of it.
 			threadWaitable_->WaitAndRelease();
 			threadWaitable_ = nullptr;
-			if (levelData_) {
-				levelData_->lastUsed = now;
-			}
+			lastUsed = now;
 		}
 		lastUsed_ = now;
 		return true;
@@ -176,39 +195,33 @@ bool ReplacedTexture::IsReady(double budget) {
 	return false;
 }
 
-void ReplacedTexture::FinishPopulate(ReplacementDesc *desc) {
-	logId_ = desc->logId;
-	levelData_ = desc->cache;
-	desc_ = desc;
-	SetState(ReplacementState::POPULATED);
-
-	// TODO: What used to be here is now done on the thread task.
-}
-
 void ReplacedTexture::Prepare(VFSBackend *vfs) {
 	this->vfs_ = vfs;
 
-	std::unique_lock<std::mutex> lock(mutex_);
+	std::unique_lock<std::mutex> lock(lock_);
 
-	_assert_msg_(levelData_ != nullptr, "Level cache not set");
-
-	// We must lock around access to levelData_ in case two textures try to load it at once.
-	std::lock_guard<std::mutex> guard(levelData_->lock);
+	fmt = Draw::DataFormat::UNDEFINED;
 
 	Draw::DataFormat pixelFormat;
-	for (int i = 0; i < std::min(MAX_REPLACEMENT_MIP_LEVELS, (int)desc_->filenames.size()); ++i) {
+	LoadLevelResult result = LoadLevelResult::LOAD_ERROR;
+	if (desc_.filenames.empty()) {
+		result = LoadLevelResult::DONE;
+	}
+	for (int i = 0; i < std::min(MAX_REPLACEMENT_MIP_LEVELS, (int)desc_.filenames.size()); ++i) {
 		if (State() == ReplacementState::CANCEL_INIT) {
 			break;
 		}
 
-		if (desc_->filenames[i].empty()) {
+		if (desc_.filenames[i].empty()) {
 			// Out of valid mip levels.  Bail out.
 			break;
 		}
 
-		VFSFileReference *fileRef = vfs_->GetFile(desc_->filenames[i].c_str());
+		VFSFileReference *fileRef = vfs_->GetFile(desc_.filenames[i].c_str());
 		if (!fileRef) {
 			// If the file doesn't exist, let's just bail immediately here.
+			// Mark as DONE, not error.
+			result = LoadLevelResult::DONE;
 			break;
 		}
 
@@ -216,7 +229,12 @@ void ReplacedTexture::Prepare(VFSBackend *vfs) {
 			fmt = Draw::DataFormat::R8G8B8A8_UNORM;
 		}
 
-		if (LoadLevelData(fileRef, desc_->filenames[i], i, &pixelFormat)) {
+		result = LoadLevelData(fileRef, desc_.filenames[i], i, &pixelFormat);
+		if (result == LoadLevelResult::DONE) {
+			// Loaded all the levels we're gonna get.
+			fmt = pixelFormat;
+			break;
+		} else if (result == LoadLevelResult::CONTINUE) {
 			if (i == 0) {
 				fmt = pixelFormat;
 			} else {
@@ -226,24 +244,21 @@ void ReplacedTexture::Prepare(VFSBackend *vfs) {
 				}
 			}
 		} else {
-			fmt = pixelFormat;
-			// Otherwise, we're done loading mips (bad PNG or bad size, either way.)
+			// Error state.
 			break;
 		}
 	}
 
-	delete desc_;
-	desc_ = nullptr;
-
 	if (levels_.empty()) {
-		// Bad.
-		WARN_LOG(G3D, "Failed to load texture");
+		// No replacement found.
+		std::string name = TextureReplacer::HashName(desc_.cachekey, desc_.hash, 0);
+		if (result == LoadLevelResult::LOAD_ERROR) {
+			WARN_LOG(G3D, "Failed to load replacement texture '%s'", name.c_str());
+		}
 		SetState(ReplacementState::NOT_FOUND);
-		levelData_ = nullptr;
 		return;
 	}
 
-	levelData_->fmt = fmt;
 	SetState(ReplacementState::ACTIVE);
 
 	if (threadWaitable_)
@@ -255,18 +270,19 @@ inline uint32_t RoundUpTo4(uint32_t value) {
 }
 
 // Returns true if Prepare should keep calling this to load more levels.
-bool ReplacedTexture::LoadLevelData(VFSFileReference *fileRef, const std::string &filename, int mipLevel, Draw::DataFormat *pixelFormat) {
+ReplacedTexture::LoadLevelResult ReplacedTexture::LoadLevelData(VFSFileReference *fileRef, const std::string &filename, int mipLevel, Draw::DataFormat *pixelFormat) {
 	bool good = false;
 
-	if (levelData_->data.size() <= mipLevel) {
-		levelData_->data.resize(mipLevel + 1);
+	if (data_.size() <= mipLevel) {
+		data_.resize(mipLevel + 1);
 	}
 
 	ReplacedTextureLevel level;
 	size_t fileSize;
 	VFSOpenFile *openFile = vfs_->OpenFileForRead(fileRef, &fileSize);
 	if (!openFile) {
-		return false;
+		// File missing, no more levels. This is alright.
+		return LoadLevelResult::DONE;
 	}
 
 	std::string magic;
@@ -307,7 +323,7 @@ bool ReplacedTexture::LoadLevelData(VFSFileReference *fileRef, const std::string
 				switch (format) {
 				case 98: // DXGI_FORMAT_BC7_UNORM:
 				case 99: // DXGI_FORMAT_BC7_UNORM_SRGB:
-					if (!desc_->formatSupport.bc7) {
+					if (!desc_.formatSupport.bc7) {
 						WARN_LOG(G3D, "BC1-3 formats not supported, skipping texture");
 						good = false;
 					}
@@ -318,7 +334,7 @@ bool ReplacedTexture::LoadLevelData(VFSFileReference *fileRef, const std::string
 					good = false;
 				}
 			} else {
-				if (!desc_->formatSupport.bc123) {
+				if (!desc_.formatSupport.bc123) {
 					WARN_LOG(G3D, "BC1-3 formats not supported");
 					good = false;
 				}
@@ -379,15 +395,15 @@ bool ReplacedTexture::LoadLevelData(VFSFileReference *fileRef, const std::string
 
 
 	// Already populated from cache. TODO: Move this above the first read, and take level.w/h from the cache.
-	if (!levelData_->data[mipLevel].empty()) {
+	if (!data_[mipLevel].empty()) {
 		vfs_->CloseFile(openFile);
-		*pixelFormat = levelData_->fmt;
-		return true;
+		*pixelFormat = fmt;
+		return LoadLevelResult::DONE;
 	}
 
 	// Is this really the right place to do it?
-	level.w = (level.w * desc_->w) / desc_->newW;
-	level.h = (level.h * desc_->h) / desc_->newH;
+	level.w = (level.w * desc_.w) / desc_.newW;
+	level.h = (level.h * desc_.h) / desc_.newH;
 
 	if (good && mipLevel != 0) {
 		// Check that the mipmap size is correct.  Can't load mips of the wrong size.
@@ -400,7 +416,7 @@ bool ReplacedTexture::LoadLevelData(VFSFileReference *fileRef, const std::string
 
 	if (!good) {
 		vfs_->CloseFile(openFile);
-		return false;
+		return LoadLevelResult::LOAD_ERROR;
 	}
 
 	auto cleanup = [&] {
@@ -421,60 +437,78 @@ bool ReplacedTexture::LoadLevelData(VFSFileReference *fileRef, const std::string
 		if (!transcoder.init(buffer.data(), (int)buffer.size())) {
 			WARN_LOG(G3D, "Error reading KTX file");
 			cleanup();
-			return false;
+			return LoadLevelResult::LOAD_ERROR;
 		}
 
 		// Figure out the target format.
 		basist::transcoder_texture_format transcoderFormat;
 		if (transcoder.is_etc1s()) {
+			// We only support opaque colors with this compression method.
+			alphaStatus_ = ReplacedTextureAlpha::FULL;
 			// Let's pick a suitable compatible format.
-			if (desc_->formatSupport.bc123) {
+			if (desc_.formatSupport.bc123) {
 				transcoderFormat = basist::transcoder_texture_format::cTFBC1;
 				*pixelFormat = Draw::DataFormat::BC1_RGBA_UNORM_BLOCK;
-			} else if (desc_->formatSupport.etc2) {
+			} else if (desc_.formatSupport.etc2) {
 				transcoderFormat = basist::transcoder_texture_format::cTFETC1_RGB;
 				*pixelFormat = Draw::DataFormat::ETC2_R8G8B8_UNORM_BLOCK;
 			} else {
-				// TODO: Transcode to RGBA8 instead as a fallback.
-				cleanup();
-				return false;
+				// Transcode to RGBA8 instead as a fallback. A bit slow and takes a lot of memory, but better than nothing.
+				WARN_LOG(G3D, "Replacement texture format not supported - transcoding to RGBA8888");
+				transcoderFormat = basist::transcoder_texture_format::cTFRGBA32;
+				*pixelFormat = Draw::DataFormat::R8G8B8A8_UNORM;
 			}
 		} else if (transcoder.is_uastc()) {
+			// TODO: Try to recover some indication of alpha from the actual data blocks.
+			alphaStatus_ = ReplacedTextureAlpha::UNKNOWN;
 			// Let's pick a suitable compatible format.
-			if (desc_->formatSupport.bc7) {
+			if (desc_.formatSupport.bc7) {
 				transcoderFormat = basist::transcoder_texture_format::cTFBC7_RGBA;
 				*pixelFormat = Draw::DataFormat::BC7_UNORM_BLOCK;
-			} else if (desc_->formatSupport.astc) {
+			} else if (desc_.formatSupport.astc) {
 				transcoderFormat = basist::transcoder_texture_format::cTFASTC_4x4_RGBA;
 				*pixelFormat = Draw::DataFormat::ASTC_4x4_UNORM_BLOCK;
 			} else {
-				// TODO: Transcode to RGBA8 instead as a fallback.
-				cleanup();
-				return false;
+				// Transcode to RGBA8 instead as a fallback. A bit slow and takes a lot of memory, but better than nothing.
+				WARN_LOG(G3D, "Replacement texture format not supported - transcoding to RGBA8888");
+				transcoderFormat = basist::transcoder_texture_format::cTFRGBA32;
+				*pixelFormat = Draw::DataFormat::R8G8B8A8_UNORM;
 			}
 		} else {
 			WARN_LOG(G3D, "PPSSPP currently only supports KTX for basis/UASTC textures. This may change in the future.");
+			cleanup();
+			return LoadLevelResult::LOAD_ERROR;
 		}
 
-		int blockSize;
+		int blockSize = 0;
 		bool bc = Draw::DataFormatIsBlockCompressed(*pixelFormat, &blockSize);
-		_dbg_assert_(bc);
+		_dbg_assert_(bc || *pixelFormat == Draw::DataFormat::R8G8B8A8_UNORM);
 
-		levelData_->data.resize(numMips);
+		data_.resize(numMips);
 
 		basist::ktx2_transcoder_state transcodeState;  // Each thread needs one of these.
 
 		transcoder.start_transcoding();
 		for (int i = 0; i < numMips; i++) {
-			std::vector<uint8_t> &out = levelData_->data[mipLevel + i];
+			std::vector<uint8_t> &out = data_[mipLevel + i];
 
-			basist::ktx2_image_level_info levelInfo;
+			basist::ktx2_image_level_info levelInfo{};
 			bool result = transcoder.get_image_level_info(levelInfo, i, 0, 0);
 			_dbg_assert_(result);
 
-			levelData_->data[i].resize(levelInfo.m_total_blocks * blockSize);
+			size_t dataSizeBytes = levelInfo.m_total_blocks * blockSize;
+			size_t outputSize = levelInfo.m_total_blocks;
+			size_t outputPitch = levelInfo.m_num_blocks_x;
+			// Support transcoded-to-RGBA8888 images too.
+			if (!bc) {
+				dataSizeBytes = levelInfo.m_orig_width * levelInfo.m_orig_height * 4;
+				outputSize = levelInfo.m_orig_width * levelInfo.m_orig_height;
+				outputPitch = levelInfo.m_orig_width;
+			}
+			data_[i].resize(dataSizeBytes);
 
-			transcoder.transcode_image_level(i, 0, 0, &out[0], levelInfo.m_total_blocks, transcoderFormat, 0, levelInfo.m_num_blocks_x, level.h, -1, -1, &transcodeState);
+			transcodeState.clear();
+			transcoder.transcode_image_level(i, 0, 0, &out[0], (uint32_t)outputSize, transcoderFormat, 0, (uint32_t)outputPitch, level.h, -1, -1, &transcodeState);
 			level.w = levelInfo.m_orig_width;
 			level.h = levelInfo.m_orig_height;
 			if (i != 0)
@@ -483,8 +517,12 @@ bool ReplacedTexture::LoadLevelData(VFSFileReference *fileRef, const std::string
 		}
 		transcoder.clear();
 		cleanup();
-		return false;  // don't read more levels
+
+		return LoadLevelResult::DONE;  // don't read more levels
 	} else if (imageType == ReplacedImageType::DDS) {
+		// TODO: Do better with alphaStatus, it's possible.
+		alphaStatus_ = ReplacedTextureAlpha::UNKNOWN;
+
 		DDSHeader header;
 		DDSHeaderDXT10 header10{};
 		vfs_->Read(openFile, &header, sizeof(header));
@@ -496,11 +534,11 @@ bool ReplacedTexture::LoadLevelData(VFSFileReference *fileRef, const std::string
 		bool bc = Draw::DataFormatIsBlockCompressed(*pixelFormat, &blockSize);
 		_dbg_assert_(bc);
 
-		levelData_->data.resize(numMips);
+		data_.resize(numMips);
 
 		// A DDS File can contain multiple mipmaps.
 		for (int i = 0; i < numMips; i++) {
-			std::vector<uint8_t> &out = levelData_->data[mipLevel + i];
+			std::vector<uint8_t> &out = data_[mipLevel + i];
 
 			int bytesToRead = RoundUpTo4(level.w) * RoundUpTo4(level.h) * blockSize / 16;
 			out.resize(bytesToRead);
@@ -517,30 +555,32 @@ bool ReplacedTexture::LoadLevelData(VFSFileReference *fileRef, const std::string
 				level.fileRef = nullptr;  // We only provide a fileref on level 0 if we have mipmaps.
 		}
 		cleanup();
-		return false;  // don't read more levels
+		return LoadLevelResult::DONE;  // don't read more levels
+
 	} else if (imageType == ReplacedImageType::ZIM) {
 
 		std::unique_ptr<uint8_t[]> zim(new uint8_t[fileSize]);
 		if (!zim) {
 			ERROR_LOG(G3D, "Failed to allocate memory for texture replacement");
 			cleanup();
-			return false;
+			return LoadLevelResult::LOAD_ERROR;
 		}
 
 		if (vfs_->Read(openFile, &zim[0], fileSize) != fileSize) {
 			ERROR_LOG(G3D, "Could not load texture replacement: %s - failed to read ZIM", filename.c_str());
 			cleanup();
-			return false;
+			return LoadLevelResult::LOAD_ERROR;
 		}
 
 		int w, h, f;
 		uint8_t *image;
-		std::vector<uint8_t> &out = levelData_->data[mipLevel];
+		std::vector<uint8_t> &out = data_[mipLevel];
+		// TODO: Zim files can actually hold mipmaps (although no tool has ever been made to create them :P)
 		if (LoadZIMPtr(&zim[0], fileSize, &w, &h, &f, &image)) {
 			if (w > level.w || h > level.h) {
 				ERROR_LOG(G3D, "Texture replacement changed since header read: %s", filename.c_str());
 				cleanup();
-				return false;
+				return LoadLevelResult::LOAD_ERROR;
 			}
 
 			out.resize(level.w * level.h * 4);
@@ -561,6 +601,10 @@ bool ReplacedTexture::LoadLevelData(VFSFileReference *fileRef, const std::string
 		} else {
 			good = false;
 		}
+
+		cleanup();
+		return LoadLevelResult::CONTINUE;
+
 	} else if (imageType == ReplacedImageType::PNG) {
 		png_image png = {};
 		png.version = PNG_IMAGE_VERSION;
@@ -571,12 +615,12 @@ bool ReplacedTexture::LoadLevelData(VFSFileReference *fileRef, const std::string
 		if (!png_image_begin_read_from_memory(&png, &pngdata[0], pngdata.size())) {
 			ERROR_LOG(G3D, "Could not load texture replacement info: %s - %s (zip)", filename.c_str(), png.message);
 			cleanup();
-			return false;
+			return LoadLevelResult::LOAD_ERROR;
 		}
 		if (png.width > (uint32_t)level.w || png.height > (uint32_t)level.h) {
 			ERROR_LOG(G3D, "Texture replacement changed since header read: %s", filename.c_str());
 			cleanup();
-			return false;
+			return LoadLevelResult::LOAD_ERROR;
 		}
 
 		bool checkedAlpha = false;
@@ -589,13 +633,13 @@ bool ReplacedTexture::LoadLevelData(VFSFileReference *fileRef, const std::string
 		}
 		png.format = PNG_FORMAT_RGBA;
 
-		std::vector<uint8_t> &out = levelData_->data[mipLevel];
+		std::vector<uint8_t> &out = data_[mipLevel];
 		out.resize(level.w * level.h * 4);
 		if (!png_image_finish_read(&png, nullptr, &out[0], level.w * 4, nullptr)) {
 			ERROR_LOG(G3D, "Could not load texture replacement: %s - %s", filename.c_str(), png.message);
 			cleanup();
 			out.resize(0);
-			return false;
+			return LoadLevelResult::LOAD_ERROR;
 		}
 		png_image_free(&png);
 
@@ -608,13 +652,14 @@ bool ReplacedTexture::LoadLevelData(VFSFileReference *fileRef, const std::string
 		}
 
 		levels_.push_back(level);
+
+		cleanup();
+		return LoadLevelResult::CONTINUE;
 	} else {
 		WARN_LOG(G3D, "Don't know how to load this image type! %d", (int)imageType);
+		cleanup();
 	}
-
-	cleanup();
-
-	return good;
+	return LoadLevelResult::LOAD_ERROR;
 }
 
 bool ReplacedTexture::CopyLevelTo(int level, void *out, int rowPitch) {
@@ -627,15 +672,17 @@ bool ReplacedTexture::CopyLevelTo(int level, void *out, int rowPitch) {
 	}
 
 	// We probably could avoid this lock, but better to play it safe.
-	std::lock_guard<std::mutex> guard(levelData_->lock);
+	std::lock_guard<std::mutex> guard(lock_);
 
 	const ReplacedTextureLevel &info = levels_[level];
-	const std::vector<uint8_t> &data = levelData_->data[level];
+	const std::vector<uint8_t> &data = data_[level];
 
 	if (data.empty()) {
 		WARN_LOG(G3D, "Level %d is empty", level);
 		return false;
 	}
+
+#define PARALLEL_COPY
 
 	if (fmt == Draw::DataFormat::R8G8B8A8_UNORM) {
 		if (rowPitch < info.w * 4) {
@@ -646,18 +693,32 @@ bool ReplacedTexture::CopyLevelTo(int level, void *out, int rowPitch) {
 		_assert_msg_(data.size() == info.w * info.h * 4, "Data has wrong size");
 
 		if (rowPitch == info.w * 4) {
-			ParallelMemcpy(&g_threadManager, out, &data[0], info.w * 4 * info.h);
+#ifdef PARALLEL_COPY
+			ParallelMemcpy(&g_threadManager, out, data.data(), info.w * 4 * info.h);
+#else
+			memcpy(out, data.data(), info.w * 4 * info.h);
+#endif
 		} else {
+#ifdef PARALLEL_COPY
 			const int MIN_LINES_PER_THREAD = 4;
 			ParallelRangeLoop(&g_threadManager, [&](int l, int h) {
 				for (int y = l; y < h; ++y) {
-					memcpy((uint8_t *)out + rowPitch * y, &data[0] + info.w * 4 * y, info.w * 4);
+					memcpy((uint8_t *)out + rowPitch * y, data.data() + info.w * 4 * y, info.w * 4);
 				}
 				}, 0, info.h, MIN_LINES_PER_THREAD);
+#else
+			for (int y = 0; y < info.h; ++y) {
+				memcpy((uint8_t *)out + rowPitch * y, data.data() + info.w * 4 * y, info.w * 4);
+			}
+#endif
 		}
 	} else {
+#ifdef PARALLEL_COPY
 		// TODO: Add sanity checks here for other formats?
 		ParallelMemcpy(&g_threadManager, out, data.data(), data.size());
+#else
+		memcpy(out, data.data(), data.size());
+#endif
 	}
 
 	return true;

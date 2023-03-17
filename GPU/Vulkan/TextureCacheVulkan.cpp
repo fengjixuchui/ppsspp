@@ -550,7 +550,7 @@ void TextureCacheVulkan::BuildTexture(TexCacheEntry *const entry) {
 		levels = plan.levelsToLoad;
 	}
 
-	VulkanPushBuffer *pushBuffer = drawEngine_->GetPushBufferForTextureData();
+	VulkanPushPool *pushBuffer = drawEngine_->GetPushBufferForTextureData();
 
 	// Batch the copies.
 	TextureCopyBatch copyBatch;
@@ -583,11 +583,11 @@ void TextureCacheVulkan::BuildTexture(TexCacheEntry *const entry) {
 				saveData.resize(sz);
 				data = &saveData[0];
 			} else {
-				data = pushBuffer->PushAligned(sz, &bufferOffset, &texBuf, pushAlignment);
+				data = pushBuffer->Allocate(sz, pushAlignment, &texBuf, &bufferOffset);
 			}
 			LoadVulkanTextureLevel(*entry, (uint8_t *)data, lstride, srcLevel, lfactor, actualFmt);
 			if (plan.saveTexture)
-				bufferOffset = pushBuffer->PushAligned(&saveData[0], sz, pushAlignment, &texBuf);
+				bufferOffset = pushBuffer->Push(&saveData[0], sz, pushAlignment, &texBuf);
 		};
 
 		bool dataScaled = true;
@@ -599,7 +599,7 @@ void TextureCacheVulkan::BuildTexture(TexCacheEntry *const entry) {
 				rowLength = (mipWidth + 3) & ~3;
 			}
 			// Directly load the replaced image.
-			data = pushBuffer->PushAligned(uploadSize, &bufferOffset, &texBuf, pushAlignment);
+			data = pushBuffer->Allocate(uploadSize, pushAlignment, &texBuf, &bufferOffset);
 			double replaceStart = time_now_d();
 			if (!plan.replaced->CopyLevelTo(plan.baseLevelSrc + i, data, byteStride)) {  // If plan.replaceValid, this shouldn't fail.
 				WARN_LOG(G3D, "Failed to copy replaced texture level");
@@ -647,10 +647,8 @@ void TextureCacheVulkan::BuildTexture(TexCacheEntry *const entry) {
 				replacedInfo.addr = entry->addr;
 				replacedInfo.isVideo = IsVideo(entry->addr);
 				replacedInfo.isFinal = (entry->status & TexCacheEntry::STATUS_TO_SCALE) == 0;
-				replacedInfo.scaleFactor = plan.scaleFactor;
 				replacedInfo.fmt = FromVulkanFormat(actualFmt);
-
-				replacer_.NotifyTextureDecoded(replacedInfo, data, byteStride, plan.baseLevelSrc + i, w, h);
+				replacer_.NotifyTextureDecoded(replacedInfo, data, byteStride, plan.baseLevelSrc + i, mipUnscaledWidth, mipUnscaledHeight, w, h);
 			}
 		}
 	}
@@ -754,7 +752,7 @@ void TextureCacheVulkan::LoadVulkanTextureLevel(TexCacheEntry &entry, uint8_t *w
 		u32 fmt = dstFmt;
 		// CPU scaling reads from the destination buffer so we want cached RAM.
 		uint8_t *rearrange = (uint8_t *)AllocateAlignedMemory(w * scaleFactor * h * scaleFactor * 4, 16);
-		scaler_.ScaleAlways((u32 *)rearrange, pixelData, w, h, scaleFactor);
+		scaler_.ScaleAlways((u32 *)rearrange, pixelData, w, h, &w, &h, scaleFactor);
 		pixelData = (u32 *)writePtr;
 
 		// We always end up at 8888.  Other parts assume this.
