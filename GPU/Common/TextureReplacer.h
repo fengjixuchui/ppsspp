@@ -106,7 +106,6 @@ public:
 
 	// Returns nullptr if not found.
 	ReplacedTexture *FindReplacement(u64 cachekey, u32 hash, int w, int h);
-	bool FindFiltering(u64 cachekey, u32 hash, TextureFiltering *forceFiltering);
 
 	// Check if a NotifyTextureDecoded for this texture is desired (used to avoid reads from write-combined memory.)
 	bool WillSave(const ReplacedTextureDecodeInfo &replacedInfo);
@@ -125,24 +124,27 @@ public:
 	static std::string HashName(u64 cachekey, u32 hash, int level);
 
 protected:
+	bool FindFiltering(u64 cachekey, u32 hash, TextureFiltering *forceFiltering);
+
 	bool LoadIni();
 	bool LoadIniValues(IniFile &ini, bool isOverride = false);
 	void ParseHashRange(const std::string &key, const std::string &value);
 	void ParseFiltering(const std::string &key, const std::string &value);
 	void ParseReduceHashRange(const std::string& key, const std::string& value);
 	bool LookupHashRange(u32 addr, int w, int h, int *newW, int *newH);
-	float LookupReduceHashRange(int& w, int& h);
+	float LookupReduceHashRange(int w, int h);
 	std::string LookupHashFile(u64 cachekey, u32 hash, bool *foundAlias, bool *ignored);
 
 	bool enabled_ = false;
 	bool allowVideo_ = false;
 	bool ignoreAddress_ = false;
 	bool reduceHash_ = false;
+	bool ignoreMipmap_ = false;
+
 	float reduceHashSize = 1.0f; // default value with reduceHash to false
 	float reduceHashGlobalValue = 0.5f; // Global value for textures dump pngs of all sizes, 0.5 by default but can be set in textures.ini
 
 	double lastTextureCacheSizeGB_ = 0.0;
-	bool ignoreMipmap_ = false;
 	std::string gameID_;
 	Path basePath_;
 	Path newTextureDir_;
@@ -150,6 +152,7 @@ protected:
 
 	VFSBackend *vfs_ = nullptr;
 	bool vfsIsZip_ = false;
+
 	GPUFormatSupport formatSupport_{};
 
 	typedef std::pair<int, int> WidthHeightPair;

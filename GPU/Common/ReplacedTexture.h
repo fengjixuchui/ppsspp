@@ -23,6 +23,7 @@
 #include "Common/File/VFS/VFS.h"
 #include "Common/GPU/thin3d.h"
 #include "Common/Log.h"
+#include "Core/ConfigValues.h"
 
 class TextureReplacer;
 class LimitedWaitable;
@@ -52,8 +53,7 @@ enum class ReplacedImageType {
 static const int MAX_REPLACEMENT_MIP_LEVELS = 12;  // 12 should be plenty, 8 is the max mip levels supported by the PSP.
 
 enum class ReplacementState : uint32_t {
-	UNINITIALIZED,
-	POPULATED,  // We located the texture files but have not started the thread.
+	UNLOADED,
 	PENDING,
 	NOT_FOUND,  // Also used on error loading the images.
 	ACTIVE,
@@ -76,6 +76,7 @@ struct ReplacementDesc {
 	uint32_t hash;
 	int w;
 	int h;
+	TextureFiltering forceFiltering;
 	std::string hashfiles;
 	Path basePath;
 	std::vector<std::string> filenames;
@@ -94,8 +95,14 @@ struct ReplacedTextureRef {
 
 // Metadata about a given texture level.
 struct ReplacedTextureLevel {
+	// Data dimensions
 	int w = 0;
 	int h = 0;
+	// PSP texture dimensions
+	int fullW = 0;
+	int fullH = 0;
+
+	int fullDataSize = 0;
 
 	// To be able to reload, we need to be able to reopen, unfortunate we can't use zip_file_t.
 	// TODO: This really belongs on the level in the cache, not in the individual ReplacedTextureLevel objects.
@@ -122,13 +129,13 @@ public:
 	void GetSize(int level, int *w, int *h) const {
 		_dbg_assert_(State() == ReplacementState::ACTIVE);
 		_dbg_assert_(level < levels_.size());
-		*w = levels_[level].w;
-		*h = levels_[level].h;
+		*w = levels_[level].fullW;
+		*h = levels_[level].fullH;
 	}
 
-	int GetLevelDataSize(int level) const {
-		_dbg_assert_(State() == ReplacementState::ACTIVE);
-		return (int)data_[level].size();
+	int GetLevelDataSizeAfterCopy(int level) const {
+		// Includes padding etc.
+		return levels_[level].fullDataSize;
 	}
 
 	size_t GetTotalDataSize() const {
@@ -140,6 +147,15 @@ public:
 			sz += data.size();
 		}
 		return sz;
+	}
+
+	bool ForceFiltering(TextureFiltering *forceFiltering) const {
+		if (desc_.forceFiltering != (TextureFiltering)0) {
+			*forceFiltering = desc_.forceFiltering;
+			return true;
+		} else {
+			return false;
+		}
 	}
 
 	int NumLevels() const {
@@ -156,8 +172,8 @@ public:
 		return (u8)alphaStatus_;
 	}
 
-	bool IsReady(double budget);
-	bool CopyLevelTo(int level, void *out, int rowPitch);
+	bool Poll(double budget);
+	bool CopyLevelTo(int level, uint8_t *out, size_t outDataSize, int rowPitch);
 
 	std::string logId_;
 
@@ -182,7 +198,7 @@ private:
 	ReplacedTextureAlpha alphaStatus_ = ReplacedTextureAlpha::UNKNOWN;
 	double lastUsed = 0.0;
 
-	std::atomic<ReplacementState> state_ = ReplacementState::POPULATED;
+	std::atomic<ReplacementState> state_ = ReplacementState::UNLOADED;
 
 	VFSBackend *vfs_ = nullptr;
 	ReplacementDesc desc_;

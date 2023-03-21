@@ -124,9 +124,12 @@ bool TextureReplacer::LoadIni() {
 	delete vfs_;
 	vfs_ = nullptr;
 
+	Path zipPath = basePath_ / ZIP_FILENAME;
+
 	// First, check for textures.zip, which is used to reduce IO.
-	VFSBackend *dir = ZipFileReader::Create(basePath_ / ZIP_FILENAME, "");
+	VFSBackend *dir = ZipFileReader::Create(zipPath, "", false);
 	if (!dir) {
+		INFO_LOG(G3D, "%s wasn't a zip file - opening the directory %s instead.", zipPath.c_str(), basePath_.c_str());
 		vfsIsZip_ = false;
 		dir = new DirectoryReader(basePath_);
 	} else {
@@ -317,6 +320,11 @@ void TextureReplacer::ParseHashRange(const std::string &key, const std::string &
 		return;
 	}
 
+	// Allow addr not starting with 0x, for consistency. TryParse requires 0x to parse as hex.
+	if (!startsWith(keyParts[0], "0x") && !startsWith(keyParts[0], "0X")) {
+		keyParts[0] = "0x" + keyParts[0];
+	}
+
 	u32 addr;
 	u32 fromW;
 	u32 fromH;
@@ -497,6 +505,9 @@ ReplacedTexture *TextureReplacer::FindReplacement(u64 cachekey, u32 hash, int w,
 		cache_.emplace(std::make_pair(replacementKey, ref));
 		return nullptr;
 	}
+
+	desc.forceFiltering = (TextureFiltering)0;  // invalid value
+	FindFiltering(cachekey, hash, &desc.forceFiltering);
 
 	if (!foundAlias) {
 		// We'll just need to generate the names for each level.
@@ -863,7 +874,7 @@ bool TextureReplacer::LookupHashRange(u32 addr, int w, int h, int *newW, int *ne
 	}
 }
 
-float TextureReplacer::LookupReduceHashRange(int& w, int& h) {
+float TextureReplacer::LookupReduceHashRange(int w, int h) {
 	const u64 reducerangeKey = ((u64)w << 16) | h;
 	auto range = reducehashranges_.find(reducerangeKey);
 	if (range != reducehashranges_.end()) {
@@ -903,13 +914,16 @@ bool TextureReplacer::GenerateIni(const std::string &gameID, Path &generatedFile
 		fwrite("\xEF\xBB\xBF", 1, 3, f);
 
 		// Let's also write some defaults.
-		fprintf(f, R"(# This file is optional and describes your textures.
-# Some information on syntax available here:
-# https://github.com/hrydgard/ppsspp/wiki/Texture-replacement-ini-syntax
+		fprintf(f, R"(# This describes your textures and set up options for texture replacement.
+# Documentation about the options and syntax is available here:
+# https://www.ppsspp.org/docs/reference/texture-replacement
+
 [options]
 version = 1
-hash = quick
-ignoreMipmap = false
+hash = quick             # options available: "quick", xxh32 - more accurate, but much slower, xxh64 - more accurate and quite fast, but slower than xxh32 on 32 bit cpu's
+ignoreMipmap = true      # Usually, can just generate them with basisu, no need to dump.
+reduceHash = false       # Unsafe and can cause glitches in some cases, but allows to skip garbage data in some textures reducing endless duplicates as a side effect speeds up hashing as well, requires stronger hash like xxh32 or xxh64
+ignoreAddress = false    # Reduces duplicates at the cost of making hash less reliable, requires stronger hash like xxh32 or xxh64. Basically automatically sets the address to 0 in the dumped filenames.
 
 [games]
 # Used to make it easier to install, and override settings for other regions.
@@ -921,10 +935,19 @@ ignoreMipmap = false
 # See wiki for more info.
 
 [hashranges]
+# This is useful for images that very clearly have smaller dimensions, like 480x272 image. They'll need to be redumped, since the hash will change. See the documentation.
+# Example: 08b31020,512,512 = 480,272
+# Example: 0x08b31020,512,512 = 480,272
 
 [filtering]
+# You can enforce specific filtering modes with this. Available modes are linear, nearest, auto. See the docs.
+# Example: 08d3961000000909ba70b2af = nearest
 
 [reducehashranges]
+# Lets you set texture sizes where the hash range is reduced by a factor. See the docs.
+# Example:
+512,512=0.5
+
 )", gameID.c_str(), INI_FILENAME.c_str());
 		fclose(f);
 	}
