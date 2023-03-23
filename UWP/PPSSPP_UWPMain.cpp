@@ -22,7 +22,7 @@
 #include "Common/StringUtils.h"
 #include "Common/System/Display.h"
 #include "Common/System/NativeApp.h"
-#include "Common/System/System.h"
+#include "Common/System/Request.h"
 
 #include "Core/System.h"
 #include "Core/Loaders.h"
@@ -411,12 +411,14 @@ void System_Toast(const char *str) {}
 
 bool System_GetPropertyBool(SystemProperty prop) {
 	switch (prop) {
+	case SYSPROP_HAS_OPEN_DIRECTORY:
+		return false;
 	case SYSPROP_HAS_FILE_BROWSER:
 		return true;
 	case SYSPROP_HAS_FOLDER_BROWSER:
 		return false;  // at least I don't know a usable one
 	case SYSPROP_HAS_IMAGE_BROWSER:
-		return false;
+		return true;  // we just use the file browser
 	case SYSPROP_HAS_BACK_BUTTON:
 		return true;
 	case SYSPROP_APP_GOLD:
@@ -434,36 +436,63 @@ bool System_GetPropertyBool(SystemProperty prop) {
 	}
 }
 
-void System_SendMessage(const char *command, const char *parameter) {
-	using namespace concurrency;
+void System_Notify(SystemNotification notification) {
+	switch (notification) {
+	default:
+		break;
+	}
+}
 
-	if (!strcmp(command, "finish")) {
-		// Not really supposed to support this under UWP.
-	} else if (!strcmp(command, "browse_file")) {
+bool System_MakeRequest(SystemRequestType type, int requestId, const std::string &param1, const std::string &param2, int param3) {
+	switch (type) {
+	case SystemRequestType::BROWSE_FOR_IMAGE:
+	case SystemRequestType::BROWSE_FOR_FILE:
+	{
 		auto picker = ref new Windows::Storage::Pickers::FileOpenPicker();
 		picker->ViewMode = Pickers::PickerViewMode::List;
 
-		// These are single files that can be loaded directly using StorageFileLoader.
-		picker->FileTypeFilter->Append(".cso");
-		picker->FileTypeFilter->Append(".iso");
+		if (type == SystemRequestType::BROWSE_FOR_IMAGE) {
+			picker->FileTypeFilter->Append(".jpg");
+			picker->FileTypeFilter->Append(".png");
+		} else {
+			switch ((BrowseFileType)param3) {
+			case BrowseFileType::BOOTABLE:
+				// These are single files that can be loaded directly using StorageFileLoader.
+				picker->FileTypeFilter->Append(".cso");
+				picker->FileTypeFilter->Append(".iso");
 
-		// Can't load these this way currently, they require mounting the underlying folder.
-		picker->FileTypeFilter->Append(".bin");
-		picker->FileTypeFilter->Append(".elf");
+				// Can't load these this way currently, they require mounting the underlying folder.
+				picker->FileTypeFilter->Append(".bin");
+				picker->FileTypeFilter->Append(".elf");
+				break;
+			case BrowseFileType::INI:
+				picker->FileTypeFilter->Append(".ini");
+				break;
+			case BrowseFileType::ANY:
+				picker->FileTypeFilter->Append("*");
+				break;
+			}
+		}
+
 		picker->SuggestedStartLocation = Pickers::PickerLocationId::DocumentsLibrary;
 
-		create_task(picker->PickSingleFileAsync()).then([](StorageFile ^file){
+		create_task(picker->PickSingleFileAsync()).then([requestId](StorageFile ^file) {
 			if (file) {
 				std::string path = FromPlatformString(file->Path);
-				NativeMessageReceived("boot", path.c_str());
+				g_requestManager.PostSystemSuccess(requestId, path.c_str());
+			} else {
+				g_requestManager.PostSystemFailure(requestId);
 			}
 		});
-	} else if (!strcmp(command, "toggle_fullscreen")) {
+		return true;
+	}
+	case SystemRequestType::TOGGLE_FULLSCREEN_STATE:
+	{
 		auto view = Windows::UI::ViewManagement::ApplicationView::GetForCurrentView();
 		bool flag = !view->IsFullScreenMode;
-		if (strcmp(parameter, "0") == 0) {
+		if (param1 == "0") {
 			flag = false;
-		} else if (strcmp(parameter, "1") == 0){
+		} else if (param1 == "1"){
 			flag = true;
 		}
 		if (flag) {
@@ -471,20 +500,24 @@ void System_SendMessage(const char *command, const char *parameter) {
 		} else {
 			view->ExitFullScreenMode();
 		}
+		return true;
+	}
+	default:
+		return false;
 	}
 }
 
-void OpenDirectory(const char *path) {
+void System_ShowFileInFolder(const char *path) {
 	// Unsupported
 }
 
-void LaunchBrowser(const char *url) {
+void System_LaunchUrl(LaunchUrlType urlType, const char *url) {
 	auto uri = ref new Windows::Foundation::Uri(ToPlatformString(url));
 
 	create_task(Windows::System::Launcher::LaunchUriAsync(uri)).then([](bool b) {});
 }
 
-void Vibrate(int length_ms) {
+void System_Vibrate(int length_ms) {
 #if _M_ARM
 	if (length_ms == -1 || length_ms == -3)
 		length_ms = 50;
@@ -506,11 +539,6 @@ void System_AskForPermission(SystemPermission permission) {
 
 PermissionStatus System_GetPermissionStatus(SystemPermission permission) {
 	return PERMISSION_STATUS_GRANTED;
-}
-
-void System_InputBoxGetString(const std::string &title, const std::string &defaultValue, std::function<void(bool, const std::string &)> cb) {
-	// TODO
-	cb(false, "");
 }
 
 std::string GetCPUBrandString() {

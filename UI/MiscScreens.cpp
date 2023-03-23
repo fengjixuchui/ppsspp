@@ -29,6 +29,7 @@
 #include "Common/System/Display.h"
 #include "Common/System/NativeApp.h"
 #include "Common/System/System.h"
+#include "Common/System/Request.h"
 #include "Common/Math/curves.h"
 #include "Common/File/VFS/VFS.h"
 
@@ -431,9 +432,7 @@ void HandleCommonMessages(const char *message, const char *value, ScreenManager 
 		auto langScreen = new NewLanguageScreen(sy->T("Language"));
 		langScreen->OnChoice.Add([](UI::EventParams &) {
 			NativeMessageReceived("recreateviews", "");
-			if (host) {
-				host->UpdateUI();
-			}
+			System_Notify(SystemNotification::UI);
 			return UI::EVENT_DONE;
 		});
 		manager->push(langScreen);
@@ -657,7 +656,7 @@ void NewLanguageScreen::OnCompleted(DialogResult result) {
 	g_Config.sLanguageIni = code;
 
 	bool iniLoadedSuccessfully = false;
-	// Allow the lang directory to be overridden for testing purposes (e.g. Android, where it's hard to 
+	// Allow the lang directory to be overridden for testing purposes (e.g. Android, where it's hard to
 	// test new languages without recompiling the entire app, which is a hassle).
 	const Path langOverridePath = GetSysDirectory(DIRECTORY_SYSTEM) / "lang";
 
@@ -840,45 +839,41 @@ void CreditsScreen::CreateViews() {
 
 UI::EventReturn CreditsScreen::OnSupport(UI::EventParams &e) {
 #ifdef __ANDROID__
-	LaunchBrowser("market://details?id=org.ppsspp.ppssppgold");
+	System_LaunchUrl(LaunchUrlType::BROWSER_URL, "market://details?id=org.ppsspp.ppssppgold");
 #else
-	LaunchBrowser("https://www.ppsspp.org/buygold");
+	System_LaunchUrl(LaunchUrlType::BROWSER_URL, "https://www.ppsspp.org/buygold");
 #endif
 	return UI::EVENT_DONE;
 }
 
 UI::EventReturn CreditsScreen::OnTwitter(UI::EventParams &e) {
-#ifdef __ANDROID__
-	System_SendMessage("showTwitter", "PPSSPP_emu");
-#else
-	LaunchBrowser("https://twitter.com/#!/PPSSPP_emu");
-#endif
+	System_LaunchUrl(LaunchUrlType::BROWSER_URL, "https://twitter.com/#!/PPSSPP_emu");
 	return UI::EVENT_DONE;
 }
 
 UI::EventReturn CreditsScreen::OnPPSSPPOrg(UI::EventParams &e) {
-	LaunchBrowser("https://www.ppsspp.org");
+	System_LaunchUrl(LaunchUrlType::BROWSER_URL, "https://www.ppsspp.org");
 	return UI::EVENT_DONE;
 }
 
 UI::EventReturn CreditsScreen::OnPrivacy(UI::EventParams &e) {
-	LaunchBrowser("https://www.ppsspp.org/privacy");
+	System_LaunchUrl(LaunchUrlType::BROWSER_URL, "https://www.ppsspp.org/privacy");
 	return UI::EVENT_DONE;
 }
 
 UI::EventReturn CreditsScreen::OnForums(UI::EventParams &e) {
-	LaunchBrowser("https://forums.ppsspp.org");
+	System_LaunchUrl(LaunchUrlType::BROWSER_URL, "https://forums.ppsspp.org");
 	return UI::EVENT_DONE;
 }
 
 UI::EventReturn CreditsScreen::OnDiscord(UI::EventParams &e) {
-	LaunchBrowser("https://discord.gg/5NJB6dD");
+	System_LaunchUrl(LaunchUrlType::BROWSER_URL, "https://discord.gg/5NJB6dD");
 	return UI::EVENT_DONE;
 }
 
 UI::EventReturn CreditsScreen::OnShare(UI::EventParams &e) {
 	auto cr = GetI18NCategory("PSPCredits");
-	System_SendMessage("sharetext", cr->T("CheckOutPPSSPP", "Check out PPSSPP, the awesome PSP emulator: https://www.ppsspp.org/"));
+	System_ShareText(cr->T("CheckOutPPSSPP", "Check out PPSSPP, the awesome PSP emulator: https://www.ppsspp.org/"));
 	return UI::EVENT_DONE;
 }
 

@@ -24,10 +24,12 @@ SDLJoystick *joystick = NULL;
 
 #include "Common/System/Display.h"
 #include "Common/System/System.h"
+#include "Common/System/Request.h"
 #include "Common/System/NativeApp.h"
 #include "ext/glslang/glslang/Public/ShaderLang.h"
 #include "Common/Data/Format/PNGLoad.h"
 #include "Common/Net/Resolve.h"
+#include "Common/File/FileUtil.h"
 #include "NKCodeFromSDL.h"
 #include "Common/Math/math_util.h"
 #include "Common/GPU/OpenGL/GLRenderManager.h"
@@ -158,54 +160,72 @@ void System_Toast(const char *text) {
 #endif
 }
 
-void ShowKeyboard() {
+void System_ShowKeyboard() {
 	// Irrelevant on PC
 }
 
-void Vibrate(int length_ms) {
+void System_Vibrate(int length_ms) {
 	// Ignore on PC
 }
 
-void System_SendMessage(const char *command, const char *parameter) {
-	if (!strcmp(command, "toggle_fullscreen")) {
+bool System_MakeRequest(SystemRequestType type, int requestId, const std::string &param1, const std::string &param2, int param3) {
+	switch (type) {
+	case SystemRequestType::EXIT_APP:
+	case SystemRequestType::RESTART_APP:  // Not sure how we best do this, but do a clean exit, better than being stuck in a bad state.
+		// Do a clean exit
+		g_QuitRequested = true;
+		return true;
+	case SystemRequestType::COPY_TO_CLIPBOARD:
+		SDL_SetClipboardText(param1.c_str());
+		return true;
+#if PPSSPP_PLATFORM(MAC) || PPSSPP_PLATFORM(IOS)
+	case SystemRequestType::BROWSE_FOR_FILE:
+	{
+		DarwinDirectoryPanelCallback callback = [requestId] (bool success, Path path) {
+			if (success) {
+				g_requestManager.PostSystemSuccess(requestId, path.c_str());
+			} else {
+				g_requestManager.PostSystemFailure(requestId);
+			}
+		};
+		DarwinFileSystemServices services;
+		services.presentDirectoryPanel(callback, /* allowFiles = */ true, /* allowDirectories = */ false);
+		return true;
+	}
+	case SystemRequestType::BROWSE_FOR_FOLDER:
+	{
+		DarwinDirectoryPanelCallback callback = [requestId] (bool success, Path path) {
+			if (success) {
+				g_requestManager.PostSystemSuccess(requestId, path.c_str());
+			} else {
+				g_requestManager.PostSystemFailure(requestId);
+			}
+		};
+		DarwinFileSystemServices services;
+		services.presentDirectoryPanel(callback, /* allowFiles = */ false, /* allowDirectories = */ true);
+		return true;
+	}
+#endif
+	case SystemRequestType::TOGGLE_FULLSCREEN_STATE:
 		g_ToggleFullScreenNextFrame = true;
-		if (strcmp(parameter, "1") == 0) {
+		if (param1 == "1") {
 			g_ToggleFullScreenType = 1;
-		} else if (strcmp(parameter, "0") == 0) {
+		} else if (param1 == "0") {
 			g_ToggleFullScreenType = 0;
 		} else {
 			// Just toggle.
 			g_ToggleFullScreenType = -1;
 		}
-	} else if (!strcmp(command, "finish")) {
-		// Do a clean exit
-		g_QuitRequested = true;
-	} else if (!strcmp(command, "graphics_restart")) {
-		// Not sure how we best do this, but do a clean exit, better than being stuck in a bad state.
-		g_QuitRequested = true;
-	} else if (!strcmp(command, "setclipboardtext")) {
-		SDL_SetClipboardText(parameter);
-	} else if (!strcmp(command, "audio_resetDevice")) {
-		StopSDLAudioDevice();
-		InitSDLAudioDevice();
-    }
-#if PPSSPP_PLATFORM(MAC) || PPSSPP_PLATFORM(IOS)
-    else if (!strcmp(command, "browse_folder")) {
-        DarwinDirectoryPanelCallback callback = [] (Path thePathChosen) {
-            NativeMessageReceived("browse_folder", thePathChosen.c_str());
-        };
-        
-        DarwinFileSystemServices services;
-        services.presentDirectoryPanel(callback, /* allowFiles = */ true, /* allowDirectorites = */ true);
-    }
-#endif
-    
+		return true;
+	default:
+		return false;
+	}
 }
 
 void System_AskForPermission(SystemPermission permission) {}
 PermissionStatus System_GetPermissionStatus(SystemPermission permission) { return PERMISSION_STATUS_GRANTED; }
 
-void OpenDirectory(const char *path) {
+void System_ShowFileInFolder(const char *path) {
 #if PPSSPP_PLATFORM(WINDOWS)
 	SFGAOF flags;
 	PIDLIST_ABSOLUTE pidl = nullptr;
@@ -231,68 +251,53 @@ void OpenDirectory(const char *path) {
 #endif
 }
 
-void LaunchBrowser(const char *url) {
+void System_LaunchUrl(LaunchUrlType urlType, const char *url) {
+	switch (urlType) {
+	case LaunchUrlType::BROWSER_URL:
+	case LaunchUrlType::MARKET_URL:
+	{
 #if PPSSPP_PLATFORM(SWITCH)
-	Uuid uuid = { 0 };
-	WebWifiConfig conf;
-	webWifiCreate(&conf, NULL, url, uuid, 0);
-	webWifiShow(&conf, NULL);
+		Uuid uuid = { 0 };
+		WebWifiConfig conf;
+		webWifiCreate(&conf, NULL, url, uuid, 0);
+		webWifiShow(&conf, NULL);
 #elif defined(MOBILE_DEVICE)
-	INFO_LOG(SYSTEM, "Would have gone to %s but LaunchBrowser is not implemented on this platform", url);
+		INFO_LOG(SYSTEM, "Would have gone to %s but LaunchBrowser is not implemented on this platform", url);
 #elif defined(_WIN32)
-	std::wstring wurl = ConvertUTF8ToWString(url);
-	ShellExecute(NULL, L"open", wurl.c_str(), NULL, NULL, SW_SHOWNORMAL);
+		std::wstring wurl = ConvertUTF8ToWString(url);
+		ShellExecute(NULL, L"open", wurl.c_str(), NULL, NULL, SW_SHOWNORMAL);
 #elif defined(__APPLE__)
-	std::string command = std::string("open ") + url;
-	system(command.c_str());
+		std::string command = std::string("open ") + url;
+		system(command.c_str());
 #else
-	std::string command = std::string("xdg-open ") + url;
-	int err = system(command.c_str());
-	if (err) {
-		INFO_LOG(SYSTEM, "Would have gone to %s but xdg-utils seems not to be installed", url);
-	}
+		std::string command = std::string("xdg-open ") + url;
+		int err = system(command.c_str());
+		if (err) {
+			INFO_LOG(SYSTEM, "Would have gone to %s but xdg-utils seems not to be installed", url);
+		}
 #endif
-}
-
-void LaunchMarket(const char *url) {
-#if PPSSPP_PLATFORM(SWITCH)
-	Uuid uuid = { 0 };
-	WebWifiConfig conf;
-	webWifiCreate(&conf, NULL, url, uuid, 0);
-	webWifiShow(&conf, NULL);
-#elif defined(MOBILE_DEVICE)
-	INFO_LOG(SYSTEM, "Would have gone to %s but LaunchMarket is not implemented on this platform", url);
-#elif defined(_WIN32)
-	std::wstring wurl = ConvertUTF8ToWString(url);
-	ShellExecute(NULL, L"open", wurl.c_str(), NULL, NULL, SW_SHOWNORMAL);
-#elif defined(__APPLE__)
-	std::string command = std::string("open ") + url;
-	system(command.c_str());
-#else
-	std::string command = std::string("xdg-open ") + url;
-	int err = system(command.c_str());
-	if (err) {
-		INFO_LOG(SYSTEM, "Would have gone to %s but xdg-utils seems not to be installed", url);
+		break;
 	}
-#endif
-}
-
-void LaunchEmail(const char *email_address) {
+	case LaunchUrlType::EMAIL_ADDRESS:
+	{
 #if defined(MOBILE_DEVICE)
-	INFO_LOG(SYSTEM, "Would have opened your email client for %s but LaunchEmail is not implemented on this platform", email_address);
+		INFO_LOG(SYSTEM, "Would have opened your email client for %s but LaunchEmail is not implemented on this platform", url);
 #elif defined(_WIN32)
-	std::wstring mailto = std::wstring(L"mailto:") + ConvertUTF8ToWString(email_address);
-	ShellExecute(NULL, L"open", mailto.c_str(), NULL, NULL, SW_SHOWNORMAL);
+		std::wstring mailto = std::wstring(L"mailto:") + ConvertUTF8ToWString(url);
+		ShellExecute(NULL, L"open", mailto.c_str(), NULL, NULL, SW_SHOWNORMAL);
 #elif defined(__APPLE__)
-	std::string command = std::string("open mailto:") + email_address;
-	system(command.c_str());
+		std::string command = std::string("open mailto:") + url;
+		system(command.c_str());
 #else
-	std::string command = std::string("xdg-email ") + email_address;
-	int err = system(command.c_str());
-	if (err) {
-		INFO_LOG(SYSTEM, "Would have gone to %s but xdg-utils seems not to be installed", email_address);
-	}
+		std::string command = std::string("xdg-email ") + url;
+		int err = system(command.c_str());
+		if (err) {
+			INFO_LOG(SYSTEM, "Would have gone to %s but xdg-utils seems not to be installed", url);
+		}
 #endif
+		break;
+	}
+	}
 }
 
 std::string System_GetProperty(SystemProperty prop) {
@@ -427,6 +432,12 @@ float System_GetPropertyFloat(SystemProperty prop) {
 
 bool System_GetPropertyBool(SystemProperty prop) {
 	switch (prop) {
+	case SYSPROP_HAS_OPEN_DIRECTORY:
+#if PPSSPP_PLATFORM(WINDOWS)
+		return true;
+#elif PPSSPP_PLATFORM(MAC) || (PPSSPP_PLATFORM(LINUX) && !PPSSPP_PLATFORM(ANDROID))
+		return true;
+#endif
 	case SYSPROP_HAS_BACK_BUTTON:
 		return true;
 	case SYSPROP_APP_GOLD:
@@ -439,9 +450,25 @@ bool System_GetPropertyBool(SystemProperty prop) {
 		return true;
 	case SYSPROP_SUPPORTS_OPEN_FILE_IN_EDITOR:
 		return true;  // FileUtil.cpp: OpenFileInEditor
-
+#if PPSSPP_PLATFORM(MAC)
+	case SYSPROP_HAS_FOLDER_BROWSER:
+	case SYSPROP_HAS_FILE_BROWSER:
+		return true;
+#endif
 	default:
 		return false;
+	}
+}
+
+void System_Notify(SystemNotification notification) {
+	switch (notification) {
+	case SystemNotification::AUDIO_RESET_DEVICE:
+		StopSDLAudioDevice();
+		InitSDLAudioDevice();
+		break;
+
+	default:
+		break;
 	}
 }
 

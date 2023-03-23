@@ -41,6 +41,7 @@ using namespace std::placeholders;
 #include "Common/System/Display.h"
 #include "Common/System/System.h"
 #include "Common/System/NativeApp.h"
+#include "Common/System/Request.h"
 #include "Common/Profiler/Profiler.h"
 #include "Common/Math/curves.h"
 #include "Common/TimeUtil.h"
@@ -210,7 +211,6 @@ bool EmuScreen::bootAllowStorage(const Path &filename) {
 	case PERMISSION_STATUS_DENIED:
 		stopRender_ = true;
 		screenManager()->switchScreen(new MainScreen());
-		System_SendMessage("event", "failstartgame");
 		return false;
 
 	case PERMISSION_STATUS_PENDING:
@@ -243,7 +243,6 @@ void EmuScreen::bootGame(const Path &filename) {
 			if (invalid_) {
 				errorMessage_ = error_string;
 				ERROR_LOG(BOOT, "%s", errorMessage_.c_str());
-				System_SendMessage("event", "failstartgame");
 				return;
 			}
 			bootComplete();
@@ -328,7 +327,6 @@ void EmuScreen::bootGame(const Path &filename) {
 		invalid_ = true;
 		errorMessage_ = error_string;
 		ERROR_LOG(BOOT, "%s", errorMessage_.c_str());
-		System_SendMessage("event", "failstartgame");
 	}
 
 	if (PSP_CoreParameter().compat.flags().RequireBufferedRendering && g_Config.bSkipBufferEffects) {
@@ -354,8 +352,8 @@ void EmuScreen::bootGame(const Path &filename) {
 
 void EmuScreen::bootComplete() {
 	UpdateUIState(UISTATE_INGAME);
-	host->BootDone();
-	host->UpdateDisassembly();
+	System_Notify(SystemNotification::BOOT_DONE);
+	System_Notify(SystemNotification::DISASSEMBLY);
 
 	NOTICE_LOG(BOOT, "Loading %s...", PSP_CoreParameter().fileToStart.c_str());
 	autoLoad();
@@ -392,8 +390,6 @@ void EmuScreen::bootComplete() {
 #endif
 	}
 
-	System_SendMessage("event", "startgame");
-
 	saveStateSlot_ = SaveState::GetCurrentSlot();
 
 	loadingViewColor_->Divert(0x00FFFFFF, 0.2f);
@@ -429,7 +425,6 @@ void EmuScreen::dialogFinished(const Screen *dialog, DialogResult result) {
 	// DR_YES means a message sent to PauseMenu by NativeMessageReceived.
 	if (result == DR_OK || quit_) {
 		screenManager()->switchScreen(new MainScreen());
-		System_SendMessage("event", "exitgame");
 		quit_ = false;
 	}
 	// Returning to the PauseScreen, unless we're stepping, means we should go back to controls.
@@ -447,7 +442,7 @@ static void AfterSaveStateAction(SaveState::Status status, const std::string &me
 static void AfterStateBoot(SaveState::Status status, const std::string &message, void *ignored) {
 	AfterSaveStateAction(status, message, ignored);
 	Core_EnableStepping(false);
-	host->UpdateDisassembly();
+	System_Notify(SystemNotification::DISASSEMBLY);
 }
 
 void EmuScreen::sendMessage(const char *message, const char *value) {
@@ -460,19 +455,18 @@ void EmuScreen::sendMessage(const char *message, const char *value) {
 		bootPending_ = false;
 		stopRender_ = true;
 		invalid_ = true;
-		host->UpdateDisassembly();
+		System_Notify(SystemNotification::DISASSEMBLY);
 	} else if (!strcmp(message, "reset")) {
 		PSP_Shutdown();
 		bootPending_ = true;
 		invalid_ = true;
-		host->UpdateDisassembly();
+		System_Notify(SystemNotification::DISASSEMBLY);
 
 		std::string resetError;
 		if (!PSP_InitStart(PSP_CoreParameter(), &resetError)) {
 			ERROR_LOG(LOADER, "Error resetting: %s", resetError.c_str());
 			stopRender_ = true;
 			screenManager()->switchScreen(new MainScreen());
-			System_SendMessage("event", "failstartgame");
 			return;
 		}
 	} else if (!strcmp(message, "boot")) {
@@ -676,7 +670,7 @@ void EmuScreen::onVKeyDown(int virtualKeyCode) {
 		NativeMessageReceived("savestate_displayslot", "");
 		break;
 	case VIRTKEY_TOGGLE_FULLSCREEN:
-		System_SendMessage("toggle_fullscreen", "");
+		System_ToggleFullscreenState("");
 		break;
 
 	case VIRTKEY_SCREENSHOT:
@@ -1300,7 +1294,7 @@ static void DrawFPS(UIContext *ctx, const Bounds &bounds) {
 			snprintf(fpsbuf, sizeof(fpsbuf), "%s Speed: %0.1f%%", fpsbuf, vps / (59.94f / 100.0f));
 		}
 	}
-	
+
 #ifdef CAN_DISPLAY_CURRENT_BATTERY_CAPACITY
 	if (g_Config.iShowStatusFlags & (int)ShowStatusFlags::BATTERY_PERCENT) {
 		snprintf(fpsbuf, sizeof(fpsbuf), "%s Battery: %d%%", fpsbuf, getCurrentBatteryCapacity());
