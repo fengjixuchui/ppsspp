@@ -41,8 +41,8 @@
 #include "Common/TimeUtil.h"
 #include "Common/StringUtils.h"
 #include "Core/System.h"
-#include "Core/Host.h"
 #include "Core/Reporting.h"
+#include "Core/HLE/sceCtrl.h"
 #include "Core/ELF/PBPReader.h"
 #include "Core/ELF/ParamSFO.h"
 #include "Core/Util/GameManager.h"
@@ -158,7 +158,7 @@ public:
 		std::vector<int> pspKeys;
 		bool showInfo = false;
 
-		if (KeyMap::KeyToPspButton(key.deviceId, key.keyCode, &pspKeys)) {
+		if (KeyMap::InputMappingToPspButton(InputMapping(key.deviceId, key.keyCode), &pspKeys)) {
 			for (auto it = pspKeys.begin(), end = pspKeys.end(); it != end; ++it) {
 				// If the button mapped to triangle, then show the info.
 				if (HasFocus() && (key.flags & KEY_UP) && *it == CTRL_TRIANGLE) {
@@ -541,8 +541,7 @@ UI::EventReturn GameBrowser::LastClick(UI::EventParams &e) {
 
 UI::EventReturn GameBrowser::BrowseClick(UI::EventParams &e) {
 	auto mm = GetI18NCategory("MainMenu");
-	System_BrowseForFolder(mm->T("Choose folder"), [this](const std::string &value, int) {
-		std::string filename = value;
+	System_BrowseForFolder(mm->T("Choose folder"), [this](const std::string &filename, int) {
 		this->SetPath(Path(filename));
 	});
 	return UI::EVENT_DONE;
@@ -1256,6 +1255,17 @@ void MainScreen::sendMessage(const char *message, const char *value) {
 	if (screenManager()->topScreen() == this) {
 		if (!strcmp(message, "boot")) {
 			LaunchFile(screenManager(), Path(std::string(value)));
+		}
+		if (!strcmp(message, "browse_fileSelect")) {
+			INFO_LOG(SYSTEM, "Attempting to launch: '%s'", value);
+			LaunchFile(screenManager(), Path(std::string(value)));
+		}
+		if (!strcmp(message, "browse_folderSelect")) {
+			std::string filename = value;
+			INFO_LOG(SYSTEM, "Got folder: '%s'", filename.c_str());;
+			// switch to the 'Games' tab which has the file browser
+			tabHolder_->SetCurrentTab(1);
+			gameBrowsers_[1]->SetPath(Path(filename));
 		}
 	}
 	if (!strcmp(message, "permission_granted") && !strcmp(value, "storage")) {

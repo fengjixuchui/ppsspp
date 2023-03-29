@@ -265,10 +265,11 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClInclude Include="..\..\UI\AudioCommon.h" />
     <ClInclude Include="..\..\UI\BackgroundAudio.h" />
     <ClInclude Include="..\..\UI\ChatScreen.h" />
-    <ClInclude Include="..\..\UI\ComboKeyMappingScreen.h" />
     <ClInclude Include="..\..\UI\ControlMappingScreen.h" />
+    <ClInclude Include="..\..\UI\CustomButtonMappingScreen.h" />
     <ClInclude Include="..\..\UI\CwCheatScreen.h" />
     <ClInclude Include="..\..\UI\DevScreens.h" />
     <ClInclude Include="..\..\UI\DiscordIntegration.h" />
@@ -279,7 +280,6 @@
     <ClInclude Include="..\..\UI\GameScreen.h" />
     <ClInclude Include="..\..\UI\GameSettingsScreen.h" />
     <ClInclude Include="..\..\UI\GPUDriverTestScreen.h" />
-    <ClInclude Include="..\..\UI\HostTypes.h" />
     <ClInclude Include="..\..\UI\InstallZipScreen.h" />
     <ClInclude Include="..\..\UI\JoystickHistoryView.h" />
     <ClInclude Include="..\..\UI\Theme.h" />
@@ -300,10 +300,11 @@
     <ClInclude Include="targetver.h" />
   </ItemGroup>
   <ItemGroup>
+    <ClCompile Include="..\..\UI\AudioCommon.cpp" />
     <ClCompile Include="..\..\UI\BackgroundAudio.cpp" />
     <ClCompile Include="..\..\UI\ChatScreen.cpp" />
-    <ClCompile Include="..\..\UI\ComboKeyMappingScreen.cpp" />
     <ClCompile Include="..\..\UI\ControlMappingScreen.cpp" />
+    <ClCompile Include="..\..\UI\CustomButtonMappingScreen.cpp" />
     <ClCompile Include="..\..\UI\CwCheatScreen.cpp" />
     <ClCompile Include="..\..\UI\DevScreens.cpp" />
     <ClCompile Include="..\..\UI\DiscordIntegration.cpp" />

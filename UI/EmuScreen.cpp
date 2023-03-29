@@ -55,7 +55,6 @@ using namespace std::placeholders;
 #include "Core/CoreParameter.h"
 #include "Core/Core.h"
 #include "Core/CwCheat.h"
-#include "Core/Host.h"
 #include "Core/KeyMap.h"
 #include "Core/MemFault.h"
 #include "Core/Reporting.h"
@@ -179,6 +178,13 @@ EmuScreen::EmuScreen(const Path &filename)
 	controlMapper_.SetCallbacks(
 		std::bind(&EmuScreen::onVKeyDown, this, _1),
 		std::bind(&EmuScreen::onVKeyUp, this, _1),
+		[](int pspKey, bool down) {
+			if (down) {
+				__CtrlButtonDown(pspKey);
+			} else {
+				__CtrlButtonUp(pspKey);
+			}
+		},
 		&SetPSPAnalog);
 
 	// Make sure we don't leave it at powerdown after the last game.
@@ -306,7 +312,6 @@ void EmuScreen::bootGame(const Path &filename) {
 	coreParam.mountIso.clear();
 	coreParam.mountRoot.clear();
 	coreParam.startBreak = !g_Config.bAutoRun;
-	coreParam.printfEmuLog = false;
 	coreParam.headLess = false;
 
 	if (g_Config.iInternalResolution == 0) {
@@ -331,17 +336,17 @@ void EmuScreen::bootGame(const Path &filename) {
 
 	if (PSP_CoreParameter().compat.flags().RequireBufferedRendering && g_Config.bSkipBufferEffects) {
 		auto gr = GetI18NCategory("Graphics");
-		host->NotifyUserMessage(gr->T("BufferedRenderingRequired", "Warning: This game requires Rendering Mode to be set to Buffered."), 15.0f);
+		System_NotifyUserMessage(gr->T("BufferedRenderingRequired", "Warning: This game requires Rendering Mode to be set to Buffered."), 15.0f);
 	}
 
 	if (PSP_CoreParameter().compat.flags().RequireBlockTransfer && g_Config.bSkipGPUReadbacks) {
 		auto gr = GetI18NCategory("Graphics");
-		host->NotifyUserMessage(gr->T("BlockTransferRequired", "Warning: This game requires Simulate Block Transfer Mode to be set to On."), 15.0f);
+		System_NotifyUserMessage(gr->T("BlockTransferRequired", "Warning: This game requires Simulate Block Transfer Mode to be set to On."), 15.0f);
 	}
 
 	if (PSP_CoreParameter().compat.flags().RequireDefaultCPUClock && g_Config.iLockedCPUSpeed != 0) {
 		auto gr = GetI18NCategory("Graphics");
-		host->NotifyUserMessage(gr->T("DefaultCPUClockRequired", "Warning: This game requires the CPU clock to be set to default."), 15.0f);
+		System_NotifyUserMessage(gr->T("DefaultCPUClockRequired", "Warning: This game requires the CPU clock to be set to default."), 15.0f);
 	}
 
 	loadingViewColor_->Divert(0xFFFFFFFF, 0.75f);
@@ -939,6 +944,8 @@ void EmuScreen::CreateViews() {
 		}
 		return EVENT_DONE;
 	});
+	// Will become visible along with the loadingView.
+	loadingBG->SetVisibility(V_INVISIBLE);
 }
 
 UI::EventReturn EmuScreen::OnDevTools(UI::EventParams &params) {
@@ -1266,7 +1273,7 @@ Invalid / Unknown (%d)
 static void DrawAudioDebugStats(UIContext *ctx, const Bounds &bounds) {
 	FontID ubuntu24("UBUNTU24");
 	char statbuf[4096] = { 0 };
-	__AudioGetDebugStats(statbuf, sizeof(statbuf));
+	System_AudioGetDebugStats(statbuf, sizeof(statbuf));
 
 	ctx->Flush();
 	ctx->BindFontTexture();

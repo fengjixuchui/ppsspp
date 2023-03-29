@@ -28,6 +28,7 @@
 #include "Common/Math/lin/matrix4x4.h"
 #include "Common/Math/math_util.h"
 #include "Common/System/Display.h"
+#include "Common/System/System.h"
 #include "Common/VR/PPSSPPVR.h"
 #include "Common/CommonTypes.h"
 #include "Common/StringUtils.h"
@@ -36,7 +37,6 @@
 #include "Core/Core.h"
 #include "Core/CoreParameter.h"
 #include "Core/Debugger/MemBlockInfo.h"
-#include "Core/Host.h"
 #include "Core/MIPS/MIPS.h"
 #include "GPU/Common/DrawEngineCommon.h"
 #include "GPU/Common/FramebufferManagerCommon.h"
@@ -1799,8 +1799,8 @@ bool FramebufferManagerCommon::NotifyFramebufferCopy(u32 src, u32 dst, int size,
 
 	VirtualFramebuffer *dstBuffer = nullptr;
 	VirtualFramebuffer *srcBuffer = nullptr;
-	bool ignoreDstBuffer = flags & GPUCopyFlag::FORCE_DST_MEM;
-	bool ignoreSrcBuffer = flags & (GPUCopyFlag::FORCE_SRC_MEM | GPUCopyFlag::MEMSET);
+	bool ignoreDstBuffer = flags & GPUCopyFlag::FORCE_DST_MATCH_MEM;
+	bool ignoreSrcBuffer = flags & (GPUCopyFlag::FORCE_SRC_MATCH_MEM | GPUCopyFlag::MEMSET);
 	RasterChannel channel = flags & GPUCopyFlag::DEPTH_REQUESTED ? RASTER_DEPTH : RASTER_COLOR;
 
 	u32 dstY = (u32)-1;
@@ -1892,7 +1892,7 @@ bool FramebufferManagerCommon::NotifyFramebufferCopy(u32 src, u32 dst, int size,
 	if (!dstBuffer && srcBuffer && channel != RASTER_DEPTH) {
 		// Note - if we're here, we're in a memcpy, not a block transfer. Not allowing IntraVRAMBlockTransferAllowCreateFB.
 		// Technically, that makes BlockTransferAllowCreateFB a bit of a misnomer.
-		if (PSP_CoreParameter().compat.flags().BlockTransferAllowCreateFB) {
+		if (PSP_CoreParameter().compat.flags().BlockTransferAllowCreateFB && !(flags & GPUCopyFlag::DISALLOW_CREATE_VFB)) {
 			dstBuffer = CreateRAMFramebuffer(dst, srcBuffer->width, srcBuffer->height, srcBuffer->fb_stride, srcBuffer->fb_format);
 			dstY = 0;
 		}
@@ -2403,7 +2403,7 @@ bool FramebufferManagerCommon::NotifyBlockTransferBefore(u32 dstBasePtr, int dst
 				dstBasePtr, dstRect.x_bytes / bpp, dstRect.y, dstStride);
 			FlushBeforeCopy();
 			// Some backends can handle blitting within a framebuffer. Others will just have to deal with it or ignore it, apparently.
-			BlitFramebuffer(dstRect.vfb, dstX, dstY, srcRect.vfb, srcX, srcY, dstRect.w_bytes / bpp, dstRect.h / bpp, bpp, dstRect.channel, "Blit_IntraBufferBlockTransfer");
+			BlitFramebuffer(dstRect.vfb, dstX, dstY, srcRect.vfb, srcX, srcY, dstRect.w_bytes / bpp, dstRect.h, bpp, dstRect.channel, "Blit_IntraBufferBlockTransfer");
 			RebindFramebuffer("rebind after intra block transfer");
 			SetColorUpdated(dstRect.vfb, skipDrawReason);
 			return true;  // Skip the memory copy.
@@ -2664,7 +2664,7 @@ void FramebufferManagerCommon::ShowScreenResolution() {
 	messageStream << gr->T("Window Size") << ": ";
 	messageStream << PSP_CoreParameter().pixelWidth << "x" << PSP_CoreParameter().pixelHeight;
 
-	host->NotifyUserMessage(messageStream.str(), 2.0f, 0xFFFFFF, "resize");
+	System_NotifyUserMessage(messageStream.str(), 2.0f, 0xFFFFFF, "resize");
 	INFO_LOG(SYSTEM, "%s", messageStream.str().c_str());
 }
 

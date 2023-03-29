@@ -64,18 +64,33 @@ SDLJoystick *joystick = NULL;
 #include "UI/DarwinFileSystemServices.h"
 #endif
 
+#if PPSSPP_PLATFORM(MAC)
+#include "CocoaBarItems.h"
+#endif
+
 GlobalUIState lastUIState = UISTATE_MENU;
 GlobalUIState GetUIState();
 
-static bool g_ToggleFullScreenNextFrame = false;
-static int g_ToggleFullScreenType;
 static int g_QuitRequested = 0;
 
 static int g_DesktopWidth = 0;
 static int g_DesktopHeight = 0;
 static float g_RefreshRate = 60.f;
+static int g_sampleRate = 44100;
 
 static SDL_AudioSpec g_retFmt;
+
+// Window state to be transferred to the main SDL thread.
+static std::mutex g_mutexWindow;
+struct WindowState {
+	std::string title;
+	bool toggleFullScreenNextFrame;
+	int toggleFullScreenType;
+	bool clipboardDataAvailable;
+	std::string clipboardString;
+	bool update;
+};
+static WindowState g_windowState;
 
 int getDisplayNumber(void) {
 	int displayNumber = 0;
@@ -92,7 +107,7 @@ int getDisplayNumber(void) {
 }
 
 void sdl_mixaudio_callback(void *userdata, Uint8 *stream, int len) {
-	NativeMix((short *)stream, len / (2 * 2));
+	NativeMix((short *)stream, len / (2 * 2), g_sampleRate);
 }
 
 static SDL_AudioDeviceID audioDev = 0;
@@ -101,7 +116,7 @@ static SDL_AudioDeviceID audioDev = 0;
 static void InitSDLAudioDevice(const std::string &name = "") {
 	SDL_AudioSpec fmt;
 	memset(&fmt, 0, sizeof(fmt));
-	fmt.freq = 44100;
+	fmt.freq = g_sampleRate;
 	fmt.format = AUDIO_S16;
 	fmt.channels = 2;
 	fmt.samples = 256;
@@ -175,9 +190,6 @@ bool System_MakeRequest(SystemRequestType type, int requestId, const std::string
 		// Do a clean exit
 		g_QuitRequested = true;
 		return true;
-	case SystemRequestType::COPY_TO_CLIPBOARD:
-		SDL_SetClipboardText(param1.c_str());
-		return true;
 #if PPSSPP_PLATFORM(MAC) || PPSSPP_PLATFORM(IOS)
 	case SystemRequestType::BROWSE_FOR_FILE:
 	{
@@ -207,16 +219,35 @@ bool System_MakeRequest(SystemRequestType type, int requestId, const std::string
 	}
 #endif
 	case SystemRequestType::TOGGLE_FULLSCREEN_STATE:
-		g_ToggleFullScreenNextFrame = true;
+	{
+		std::lock_guard<std::mutex> guard(g_mutexWindow);
+		g_windowState.update = true;
+		g_windowState.toggleFullScreenNextFrame = true;
 		if (param1 == "1") {
-			g_ToggleFullScreenType = 1;
+			g_windowState.toggleFullScreenType = 1;
 		} else if (param1 == "0") {
-			g_ToggleFullScreenType = 0;
+			g_windowState.toggleFullScreenType = 0;
 		} else {
 			// Just toggle.
-			g_ToggleFullScreenType = -1;
+			g_windowState.toggleFullScreenType = -1;
 		}
 		return true;
+	}
+	case SystemRequestType::SET_WINDOW_TITLE:
+	{
+		std::lock_guard<std::mutex> guard(g_mutexWindow);
+		g_windowState.title = param1.empty() ? "PPSSPP " : param1;
+		g_windowState.update = true;
+		return true;
+	}
+	case SystemRequestType::COPY_TO_CLIPBOARD:
+	{
+		std::lock_guard<std::mutex> guard(g_mutexWindow);
+		g_windowState.clipboardString = param1;
+		g_windowState.clipboardDataAvailable = true;
+		g_windowState.update = true;
+		return true;
+	}
 	default:
 		return false;
 	}
@@ -495,20 +526,27 @@ static float parseFloat(const char *str) {
 	}
 }
 
-void ToggleFullScreenIfFlagSet(SDL_Window *window) {
-	if (g_ToggleFullScreenNextFrame) {
-		g_ToggleFullScreenNextFrame = false;
+void UpdateWindowState(SDL_Window *window) {
+	SDL_SetWindowTitle(window, g_windowState.title.c_str());
+	if (g_windowState.toggleFullScreenNextFrame) {
+		g_windowState.toggleFullScreenNextFrame = false;
 
 		Uint32 window_flags = SDL_GetWindowFlags(window);
-		if (g_ToggleFullScreenType == -1) {
+		if (g_windowState.toggleFullScreenType == -1) {
 			window_flags ^= SDL_WINDOW_FULLSCREEN_DESKTOP;
-		} else if (g_ToggleFullScreenType == 1) {
+		} else if (g_windowState.toggleFullScreenType == 1) {
 			window_flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
 		} else {
 			window_flags &= ~SDL_WINDOW_FULLSCREEN_DESKTOP;
 		}
 		SDL_SetWindowFullscreen(window, window_flags);
 	}
+	if (g_windowState.clipboardDataAvailable) {
+		SDL_SetClipboardText(g_windowState.clipboardString.c_str());
+		g_windowState.clipboardDataAvailable = false;
+		g_windowState.clipboardString.clear();
+	}
+	g_windowState.update = false;
 }
 
 enum class EmuThreadState {
@@ -598,7 +636,6 @@ int main(int argc, char *argv[]) {
 	SDL_version linked;
 	int set_xres = -1;
 	int set_yres = -1;
-	int w = 0, h = 0;
 	bool portrait = false;
 	bool set_ipad = false;
 	float set_dpi = 1.0f;
@@ -733,9 +770,6 @@ int main(int argc, char *argv[]) {
 		dpi_scale = set_dpi;
 	}
 
-	g_display.dp_xres = (float)g_display.pixel_xres * dpi_scale;
-	g_display.dp_yres = (float)g_display.pixel_yres * dpi_scale;
-
 	// Mac / Linux
 	char path[2048];
 #if PPSSPP_PLATFORM(SWITCH)
@@ -771,6 +805,23 @@ int main(int argc, char *argv[]) {
 
 	int x = SDL_WINDOWPOS_UNDEFINED_DISPLAY(getDisplayNumber());
 	int y = SDL_WINDOWPOS_UNDEFINED;
+	int w = g_display.pixel_xres;
+	int h = g_display.pixel_yres;
+
+	if (!g_Config.bFullScreen) {
+		if (g_Config.iWindowX != -1)
+			x = g_Config.iWindowX;
+		if (g_Config.iWindowY != -1)
+			y = g_Config.iWindowY;
+		if (g_Config.iWindowWidth > 0)
+			w = g_Config.iWindowWidth;
+		if (g_Config.iWindowHeight > 0)
+			h = g_Config.iWindowHeight;
+	}
+	g_display.pixel_xres = w;
+	g_display.pixel_yres = h;
+	g_display.dp_xres = (float)g_display.pixel_xres * dpi_scale;
+	g_display.dp_yres = (float)g_display.pixel_yres * dpi_scale;
 
 	g_display.pixel_in_dps_x = (float)g_display.pixel_xres / g_display.dp_xres;
 	g_display.pixel_in_dps_y = (float)g_display.pixel_yres / g_display.dp_yres;
@@ -778,7 +829,7 @@ int main(int argc, char *argv[]) {
 	g_display.dpi_scale_y = g_display.dp_yres / (float)g_display.pixel_yres;
 	g_display.dpi_scale_real_x = g_display.dpi_scale_x;
 	g_display.dpi_scale_real_y = g_display.dpi_scale_y;
-	g_display.Print();
+	// g_display.Print();
 
 	GraphicsContext *graphicsContext = nullptr;
 	SDL_Window *window = nullptr;
@@ -786,20 +837,20 @@ int main(int argc, char *argv[]) {
 	std::string error_message;
 	if (g_Config.iGPUBackend == (int)GPUBackend::OPENGL) {
 		SDLGLGraphicsContext *ctx = new SDLGLGraphicsContext();
-		if (ctx->Init(window, x, y, mode, &error_message) != 0) {
+		if (ctx->Init(window, x, y, w, h, mode, &error_message) != 0) {
 			printf("GL init error '%s'\n", error_message.c_str());
 		}
 		graphicsContext = ctx;
 #if !PPSSPP_PLATFORM(SWITCH)
 	} else if (g_Config.iGPUBackend == (int)GPUBackend::VULKAN) {
 		SDLVulkanGraphicsContext *ctx = new SDLVulkanGraphicsContext();
-		if (!ctx->Init(window, x, y, mode | SDL_WINDOW_VULKAN, &error_message)) {
+		if (!ctx->Init(window, x, y, w, h, mode | SDL_WINDOW_VULKAN, &error_message)) {
 			printf("Vulkan init error '%s' - falling back to GL\n", error_message.c_str());
 			g_Config.iGPUBackend = (int)GPUBackend::OPENGL;
 			SetGPUBackend((GPUBackend)g_Config.iGPUBackend);
 			delete ctx;
 			SDLGLGraphicsContext *glctx = new SDLGLGraphicsContext();
-			glctx->Init(window, x, y, mode, &error_message);
+			glctx->Init(window, x, y, w, h, mode, &error_message);
 			graphicsContext = glctx;
 		} else {
 			graphicsContext = ctx;
@@ -871,6 +922,12 @@ int main(int argc, char *argv[]) {
 	int mouseWheelMovedDownFrames = 0;
 	bool mouseCaptured = false;
 	bool windowHidden = false;
+	
+#if PPSSPP_PLATFORM(MAC)
+	// setup menu items for macOS
+	initBarItemsForApp();
+#endif
+	
 	while (true) {
 		double startTime = time_now_d();
 
@@ -929,11 +986,28 @@ int main(int argc, char *argv[]) {
 						g_Config.iForceFullScreen = -1;
 					}
 
+					if (!g_Config.bFullScreen) {
+						g_Config.iWindowWidth = new_width;
+						g_Config.iWindowHeight = new_height;
+					}
 					// Hide/Show cursor correctly toggling fullscreen
 					if (lastUIState == UISTATE_INGAME && fullscreen && !g_Config.bShowTouchControls) {
 						SDL_ShowCursor(SDL_DISABLE);
 					} else if (lastUIState != UISTATE_INGAME || !fullscreen) {
 						SDL_ShowCursor(SDL_ENABLE);
+					}
+					break;
+				}
+
+				case SDL_WINDOWEVENT_MOVED:
+				{
+					int x = event.window.data1;
+					int y = event.window.data2;
+					Uint32 window_flags = SDL_GetWindowFlags(window);
+					bool fullscreen = (window_flags & SDL_WINDOW_FULLSCREEN);
+					if (!fullscreen) {
+						g_Config.iWindowX = x;
+						g_Config.iWindowY = y;
 					}
 					break;
 				}
@@ -1247,7 +1321,13 @@ int main(int argc, char *argv[]) {
 
 		graphicsContext->SwapBuffers();
 
-		ToggleFullScreenIfFlagSet(window);
+
+		{
+			std::lock_guard<std::mutex> guard(g_mutexWindow);
+			if (g_windowState.update) {
+				UpdateWindowState(window);
+			}
+		}
 
 		// Simple throttling to not burn the GPU in the menu.
 		if (GetUIState() != UISTATE_INGAME || !PSP_IsInited() || renderThreadPaused) {

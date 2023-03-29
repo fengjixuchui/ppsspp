@@ -14,6 +14,7 @@
 
 #include "Common/Profiler/Profiler.h"
 #include "Common/System/NativeApp.h"
+#include "Common/System/Request.h"
 #include "Common/System/System.h"
 
 #include "Common/CommonWindows.h"
@@ -37,19 +38,20 @@
 #include "Core/System.h"
 #include "Core/WebServer.h"
 #include "Core/HLE/sceUtility.h"
-#include "Core/Host.h"
 #include "Core/SaveState.h"
 #include "GPU/Common/FramebufferManagerCommon.h"
 #include "Log.h"
 #include "LogManager.h"
 
 #include "Compare.h"
-#include "StubHost.h"
+#include "HeadlessHost.h"
 #if defined(_WIN32)
 #include "WindowsHeadlessHost.h"
 #elif defined(SDL)
 #include "SDLHeadlessHost.h"
 #endif
+
+static HeadlessHost *g_headlessHost;
 
 #if PPSSPP_PLATFORM(ANDROID)
 JNIEnv *getEnv() {
@@ -115,10 +117,31 @@ bool System_GetPropertyBool(SystemProperty prop) {
 	}
 }
 void System_Notify(SystemNotification notification) {}
-bool System_MakeRequest(SystemRequestType type, int requestId, const std::string &param1, const std::string &param2, int param3) { return false; }
+void System_PostUIMessage(const std::string &message, const std::string &param) {}
+void System_NotifyUserMessage(const std::string &message, float duration, u32 color, const char *id) {}
+bool System_MakeRequest(SystemRequestType type, int requestId, const std::string &param1, const std::string &param2, int param3) {
+	switch (type) {
+	case SystemRequestType::SEND_DEBUG_OUTPUT:
+		if (g_headlessHost) {
+			g_headlessHost->SendDebugOutput(param1);
+			return true;
+		}
+		return false;
+	case SystemRequestType::SEND_DEBUG_SCREENSHOT:
+		if (g_headlessHost) {
+			g_headlessHost->SendDebugScreenshot((const u8 *)param1.data(), (uint32_t)(param1.size() / param3), param3);
+			return true;
+		}
+		return false;
+	}
+	return false;
+}
 void System_InputBoxGetString(const std::string &title, const std::string &defaultValue, std::function<void(bool, const std::string &)> cb) { cb(false, ""); }
 void System_AskForPermission(SystemPermission permission) {}
 PermissionStatus System_GetPermissionStatus(SystemPermission permission) { return PERMISSION_STATUS_GRANTED; }
+void System_AudioGetDebugStats(char *buf, size_t bufSize) { if (buf) buf[0] = '\0'; }
+void System_AudioClear() {}
+void System_AudioPushSamples(const s32 *audio, int numSamples) {}
 
 int printUsage(const char *progname, const char *reason)
 {
@@ -178,7 +201,7 @@ bool RunAutoTest(HeadlessHost *headlessHost, CoreParameter &coreParameter, const
 
 	std::string output;
 	if (opt.compare || opt.bench)
-		coreParameter.collectEmuLog = &output;
+		coreParameter.collectDebugOutput = &output;
 
 	std::string error_string;
 	if (!PSP_InitStart(coreParameter, &error_string)) {
@@ -233,7 +256,7 @@ bool RunAutoTest(HeadlessHost *headlessHost, CoreParameter &coreParameter, const
 			if (!opt.bench) {
 				printf("%s", output.c_str());
 
-				host->SendDebugOutput("TIMEOUT\n");
+				System_SendDebugOutput("TIMEOUT\n");
 				TeamCityPrint("testFailed name='%s' message='Test timeout'", currentTestName.c_str());
 				GitHubActionsPrint("error", "Test timeout for %s", currentTestName.c_str());
 			}
@@ -409,11 +432,11 @@ int main(int argc, const char* argv[])
 	g_threadManager.Init(cpu_info.num_cores, cpu_info.logical_cpu_count);
 
 	HeadlessHost *headlessHost = getHost(gpuCore);
-	host = headlessHost;
+	g_headlessHost = headlessHost;
 
 	std::string error_string;
 	GraphicsContext *graphicsContext = nullptr;
-	bool glWorking = ((HeadlessHost *)host)->InitGraphics(&error_string, &graphicsContext, gpuCore);
+	bool glWorking = headlessHost->InitGraphics(&error_string, &graphicsContext, gpuCore);
 
 	CoreParameter coreParameter;
 	coreParameter.cpuCore = cpuCore;
@@ -423,7 +446,6 @@ int main(int argc, const char* argv[])
 	coreParameter.mountIso = mountIso ? Path(std::string(mountIso)) : Path();
 	coreParameter.mountRoot = mountRoot ? Path(std::string(mountRoot)) : Path();
 	coreParameter.startBreak = false;
-	coreParameter.printfEmuLog = !testOptions.compare;
 	coreParameter.headLess = true;
 	coreParameter.renderScaleFactor = 1;
 	coreParameter.renderWidth = 480;
@@ -500,6 +522,7 @@ int main(int argc, const char* argv[])
 	if (screenshotFilename)
 		headlessHost->SetComparisonScreenshot(Path(std::string(screenshotFilename)), testOptions.maxScreenshotError);
 	headlessHost->SetWriteFailureScreenshot(!teamCityMode && !getenv("GITHUB_ACTIONS") && !testOptions.bench);
+	headlessHost->SetWriteDebugOutput(!testOptions.compare && !testOptions.bench);
 
 #if PPSSPP_PLATFORM(ANDROID)
 	// For some reason the debugger installs it with this name?
@@ -577,10 +600,10 @@ int main(int argc, const char* argv[])
 		ShutdownWebServer();
 	}
 
-	 ((HeadlessHost *)host)->ShutdownGraphics();
-	delete host;
-	host = nullptr;
+	headlessHost->ShutdownGraphics();
+	delete headlessHost;
 	headlessHost = nullptr;
+	g_headlessHost = nullptr;
 
 	g_VFS.Clear();
 	LogManager::Shutdown();

@@ -29,6 +29,7 @@
 #include "Common/Serialize/SerializeMap.h"
 #include "Common/Serialize/SerializeSet.h"
 #include "Common/StringUtils.h"
+#include "Common/System/Request.h"
 #include "Core/Core.h"
 #include "Core/Config.h"
 #include "Core/ConfigValues.h"
@@ -37,7 +38,6 @@
 #include "Core/MemMapHelpers.h"
 #include "Core/System.h"
 #include "Core/HDRemaster.h"
-#include "Core/Host.h"
 #include "Core/SaveState.h"
 #include "Core/HLE/HLE.h"
 #include "Core/HLE/HLEHelperThread.h"
@@ -2012,15 +2012,10 @@ static u32 sceIoDevctl(const char *name, int cmd, u32 argAddr, int argLen, u32 o
 		case EMULATOR_DEVCTL__SEND_OUTPUT:
 			{
 				std::string data(Memory::GetCharPointer(argAddr), argLen);
-				if (PSP_CoreParameter().printfEmuLog) {
-					host->SendDebugOutput(data);
-				} else {
-					if (PSP_CoreParameter().collectEmuLog) {
-						*PSP_CoreParameter().collectEmuLog += data;
-					} else {
-						DEBUG_LOG(SCEIO, "%s", data.c_str());
-					}
-				}
+				if (!System_SendDebugOutput(data))
+					DEBUG_LOG(SCEIO, "%s", data.c_str());
+				if (PSP_CoreParameter().collectDebugOutput)
+					*PSP_CoreParameter().collectDebugOutput += data;
 				return 0;
 			}
 		case EMULATOR_DEVCTL__IS_EMULATOR:
@@ -2040,7 +2035,7 @@ static u32 sceIoDevctl(const char *name, int cmd, u32 argAddr, int argLen, u32 o
 
 			__DisplayGetFramebuf(&topaddr, &linesize, nullptr, 0);
 			// TODO: Convert based on pixel format / mode / something?
-			host->SendDebugScreenshot(topaddr, linesize, 272);
+			System_SendDebugScreenshot(std::string((const char *)&topaddr[0], linesize * 272), 272);
 			return 0;
 		}
 		case EMULATOR_DEVCTL__TOGGLE_FASTFORWARD:

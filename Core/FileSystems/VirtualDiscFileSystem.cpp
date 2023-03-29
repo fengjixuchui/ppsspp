@@ -29,6 +29,7 @@
 #include "Common/StringUtils.h"
 #include "Common/Serialize/Serializer.h"
 #include "Common/Serialize/SerializeFuncs.h"
+#include "Common/SysError.h"
 #include "Core/FileSystems/VirtualDiscFileSystem.h"
 #include "Core/FileSystems/ISOFileSystem.h"
 #include "Core/HLE/sceKernel.h"
@@ -831,7 +832,8 @@ void VirtualDiscFileSystem::HandlerLogger(void *arg, HandlerHandle handle, LogTy
 	}
 }
 
-VirtualDiscFileSystem::Handler::Handler(const char *filename, VirtualDiscFileSystem *const sys) {
+VirtualDiscFileSystem::Handler::Handler(const char *filename, VirtualDiscFileSystem *const sys)
+: sys_(sys) {
 #if !PPSSPP_PLATFORM(SWITCH)
 #ifdef _WIN32
 #if PPSSPP_PLATFORM(UWP)
@@ -854,7 +856,12 @@ VirtualDiscFileSystem::Handler::Handler(const char *filename, VirtualDiscFileSys
 		Read = (ReadFunc)dlsym(library, "Read");
 		Close = (CloseFunc)dlsym(library, "Close");
 
-		if (Init == NULL || Shutdown == NULL || Open == NULL || Seek == NULL || Read == NULL || Close == NULL) {
+		VersionFunc Version = (VersionFunc)dlsym(library, "Version");
+		if (Version && Version() >= 2) {
+			ShutdownV2 = (ShutdownV2Func)Shutdown;
+		}
+
+		if (!Init || !Shutdown || !Open || !Seek || !Read || !Close) {
 			ERROR_LOG(FILESYS, "Unable to find all handler functions: %s", filename);
 			dlclose(library);
 			library = NULL;
@@ -864,7 +871,7 @@ VirtualDiscFileSystem::Handler::Handler(const char *filename, VirtualDiscFileSys
 			library = NULL;
 		}
 	} else {
-		ERROR_LOG(FILESYS, "Unable to load handler: %s", filename);
+		ERROR_LOG(FILESYS, "Unable to load handler '%s': %s", filename, GetLastErrorMsg().c_str());
 	}
 #ifdef _WIN32
 #undef dlopen
@@ -876,7 +883,10 @@ VirtualDiscFileSystem::Handler::Handler(const char *filename, VirtualDiscFileSys
 
 VirtualDiscFileSystem::Handler::~Handler() {
 	if (library != NULL) {
-		Shutdown();
+		if (ShutdownV2)
+			ShutdownV2(sys_);
+		else
+			Shutdown();
 
 #if !PPSSPP_PLATFORM(UWP) && !PPSSPP_PLATFORM(SWITCH)
 #ifdef _WIN32

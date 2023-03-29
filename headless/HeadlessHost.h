@@ -17,37 +17,36 @@
 
 #pragma once
 
+#include "Common/CommonTypes.h"
 #include "Common/File/Path.h"
 
 #include "Core/CoreParameter.h"
-#include "Core/Host.h"
-#include "Core/Debugger/SymbolMap.h"
 
-class HeadlessHost : public Host {
+class HeadlessHost {
 public:
+	virtual ~HeadlessHost() {}
 	virtual bool InitGraphics(std::string *error_message, GraphicsContext **ctx, GPUCore core) {return false;}
 	virtual void ShutdownGraphics() {}
 
-	void UpdateSound() override {}
-
-	bool AttemptLoadSymbolMap() override { g_symbolMap->Clear(); return false; }
-
-	void SendDebugOutput(const std::string &output) override {
+	virtual void SendDebugOutput(const std::string &output) {
+		if (!writeDebugOutput_)
+			return;
 		if (output.find('\n') != output.npos) {
-			DoFlushDebugOutput();
+			FlushDebugOutput();
 			fwrite(output.data(), sizeof(char), output.length(), stdout);
 		} else {
 			debugOutputBuffer_ += output;
 		}
 	}
-	virtual void FlushDebugOutput() {
-		DoFlushDebugOutput();
-	}
-	inline void DoFlushDebugOutput() {
+	void FlushDebugOutput() {
 		if (!debugOutputBuffer_.empty()) {
 			fwrite(debugOutputBuffer_.data(), sizeof(char), debugOutputBuffer_.length(), stdout);
 			debugOutputBuffer_.clear();
 		}
+	}
+
+	void SetWriteDebugOutput(bool flag) {
+		writeDebugOutput_ = flag;
 	}
 
 	void SetComparisonScreenshot(const Path &filename, double maxError) {
@@ -58,18 +57,16 @@ public:
 		writeFailureScreenshot_ = flag;
 	}
 
-	void SendDebugScreenshot(const u8 *pixbuf, u32 w, u32 h) override;
+	void SendDebugScreenshot(const u8 *pixbuf, u32 w, u32 h);
 
-	// Unique for HeadlessHost
 	virtual void SwapBuffers() {}
 
 protected:
-	void SendOrCollectDebugOutput(const std::string &output);
-
 	Path comparisonScreenshot_;
 	double maxScreenshotError_ = 0.0;
 	std::string debugOutputBuffer_;
 	GPUCore gpuCore_;
 	GraphicsContext *gfx_ = nullptr;
 	bool writeFailureScreenshot_ = true;
+	bool writeDebugOutput_ = true;
 };

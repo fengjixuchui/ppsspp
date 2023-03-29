@@ -36,7 +36,6 @@
 #include "Core/System.h"
 #include "Core/HLE/sceUsbCam.h"
 #include "Core/HLE/sceUsbGps.h"
-#include "Core/Host.h"
 
 #include <sys/types.h>
 #include <sys/sysctl.h>
@@ -202,7 +201,7 @@ extern float g_safeInsetBottom;
 	graphicsContext = new IOSGraphicsContext();
 
 	graphicsContext->GetDrawContext()->SetErrorCallback([](const char *shortDesc, const char *details, void *userdata) {
-		host->NotifyUserMessage(details, 5.0, 0xFFFFFFFF, "error_callback");
+		System_NotifyUserMessage(details, 5.0, 0xFFFFFFFF, "error_callback");
 	}, nullptr);
 
 	graphicsContext->ThreadStart();

@@ -53,9 +53,6 @@
     <ClCompile Include="ProfilerDraw.cpp">
       <Filter>Screens</Filter>
     </ClCompile>
-    <ClCompile Include="ComboKeyMappingScreen.cpp">
-      <Filter>Screens</Filter>
-    </ClCompile>
     <ClCompile Include="DisplayLayoutScreen.cpp">
       <Filter>Screens</Filter>
     </ClCompile>
@@ -81,6 +78,10 @@
     </ClCompile>
     <ClCompile Include="JoystickHistoryView.cpp">
       <Filter>Views</Filter>
+    </ClCompile>
+    <ClCompile Include="AudioCommon.cpp" />
+    <ClCompile Include="CustomButtonMappingScreen.cpp">
+      <Filter>Screens</Filter>
     </ClCompile>
   </ItemGroup>
   <ItemGroup>
@@ -135,13 +136,9 @@
     <ClInclude Include="ProfilerDraw.h">
       <Filter>Screens</Filter>
     </ClInclude>
-    <ClInclude Include="ComboKeyMappingScreen.h">
-      <Filter>Screens</Filter>
-    </ClInclude>
     <ClInclude Include="DisplayLayoutScreen.h">
       <Filter>Screens</Filter>
     </ClInclude>
-    <ClInclude Include="HostTypes.h" />
     <ClInclude Include="RemoteISOScreen.h">
       <Filter>Screens</Filter>
     </ClInclude>
@@ -164,6 +161,10 @@
     </ClInclude>
     <ClInclude Include="JoystickHistoryView.h">
       <Filter>Views</Filter>
+    </ClInclude>
+    <ClInclude Include="AudioCommon.h" />
+    <ClInclude Include="CustomButtonMappingScreen.h">
+      <Filter>Screens</Filter>
     </ClInclude>
   </ItemGroup>
   <ItemGroup>

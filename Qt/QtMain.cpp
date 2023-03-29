@@ -40,7 +40,6 @@
 #include "Common/Profiler/Profiler.h"
 
 #include "QtMain.h"
-#include "QtHost.h"
 #include "Qt/mainwindow.h"
 #include "Common/Data/Text/I18n.h"
 #include "Common/Thread/ThreadUtil.h"
@@ -53,6 +52,13 @@
 
 #include <signal.h>
 #include <string.h>
+
+// Audio
+#define AUDIO_FREQ 44100
+#define AUDIO_CHANNELS 2
+#define AUDIO_SAMPLES 2048
+#define AUDIO_SAMPLESIZE 16
+#define AUDIO_BUFFERS 5
 
 MainUI *emugl = nullptr;
 static float refreshRate = 60.f;
@@ -69,7 +75,7 @@ SDL_AudioSpec g_retFmt;
 static SDL_AudioDeviceID audioDev = 0;
 
 extern void mixaudio(void *userdata, Uint8 *stream, int len) {
-	NativeMix((short *)stream, len / 4);
+	NativeMix((short *)stream, len / 4, AUDIO_FREQ);
 }
 
 static void InitSDLAudioDevice() {
@@ -300,6 +306,9 @@ bool MainUI::HandleCustomEvent(QEvent *e) {
 		case BrowseFileType::INI:
 			filter = "INI files (*.ini)";
 			break;
+		case BrowseFileType::DB:
+			filter = "DB files (*.db)";
+			break;
 		case BrowseFileType::ANY:
 			break;
 		}
@@ -345,6 +354,17 @@ bool System_MakeRequest(SystemRequestType type, int requestId, const std::string
 	case SystemRequestType::COPY_TO_CLIPBOARD:
 		QApplication::clipboard()->setText(param1.c_str());
 		return true;
+	case SystemRequestType::SET_WINDOW_TITLE:
+	{
+		std::string title = std::string("PPSSPP ") + PPSSPP_GIT_VERSION;
+		if (!param1.empty())
+			title += std::string(" - ") + param1;
+#ifdef _DEBUG
+		title += " (debug)";
+#endif
+		g_mainWindow->SetWindowTitleAsync(title);
+		return true;
+	}
 	case SystemRequestType::INPUT_TEXT_MODAL:
 	{
 		g_requestId = requestId;
@@ -723,12 +743,6 @@ void MainUI::updateAccelerometer() {
 }
 
 #ifndef SDL
-// Audio
-#define AUDIO_FREQ 44100
-#define AUDIO_CHANNELS 2
-#define AUDIO_SAMPLES 2048
-#define AUDIO_SAMPLESIZE 16
-#define AUDIO_BUFFERS 5
 
 MainAudio::~MainAudio() {
 	if (feed != nullptr) {
@@ -767,7 +781,7 @@ void MainAudio::run() {
 
 void MainAudio::timerEvent(QTimerEvent *) {
 	memset(mixbuf, 0, mixlen);
-	size_t frames = NativeMix((short *)mixbuf, AUDIO_BUFFERS*AUDIO_SAMPLES);
+	size_t frames = NativeMix((short *)mixbuf, AUDIO_BUFFERS*AUDIO_SAMPLES, AUDIO_FREQ);
 	if (frames > 0)
 		feed->write(mixbuf, sizeof(short) * AUDIO_CHANNELS * frames);
 }
@@ -848,9 +862,6 @@ int main(int argc, char *argv[])
 
 	g_mainWindow = new MainWindow(nullptr, g_Config.UseFullScreen());
 	g_mainWindow->show();
-	if (host == nullptr) {
-		host = new QtHost(g_mainWindow);
-	}
 
 	// TODO: Support other backends than GL, like Vulkan, in the Qt backend.
 	g_Config.iGPUBackend = (int)GPUBackend::OPENGL;

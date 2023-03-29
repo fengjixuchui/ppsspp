@@ -76,7 +76,6 @@
     <ClCompile Include="XAudioSoundStream.cpp" />
     <ClCompile Include="PPSSPP_UWPMain.cpp" />
     <ClCompile Include="NKCodeFromWindowsSystem.cpp" />
-    <ClCompile Include="UWPHost.cpp" />
     <ClCompile Include="..\Windows\XinputDevice.cpp" />
     <ClCompile Include="..\Windows\InputDevice.cpp" />
   </ItemGroup>
@@ -87,7 +86,6 @@
     <ClInclude Include="XAudioSoundStream.h" />
     <ClInclude Include="PPSSPP_UWPMain.h" />
     <ClInclude Include="NKCodeFromWindowsSystem.h" />
-    <ClInclude Include="UWPHost.h" />
     <ClInclude Include="..\Windows\XinputDevice.h" />
     <ClInclude Include="UWPUtil.h" />
     <ClInclude Include="..\Windows\InputDevice.h" />

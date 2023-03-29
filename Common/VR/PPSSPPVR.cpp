@@ -13,7 +13,12 @@
 
 #include "Common/Math/lin/matrix4x4.h"
 
+#include "Common/Input/InputState.h"
+#include "Common/Input/KeyCodes.h"
+
 #include "Core/HLE/sceDisplay.h"
+#include "Core/HLE/sceCtrl.h"
+
 #include "Core/Config.h"
 #include "Core/KeyMap.h"
 #include "Core/System.h"
@@ -467,7 +472,7 @@ bool UpdateVRKeys(const KeyInput &key) {
 	std::vector<int> nativeKeys;
 	bool wasScreenKeyOn = pspKeys[CTRL_SCREEN];
 	bool wasCameraAdjustOn = pspKeys[VIRTKEY_VR_CAMERA_ADJUST];
-	if (KeyMap::KeyToPspButton(key.deviceId, key.keyCode, &nativeKeys)) {
+	if (KeyMap::InputMappingToPspButton(InputMapping(key.deviceId, key.keyCode), &nativeKeys)) {
 		for (int& nativeKey : nativeKeys) {
 			pspKeys[nativeKey] = key.flags & KEY_DOWN;
 		}
@@ -669,12 +674,15 @@ bool StartVRRender() {
 				XrVector3f positionOffset = {g_Config.fCameraSide, g_Config.fCameraHeight, g_Config.fCameraDistance};
 				if (!flatScreen) {
 					float pitchOffset = 0;
-					if (g_Config.iCameraPitch == 1) {
-						pitchOffset = 90;
-						positionOffset = {positionOffset.x, positionOffset.z, -positionOffset.y};
-					} else if (g_Config.iCameraPitch == 2) {
-						pitchOffset = -90;
-						positionOffset = {positionOffset.x, -positionOffset.z, positionOffset.y};
+					switch (g_Config.iCameraPitch) {
+						case 1: //Top view -> First person
+							pitchOffset = 90;
+							positionOffset = {positionOffset.x, positionOffset.z, -positionOffset.y};
+							break;
+						case 2: //First person -> Top view
+							pitchOffset = -90;
+							positionOffset = {positionOffset.x, -positionOffset.z + 20, positionOffset.y};
+							break;
 					}
 					XrQuaternionf rotationOffset = XrQuaternionf_CreateFromVectorAngle({1, 0, 0}, ToRadians(pitchOffset));
 					invView.orientation = XrQuaternionf_Multiply(rotationOffset, invView.orientation);

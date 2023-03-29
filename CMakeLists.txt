@@ -368,6 +368,10 @@ if(NOT MSVC)
 	if(X86 OR X86_64)
 		# enable sse2 code generation
 		add_definitions(-msse2)
+		if(NOT X86_64 AND NOT CLANG)
+			add_definitions(-mfpmath=sse)
+			# add_definitions(-mstackrealign)
+		 endif()
 	endif()
 
 	if(IOS)
@@ -1209,8 +1213,6 @@ elseif(USING_QT_UI)
 	list(APPEND NativeAppSource
 		Qt/QtMain.cpp
 		Qt/QtMain.h
-		Qt/QtHost.cpp
-		Qt/QtHost.h
 		Qt/mainwindow.cpp
 		Qt/mainwindow.h
 	)
@@ -1267,8 +1269,9 @@ elseif(TARGET SDL2::SDL2)
 	endif()
 	set(nativeExtraLibs ${nativeExtraLibs} SDL2::SDL2)
 	if(APPLE)
-		set(nativeExtra ${nativeExtra} SDL/SDLMain.h SDL/SDLMain.mm SDL/SDLCocoaMetalLayer.h SDL/SDLCocoaMetalLayer.mm UI/DarwinFileSystemServices.mm UI/DarwinFileSystemServices.h Common/Battery/AppleBatteryClient.m)
+		set(nativeExtra ${nativeExtra} SDL/SDLMain.h SDL/SDLMain.mm SDL/SDLCocoaMetalLayer.h SDL/SDLCocoaMetalLayer.mm SDL/CocoaBarItems.mm SDL/CocoaBarItems.h UI/DarwinFileSystemServices.mm UI/DarwinFileSystemServices.h Common/Battery/AppleBatteryClient.m)
         set_source_files_properties(UI/DarwinFileSystemServices.mm PROPERTIES COMPILE_FLAGS -fobjc-arc)
+		set_source_files_properties(SDL/CocoaBarItems.mm PROPERTIES COMPILE_FLAGS -fobjc-arc)
 		set_source_files_properties(Common/Battery/AppleBatteryClient.m PROPERTIES COMPILE_FLAGS -fobjc-arc)
 		set(nativeExtraLibs ${nativeExtraLibs} ${COCOA_LIBRARY} ${QUARTZ_CORE_LIBRARY} ${IOKIT_LIBRARY})
 	elseif(USING_EGL)
@@ -1287,6 +1290,13 @@ if(WIN32)
 		target_link_libraries(Common dxguid)
 	endif()
 	target_link_libraries(Common winmm d3d9 dsound)
+endif()
+
+if(NOT LIBRETRO)
+	list(APPEND NativeAppSource
+		UI/AudioCommon.h
+		UI/AudioCommon.cpp
+	)
 endif()
 
 list(APPEND NativeAppSource
@@ -1347,8 +1357,8 @@ list(APPEND NativeAppSource
 	UI/MemStickScreen.cpp
 	UI/ProfilerDraw.h
 	UI/ProfilerDraw.cpp
-	UI/ComboKeyMappingScreen.h
-	UI/ComboKeyMappingScreen.cpp
+	UI/CustomButtonMappingScreen.h
+	UI/CustomButtonMappingScreen.cpp
 	UI/Theme.h
 	UI/Theme.cpp
 )
@@ -2021,8 +2031,6 @@ add_library(${CoreLibName} ${CoreLinkType}
 	Core/HW/SasReverb.h
 	Core/HW/StereoResampler.cpp
 	Core/HW/StereoResampler.h
-	Core/Host.cpp
-	Core/Host.h
 	Core/Loaders.cpp
 	Core/Loaders.h
 	Core/FileLoaders/CachingFileLoader.cpp
@@ -2381,6 +2389,7 @@ set(NativeAssets
 	assets/lang
 	assets/shaders
 	assets/themes
+	assets/vfpu
 	assets/Roboto-Condensed.ttf
 	assets/7z.png
 	assets/compat.ini
@@ -2404,8 +2413,8 @@ set(NativeAssets
 if(HEADLESS)
 	set(HeadlessSource
 		headless/Headless.cpp
-		headless/StubHost.cpp
-		headless/StubHost.h
+		headless/HeadlessHost.cpp
+		headless/HeadlessHost.h
 		headless/Compare.cpp
 		headless/Compare.h
 		headless/SDLHeadlessHost.cpp
@@ -2491,6 +2500,7 @@ if(TargetBin)
 		file(GLOB_RECURSE SHADER_FILES assets/shaders/*)
 		file(GLOB_RECURSE THEME_FILE assets/themes/*)
 		file(GLOB_RECURSE DEBUGGER_FILES assets/debugger/*)
+                file(GLOB_RECURSE VFPU_FILES assets/vfpu/*)
 
 		if(NOT IOS)
 			set_source_files_properties(${BigFontAssets} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/assets")
@@ -2500,6 +2510,7 @@ if(TargetBin)
 			set_source_files_properties(${SHADER_FILES} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/assets/shaders")
 			set_source_files_properties(${THEME_FILE} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/assets/themes")
 			set_source_files_properties(${DEBUGGER_FILES} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/assets/debugger")
+                        set_source_files_properties(${VFPU_FILES} PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/assets/vfpu")
 		endif()
 
 		if(IOS)

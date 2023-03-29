@@ -32,7 +32,7 @@
 #include "Core/HLE/sceUtility.h"
 #include "Core/HLE/__sceAudio.h"
 #include "Core/HW/MemoryStick.h"
-#include "Core/Host.h"
+#include "Core/HW/StereoResampler.h"
 #include "Core/MemMap.h"
 #include "Core/System.h"
 #include "Core/CoreTiming.h"
@@ -45,6 +45,8 @@
 #include "GPU/Common/FramebufferManagerCommon.h"
 #include "GPU/Common/TextureScalerCommon.h"
 #include "GPU/Common/PresentationCommon.h"
+
+#include "UI/AudioCommon.h"
 
 #include "libretro/libretro.h"
 #include "libretro/LibretroGraphicsContext.h"
@@ -381,23 +383,6 @@ namespace Libretro
 } // namespace Libretro
 
 using namespace Libretro;
-
-class LibretroHost : public Host
-{
-   public:
-      LibretroHost() {}
-      void UpdateSound() override
-      {
-         int hostAttemptBlockSize = __AudioGetHostAttemptBlockSize();
-         const int blockSizeMax = 512;
-         static int16_t audio[blockSizeMax * 2];
-         assert(hostAttemptBlockSize <= blockSizeMax);
-
-         int samples = __AudioMix(audio, hostAttemptBlockSize, SAMPLERATE);
-         AudioBufferWrite(audio, samples);
-      }
-      bool AttemptLoadSymbolMap() override { return false; }
-};
 
 class PrintfLogger : public LogListener
 {
@@ -1280,8 +1265,6 @@ void retro_init(void)
    g_Config.bDiscordPresence = false;
 
    g_VFS.Register("", new DirectoryReader(retro_base_dir));
-
-   host = new LibretroHost();
 }
 
 void retro_deinit(void)
@@ -1291,9 +1274,6 @@ void retro_deinit(void)
 
    delete printfLogger;
    printfLogger = nullptr;
-
-   delete host;
-   host = nullptr;
 
    libretro_supports_bitmasks = false;
    libretro_supports_option_categories = false;
@@ -1454,7 +1434,6 @@ bool retro_load_game(const struct retro_game_info *game)
    coreParam.fileToStart     = Path(std::string(game->path));
    coreParam.mountIso.clear();
    coreParam.startBreak      = false;
-   coreParam.printfEmuLog    = true;
    coreParam.headLess        = true;
    coreParam.graphicsContext = ctx;
    coreParam.gpuCore         = ctx->GetGPUCore();
@@ -1875,11 +1854,36 @@ void System_Notify(SystemNotification notification) {
    }
 }
 bool System_MakeRequest(SystemRequestType type, int requestId, const std::string &param1, const std::string &param2, int param3) { return false; }
+void System_PostUIMessage(const std::string &message, const std::string &param) {}
+void System_NotifyUserMessage(const std::string &message, float duration, u32 color, const char *id) {}
 void NativeUpdate() {}
 void NativeRender(GraphicsContext *graphicsContext) {}
 void NativeResized() {}
 
 void System_Toast(const char *str) {}
+
+inline int16_t Clamp16(int32_t sample) {
+   if (sample < -32767) return -32767;
+   if (sample > 32767) return 32767;
+   return sample;
+}
+
+void System_AudioPushSamples(const int32_t *audio, int numSamples) {
+   // Convert to 16-bit audio for further processing.
+   int16_t buffer[1024 * 2];
+   while (numSamples > 0) {
+      int blockSize = std::min(1024, numSamples);
+      for (int i = 0; i < blockSize; i++) {
+         buffer[i * 2] = Clamp16(audio[i * 2]);
+         buffer[i * 2 + 1] = Clamp16(audio[i * 2 + 1]);
+      }
+      AudioBufferWrite(buffer, blockSize);
+      numSamples -= blockSize;
+   }
+}
+
+void System_AudioGetDebugStats(char *buf, size_t bufSize) { if (buf) buf[0] = '\0'; }
+void System_AudioClear() {}
 
 #if PPSSPP_PLATFORM(ANDROID) || PPSSPP_PLATFORM(IOS)
 std::vector<std::string> System_GetCameraDeviceList() { return std::vector<std::string>(); }

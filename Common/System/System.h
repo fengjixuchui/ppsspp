@@ -6,8 +6,7 @@
 
 // Platform integration
 
-// To run the PPSSPP core, a platform needs to implement all the System_ functions in this file,
-// plus derive an object from Host (see Host.h). The latter will be phased out.
+// To run the PPSSPP core, a platform needs to implement all the System_ functions in this file.
 // Failure to implement all of these will simply cause linker failures. There are a few that are
 // only implemented on specific platforms, but they're also only called on those platforms.
 
@@ -64,16 +63,23 @@ enum class SystemRequestType {
 	EXIT_APP,
 	RESTART_APP,  // For graphics backend changes
 	COPY_TO_CLIPBOARD,
+	SHARE_TEXT,
+	SET_WINDOW_TITLE,
 	TOGGLE_FULLSCREEN_STATE,
 	GRAPHICS_BACKEND_FAILED_ALERT,
+	CREATE_GAME_SHORTCUT,
+
+	// Commonly ignored, used when automated tests generate output.
+	SEND_DEBUG_OUTPUT,
+	// Note: height specified as param3, width based on param1.size() / param3.
+	SEND_DEBUG_SCREENSHOT,
+
+	NOTIFY_UI_STATE,  // Used on Android only. Not a SystemNotification since it takes a parameter.
 
 	// High-level hardware control
 	CAMERA_COMMAND,
 	GPS_COMMAND,
 	MICROPHONE_COMMAND,
-
-	SHARE_TEXT,
-	NOTIFY_UI_STATE,  // Used on Android only. Not a SystemNotification since it takes a parameter.
 };
 
 // Implementations are supposed to process the request, and post the response to the g_RequestManager (see Message.h).
@@ -162,6 +168,8 @@ enum SystemProperty {
 
 	SYSPROP_CAN_JIT,
 
+	SYSPROP_HAS_DEBUGGER,
+
 	SYSPROP_KEYBOARD_LAYOUT,
 
 	SYSPROP_SKIP_UI,
@@ -180,6 +188,8 @@ enum class SystemNotification {
 	IMMERSIVE_MODE_CHANGE,
 	AUDIO_RESET_DEVICE,
 	SUSTAINED_PERF_CHANGE,
+	POLL_CONTROLLERS,
+	TOGGLE_DEBUG_CONSOLE,  // TODO: Kinda weird, just ported forward.
 };
 
 std::string System_GetProperty(SystemProperty prop);
@@ -191,5 +201,24 @@ bool System_GetPropertyBool(SystemProperty prop);
 void System_Notify(SystemNotification notification);
 
 std::vector<std::string> System_GetCameraDeviceList();
+
 bool System_AudioRecordingIsAvailable();
 bool System_AudioRecordingState();
+
+// This will be changed to take an enum. Currently simply implemented by forwarding to NativeMessageReceived.
+void System_PostUIMessage(const std::string &message, const std::string &param);
+
+// Shows a visible message to the user.
+// The default implementation in NativeApp.cpp uses our "osm" system (on screen messaging).
+void System_NotifyUserMessage(const std::string &message, float duration = 1.0f, uint32_t color = 0x00FFFFFF, const char *id = nullptr);
+
+// For these functions, most platforms will use the implementation provided in UI/AudioCommon.cpp,
+// no need to implement separately.
+void System_AudioGetDebugStats(char *buf, size_t bufSize);
+void System_AudioClear();
+// These samples really have 16 bits of value, but can be a little out of range.
+void System_AudioPushSamples(const int32_t *audio, int numSamples);
+
+inline void System_AudioResetStatCounters() {
+	return System_AudioGetDebugStats(nullptr, 0);
+}

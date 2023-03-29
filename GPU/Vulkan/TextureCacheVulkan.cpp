@@ -19,6 +19,7 @@
 #include <cstring>
 
 #include "ext/xxhash.h"
+
 #include "Common/File/VFS/VFS.h"
 #include "Common/Data/Text/I18n.h"
 #include "Common/LogReporting.h"
@@ -26,18 +27,17 @@
 #include "Common/Profiler/Profiler.h"
 #include "Common/GPU/thin3d.h"
 #include "Common/GPU/Vulkan/VulkanRenderManager.h"
-
+#include "Common/System/System.h"
 #include "Common/Data/Convert/ColorConv.h"
 #include "Common/StringUtils.h"
 #include "Common/TimeUtil.h"
-#include "Core/Config.h"
-#include "Core/Host.h"
-#include "Core/MemMap.h"
-#include "Core/System.h"
-
 #include "Common/GPU/Vulkan/VulkanContext.h"
 #include "Common/GPU/Vulkan/VulkanImage.h"
 #include "Common/GPU/Vulkan/VulkanMemory.h"
+
+#include "Core/Config.h"
+#include "Core/MemMap.h"
+#include "Core/System.h"
 
 #include "GPU/ge_constants.h"
 #include "GPU/GPUState.h"
@@ -144,7 +144,7 @@ VkSampler SamplerCache::GetOrCreateSampler(const SamplerCacheKey &key) {
 		samp.anisotropyEnable = false;
 	}
 	if (key.maxLevel == 9 * 256) {
-		// No max level needed.
+		// No max level needed. Better for performance on some archs like ARM Mali.
 		samp.maxLod = VK_LOD_CLAMP_NONE;
 	} else {
 		samp.maxLod = (float)(int32_t)key.maxLevel * (1.0f / 256.0f);
@@ -513,9 +513,9 @@ void TextureCacheVulkan::BuildTexture(TexCacheEntry *const entry) {
 
 		auto err = GetI18NCategory("Error");
 		if (plan.scaleFactor > 1) {
-			host->NotifyUserMessage(err->T("Warning: Video memory FULL, reducing upscaling and switching to slow caching mode"), 2.0f);
+			System_NotifyUserMessage(err->T("Warning: Video memory FULL, reducing upscaling and switching to slow caching mode"), 2.0f);
 		} else {
-			host->NotifyUserMessage(err->T("Warning: Video memory FULL, switching to slow caching mode"), 2.0f);
+			System_NotifyUserMessage(err->T("Warning: Video memory FULL, switching to slow caching mode"), 2.0f);
 		}
 
 		// Turn off texture replacement for this texture.
@@ -648,7 +648,7 @@ void TextureCacheVulkan::BuildTexture(TexCacheEntry *const entry) {
 				replacedInfo.isVideo = IsVideo(entry->addr);
 				replacedInfo.isFinal = (entry->status & TexCacheEntry::STATUS_TO_SCALE) == 0;
 				replacedInfo.fmt = FromVulkanFormat(actualFmt);
-				replacer_.NotifyTextureDecoded(replacedInfo, data, byteStride, plan.baseLevelSrc + i, mipUnscaledWidth, mipUnscaledHeight, w, h);
+				replacer_.NotifyTextureDecoded(plan.replaced, replacedInfo, data, byteStride, plan.baseLevelSrc + i, mipUnscaledWidth, mipUnscaledHeight, w, h);
 			}
 		}
 	}

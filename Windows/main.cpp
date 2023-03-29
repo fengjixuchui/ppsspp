@@ -111,9 +111,7 @@ static std::string restartArgs;
 
 int g_activeWindow = 0;
 
-// Used for all the system dialogs.
-static std::thread g_dialogThread;
-static bool g_dialogRunning = false;
+WindowsInputManager g_inputManager;
 
 int g_lastNumInstances = 0;
 
@@ -351,6 +349,7 @@ float System_GetPropertyFloat(SystemProperty prop) {
 
 bool System_GetPropertyBool(SystemProperty prop) {
 	switch (prop) {
+	case SYSPROP_HAS_DEBUGGER:
 	case SYSPROP_HAS_FILE_BROWSER:
 	case SYSPROP_HAS_FOLDER_BROWSER:
 	case SYSPROP_HAS_OPEN_DIRECTORY:
@@ -430,6 +429,14 @@ void System_Notify(SystemNotification notification) {
 		if (disasmWindow)
 			PostDialogMessage(disasmWindow, WM_DEB_SETDEBUGLPARAM, 0, (LPARAM)Core_IsStepping());
 		break;
+
+	case SystemNotification::POLL_CONTROLLERS:
+		g_inputManager.PollControllers();
+		break;
+
+	case SystemNotification::TOGGLE_DEBUG_CONSOLE:
+		MainWindow::ToggleDebugConsoleVisibility();
+		break;
 	}
 }
 
@@ -467,28 +474,36 @@ bool System_MakeRequest(SystemRequestType type, int requestId, const std::string
 		W32Util::CopyTextToClipboard(MainWindow::GetDisplayHWND(), data);
 		return true;
 	}
-	case SystemRequestType::INPUT_TEXT_MODAL:
-		if (g_dialogRunning) {
-			g_dialogThread.join();
+	case SystemRequestType::SET_WINDOW_TITLE:
+	{
+#ifdef GOLD
+		const char *name = "PPSSPP Gold ";
+#else
+		const char *name = "PPSSPP ";
+#endif
+		std::wstring winTitle = ConvertUTF8ToWString(std::string(name) + PPSSPP_GIT_VERSION);
+		if (!param1.empty()) {
+			winTitle.append(ConvertUTF8ToWString(" - " + param1));
 		}
-
-		g_dialogRunning = true;
-		g_dialogThread = std::thread([=] {
+#ifdef _DEBUG
+		winTitle.append(L" (debug)");
+#endif
+		MainWindow::SetWindowTitle(winTitle.c_str());
+		PostMessage(MainWindow::GetHWND(), MainWindow::WM_USER_WINDOW_TITLE_CHANGED, 0, 0);
+		return true;
+	}
+	case SystemRequestType::INPUT_TEXT_MODAL:
+		std::thread([=] {
 			std::string out;
 			if (InputBox_GetString(MainWindow::GetHInstance(), MainWindow::GetHWND(), ConvertUTF8ToWString(param1).c_str(), param2, out)) {
 				g_requestManager.PostSystemSuccess(requestId, out.c_str());
 			} else {
 				g_requestManager.PostSystemFailure(requestId);
 			}
-			});
+		}).detach();
 		return true;
 	case SystemRequestType::BROWSE_FOR_IMAGE:
-		if (g_dialogRunning) {
-			g_dialogThread.join();
-		}
-
-		g_dialogRunning = true;
-		g_dialogThread = std::thread([=] {
+		std::thread([=] {
 			std::string out;
 			if (W32Util::BrowseForFileName(true, MainWindow::GetHWND(), ConvertUTF8ToWString(param1).c_str(), nullptr,
 				MakeFilter(L"All supported images (*.jpg *.jpeg *.png)|*.jpg;*.jpeg;*.png|All files (*.*)|*.*||").c_str(), L"jpg", out)) {
@@ -496,7 +511,7 @@ bool System_MakeRequest(SystemRequestType type, int requestId, const std::string
 			} else {
 				g_requestManager.PostSystemFailure(requestId);
 			}
-			});
+		}).detach();
 		return true;
 	case SystemRequestType::BROWSE_FOR_FILE:
 	{
@@ -509,35 +524,36 @@ bool System_MakeRequest(SystemRequestType type, int requestId, const std::string
 		case BrowseFileType::INI:
 			filter = MakeFilter(L"Ini files (*.ini)|*.ini|All files (*.*)|*.*||");
 			break;
+		case BrowseFileType::DB:
+			filter = MakeFilter(L"Cheat db files (*.db)|*.db|All files (*.*)|*.*||");
+			break;
 		case BrowseFileType::ANY:
 			filter = MakeFilter(L"All files (*.*)|*.*||");
 			break;
 		default:
 			return false;
 		}
-		if (g_dialogRunning) {
-			g_dialogThread.join();
-		}
 
-		g_dialogRunning = true;
-		g_dialogThread = std::thread([=] {
+		std::thread([=] {
 			std::string out;
 			if (W32Util::BrowseForFileName(true, MainWindow::GetHWND(), ConvertUTF8ToWString(param1).c_str(), nullptr, filter.c_str(), L"", out)) {
 				g_requestManager.PostSystemSuccess(requestId, out.c_str());
 			} else {
 				g_requestManager.PostSystemFailure(requestId);
 			}
-			});
+		}).detach();
 		return true;
 	}
 	case SystemRequestType::BROWSE_FOR_FOLDER:
 	{
-		std::string folder = W32Util::BrowseForFolder(MainWindow::GetHWND(), param1.c_str());
-		if (folder.size()) {
-			g_requestManager.PostSystemSuccess(requestId, folder.c_str());
-		} else {
-			g_requestManager.PostSystemFailure(requestId);
-		}
+		std::thread([=] {
+			std::string folder = W32Util::BrowseForFolder(MainWindow::GetHWND(), param1.c_str());
+			if (folder.size()) {
+				g_requestManager.PostSystemSuccess(requestId, folder.c_str());
+			} else {
+				g_requestManager.PostSystemFailure(requestId);
+			}
+		}).detach();
 		return true;
 	}
 	case SystemRequestType::TOGGLE_FULLSCREEN_STATE:
@@ -560,6 +576,9 @@ bool System_MakeRequest(SystemRequestType type, int requestId, const std::string
 		MessageBox(MainWindow::GetHWND(), full_error.c_str(), title.c_str(), MB_OK);
 		return true;
 	}
+	case SystemRequestType::CREATE_GAME_SHORTCUT:
+		// This is not actually working, but ported it to the request framework anyway.
+		return W32Util::CreateDesktopShortcut(param1, param2);
 	default:
 		return false;
 	}
@@ -696,10 +715,8 @@ static void WinMainInit() {
 }
 
 static void WinMainCleanup() {
-	if (g_dialogRunning) {
-		g_dialogThread.join();
-		g_dialogRunning = false;
-	}
+	// This will ensure no further callbacks are called, which may prevent crashing.
+	g_requestManager.Clear();
 	net::Shutdown();
 	CoUninitialize();
 
@@ -881,6 +898,8 @@ int WINAPI WinMain(HINSTANCE _hInstance, HINSTANCE hPrevInstance, LPSTR szCmdLin
 	if (minimized) {
 		MainWindow::Minimize();
 	}
+
+	g_inputManager.Init();
 
 	// Emu thread (and render thread, if any) is always running!
 	// Only OpenGL uses an externally managed render thread (due to GL's single-threaded context design). Vulkan

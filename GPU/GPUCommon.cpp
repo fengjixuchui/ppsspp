@@ -29,7 +29,6 @@
 #include "Core/CoreTiming.h"
 #include "Core/Debugger/MemBlockInfo.h"
 #include "Core/MemMap.h"
-#include "Core/Host.h"
 #include "Core/Reporting.h"
 #include "Core/HLE/HLE.h"
 #include "Core/HLE/sceKernelMemory.h"
@@ -1350,14 +1349,18 @@ void GPUCommon::FlushImm() {
 		return;
 
 	SetDrawType(DRAW_PRIM, immPrim_);
+	VirtualFramebuffer *vfb = nullptr;
 	if (framebufferManager_)
-		framebufferManager_->SetRenderFrameBuffer(gstate_c.IsDirty(DIRTY_FRAMEBUF), gstate_c.skipDrawReason);
+		vfb = framebufferManager_->SetRenderFrameBuffer(gstate_c.IsDirty(DIRTY_FRAMEBUF), gstate_c.skipDrawReason);
 	if (gstate_c.skipDrawReason & (SKIPDRAW_SKIPFRAME | SKIPDRAW_NON_DISPLAYED_FB)) {
 		// No idea how many cycles to skip, heh.
 		immCount_ = 0;
 		return;
 	}
 	UpdateUVScaleOffset();
+	if (vfb) {
+		CheckDepthUsage(vfb);
+	}
 
 	bool antialias = (immFlags_ & GE_IMM_ANTIALIAS) != 0;
 	bool prevAntialias = gstate.isAntiAliasEnabled();
@@ -1974,7 +1977,7 @@ bool GPUCommon::PerformMemorySet(u32 dest, u8 v, int size) {
 
 bool GPUCommon::PerformReadbackToMemory(u32 dest, int size) {
 	if (Memory::IsVRAMAddress(dest)) {
-		return PerformMemoryCopy(dest, dest, size, GPUCopyFlag::FORCE_DST_MEM);
+		return PerformMemoryCopy(dest, dest, size, GPUCopyFlag::FORCE_DST_MATCH_MEM);
 	}
 	return false;
 }
@@ -1982,7 +1985,7 @@ bool GPUCommon::PerformReadbackToMemory(u32 dest, int size) {
 bool GPUCommon::PerformWriteColorFromMemory(u32 dest, int size) {
 	if (Memory::IsVRAMAddress(dest)) {
 		GPURecord::NotifyUpload(dest, size);
-		return PerformMemoryCopy(dest, dest, size, GPUCopyFlag::FORCE_SRC_MEM | GPUCopyFlag::DEBUG_NOTIFIED);
+		return PerformMemoryCopy(dest, dest, size, GPUCopyFlag::FORCE_SRC_MATCH_MEM | GPUCopyFlag::DEBUG_NOTIFIED);
 	}
 	return false;
 }

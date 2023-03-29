@@ -4,6 +4,7 @@
 
 #include "Common/System/NativeApp.h"
 #include "Common/System/System.h"
+#include "Common/System/Request.h"
 #include "Common/Data/Text/I18n.h"
 #include "Common/Input/InputState.h"
 #include "Common/Data/Encoding/Utf8.h"
@@ -21,7 +22,6 @@
 #include "Core/Reporting.h"
 #include "Core/MemMap.h"
 #include "Core/Core.h"
-#include "Core/Host.h"
 #include "Core/System.h"
 #include "Core/Config.h"
 #include "Core/ConfigValues.h"
@@ -151,16 +151,12 @@ bool CreateGraphicsBackend(std::string *error_message, GraphicsContext **ctx) {
 }
 
 void MainThreadFunc() {
-	if (useEmuThread) {
-		// We'll start up a separate thread we'll call Emu
-		SetCurrentThreadName("Render");
-	} else {
-		// This is both Emu and Render.
-		SetCurrentThreadName("Emu");
-	}
+	// We'll start up a separate thread we'll call Emu
+	SetCurrentThreadName(useEmuThread ? "Render" : "Emu");
 
-	host = new WindowsHost(MainWindow::GetHInstance(), MainWindow::GetHWND(), MainWindow::GetDisplayHWND());
-	host->SetWindowTitle(nullptr);
+	SetConsolePosition();
+
+	System_SetWindowTitle("");
 
 	// We convert command line arguments to UTF-8 immediately.
 	std::vector<std::wstring> wideArgs = GetWideCmdLine();
@@ -339,6 +335,7 @@ shutdown:
 
 	g_graphicsContext->Shutdown();
 
+	UpdateConsolePosition();
 	NativeShutdown();
 
 	PostMessage(MainWindow::GetHWND(), MainWindow::WM_USER_UPDATE_UI, 0, 0);

@@ -58,6 +58,8 @@
 #include "Common/CPUDetect.h"
 #include "Common/Log.h"
 #include "Core/Config.h"
+#include "Common/File/VFS/VFS.h"
+#include "Common/File/VFS/DirectoryReader.h"
 #include "Core/FileSystems/ISOFileSystem.h"
 #include "Core/MemMap.h"
 #include "Core/MIPS/MIPSVFPUUtils.h"
@@ -88,6 +90,11 @@ bool System_GetPropertyBool(SystemProperty prop) {
 	}
 }
 void System_Notify(SystemNotification notification) {}
+void System_PostUIMessage(const std::string &message, const std::string &param) {}
+void System_NotifyUserMessage(const std::string &message, float duration, u32 color, const char *id) {}
+void System_AudioGetDebugStats(char *buf, size_t bufSize) { if (buf) buf[0] = '\0'; }
+void System_AudioClear() {}
+void System_AudioPushSamples(const s32 *audio, int numSamples) {}
 
 #if PPSSPP_PLATFORM(ANDROID)
 JNIEnv *getEnv() {
@@ -353,7 +360,10 @@ bool TestTinySet() {
 
 bool TestVFPUSinCos() {
 	float sine, cosine;
-	InitVFPUSinCos();
+	// Needed for VFPU tables.
+	// There might be a better place to invoke it, but whatever.
+	g_VFS.Register("", new DirectoryReader(Path("assets")));
+	InitVFPU();
 	vfpu_sincos(0.0f, sine, cosine);
 	EXPECT_EQ_FLOAT(sine, 0.0f);
 	EXPECT_EQ_FLOAT(cosine, 1.0f);

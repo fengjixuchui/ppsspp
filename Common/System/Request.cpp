@@ -1,6 +1,7 @@
 #include "Common/System/Request.h"
 #include "Common/System/System.h"
 #include "Common/Log.h"
+#include "Common/File/Path.h"
 
 RequestManager g_requestManager;
 
@@ -14,18 +15,18 @@ const char *RequestTypeAsString(SystemRequestType type) {
 	}
 }
 
-bool RequestManager::MakeSystemRequest(SystemRequestType type, RequestCallback callback, const std::string &param1, const std::string &param2, int param3) {
+bool RequestManager::MakeSystemRequest(SystemRequestType type, RequestCallback callback, RequestFailedCallback failedCallback, const std::string &param1, const std::string &param2, int param3) {
 	int requestId = idCounter_++;
 
 	// NOTE: We need to register immediately, in order to support synchronous implementations.
-	{
+	if (callback || failedCallback) {
 		std::lock_guard<std::mutex> guard(callbackMutex_);
-		callbackMap_[requestId] = callback;
+		callbackMap_[requestId] = { callback, failedCallback };
 	}
 
-	INFO_LOG(SYSTEM, "Making system request %s: id %d, callback_valid %d", RequestTypeAsString(type), requestId, callback != nullptr);
+	DEBUG_LOG(SYSTEM, "Making system request %s: id %d", RequestTypeAsString(type), requestId);
 	if (!System_MakeRequest(type, requestId, param1, param2, param3)) {
-		{
+		if (callback || failedCallback) {
 			std::lock_guard<std::mutex> guard(callbackMutex_);
 			callbackMap_.erase(requestId);
 		}
@@ -44,12 +45,13 @@ void RequestManager::PostSystemSuccess(int requestId, const char *responseString
 	}
 
 	std::lock_guard<std::mutex> responseGuard(responseMutex_);
-	PendingResponse response;
-	response.callback = iter->second;
+	PendingSuccess response;
+	response.callback = iter->second.callback;
 	response.responseString = responseString;
 	response.responseValue = responseValue;
-	pendingResponses_.push_back(response);
-	INFO_LOG(SYSTEM, "PostSystemSuccess: Request %d (%s, %d)", requestId, responseString, responseValue);
+	pendingSuccesses_.push_back(response);
+	DEBUG_LOG(SYSTEM, "PostSystemSuccess: Request %d (%s, %d)", requestId, responseString, responseValue);
+	callbackMap_.erase(iter);
 }
 
 void RequestManager::PostSystemFailure(int requestId) {
@@ -59,24 +61,41 @@ void RequestManager::PostSystemFailure(int requestId) {
 		ERROR_LOG(SYSTEM, "PostSystemFailure: Unexpected request ID %d", requestId);
 		return;
 	}
-	INFO_LOG(SYSTEM, "PostSystemFailure: Request %d failed", requestId);
+
+	WARN_LOG(SYSTEM, "PostSystemFailure: Request %d failed", requestId);
+
+	std::lock_guard<std::mutex> responseGuard(responseMutex_);
+	PendingFailure response;
+	response.callback = iter->second.failedCallback;
+	pendingFailures_.push_back(response);
 	callbackMap_.erase(iter);
 }
 
 void RequestManager::ProcessRequests() {
 	std::lock_guard<std::mutex> guard(responseMutex_);
-	for (auto &iter : pendingResponses_) {
+	for (auto &iter : pendingSuccesses_) {
 		if (iter.callback) {
 			iter.callback(iter.responseString.c_str(), iter.responseValue);
 		}
 	}
-	pendingResponses_.clear();
+	pendingSuccesses_.clear();
+	for (auto &iter : pendingFailures_) {
+		if (iter.callback) {
+			iter.callback();
+		}
+	}
+	pendingFailures_.clear();
 }
 
 void RequestManager::Clear() {
 	std::lock_guard<std::mutex> guard(callbackMutex_);
 	std::lock_guard<std::mutex> responseGuard(responseMutex_);
 
-	pendingResponses_.clear();
+	pendingSuccesses_.clear();
+	pendingFailures_.clear();
 	callbackMap_.clear();
+}
+
+void System_CreateGameShortcut(const Path &path, const std::string &title) {
+	g_requestManager.MakeSystemRequest(SystemRequestType::CREATE_GAME_SHORTCUT, nullptr, nullptr, path.ToString(), title, 0);
 }

@@ -26,6 +26,7 @@
 #include "Common/Serialize/SerializeSet.h"
 #include "Common/File/FileUtil.h"
 #include "Common/StringUtils.h"
+#include "Common/System/Request.h"
 #include "Common/System/System.h"
 
 #include "Core/Config.h"
@@ -37,7 +38,6 @@
 #include "Core/HLE/ReplaceTables.h"
 #include "Core/HLE/sceDisplay.h"
 #include "Core/Reporting.h"
-#include "Core/Host.h"
 #include "Core/Loaders.h"
 #include "Core/MIPS/MIPS.h"
 #include "Core/MIPS/MIPSAnalyst.h"
@@ -1208,6 +1208,10 @@ static PSPModule *__KernelLoadELFFromPtr(const u8 *ptr, size_t elfSize, u32 load
 		ptr = newptr;
 		magicPtr = (u32_le *)ptr;
 		int ret = pspDecryptPRX(in, (u8*)ptr, head->psp_size);
+		if (ret <= 0 && *(u32_le *)&ptr[0x150] == 0x464c457f) {
+			ret = head->psp_size - 0x150;
+			memcpy(newptr, in + 0x150, ret);
+		}
 		if (reportedModule) {
 			// This should happen for all "kernel" modules.
 			*error_string = "Missing key";
@@ -1627,6 +1631,8 @@ static PSPModule *__KernelLoadELFFromPtr(const u8 *ptr, size_t elfSize, u32 load
 		}
 	}
 
+	System_Notify(SystemNotification::SYMBOL_MAP_UPDATED);
+
 	u32 moduleSize = sizeof(module->nm);
 	char tag[32];
 	snprintf(tag, sizeof(tag), "SceModule-%d", module->nm.modid);
@@ -1831,8 +1837,6 @@ bool __KernelLoadExec(const char *filename, u32 paramPtr, std::string *error_str
 		return false;
 	}
 
-	System_Notify(SystemNotification::SYMBOL_MAP_UPDATED);
-
 	char moduleName[29] = { 0 };
 	int moduleVersion = module->nm.version[0] | (module->nm.version[1] << 8);
 	truncate_cpy(moduleName, module->nm.name);
@@ -1934,7 +1938,7 @@ void __KernelGPUReplay() {
 		PSPPointer<u8> topaddr;
 		u32 linesize = 512;
 		__DisplayGetFramebuf(&topaddr, &linesize, nullptr, 0);
-		host->SendDebugScreenshot(topaddr, linesize, 272);
+		System_SendDebugScreenshot(std::string((const char *)&topaddr[0], linesize * 272), 272);
 		Core_Stop();
 	}
 }

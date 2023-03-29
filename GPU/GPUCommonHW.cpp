@@ -609,7 +609,7 @@ u32 GPUCommonHW::CheckGPUFeaturesLate(u32 features) const {
 	bool prefer24 = draw_->GetDeviceCaps().preferredDepthBufferFormat == Draw::DataFormat::D24_S8;
 	bool prefer16 = draw_->GetDeviceCaps().preferredDepthBufferFormat == Draw::DataFormat::D16;
 	if (!prefer16) {
-		if (sawExactEqualDepth_ && (features & GPU_USE_ACCURATE_DEPTH) != 0) {
+		if (sawExactEqualDepth_ && (features & GPU_USE_ACCURATE_DEPTH) != 0 && !PSP_CoreParameter().compat.flags().ForceMaxDepthResolution) {
 			// Exact equal tests tend to have issues unless we use the PSP's depth range.
 			// We use 24-bit depth virtually everwhere, the fallback is just for safety.
 			if (prefer24)
@@ -1636,7 +1636,7 @@ size_t GPUCommonHW::FormatGPUStatsCommon(char *buffer, size_t size) {
 		"FBOs active: %d (evaluations: %d)\n"
 		"Textures: %d, dec: %d, invalidated: %d, hashed: %d kB\n"
 		"readbacks %d (%d non-block), uploads %d, depal %d\n"
-		"replacer: tracks %d textures, %d unique loaded\n"
+		"replacer: tracks %d references, %d unique textures\n"
 		"Copies: depth %d, color %d, reint %d, blend %d, selftex %d\n"
 		"GPU cycles executed: %d (%f per vertex)\n",
 		gpuStats.msProcessingDisplayLists * 1000.0f,

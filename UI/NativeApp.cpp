@@ -87,7 +87,6 @@
 #include "Core/ConfigValues.h"
 #include "Core/Core.h"
 #include "Core/FileLoaders/DiskCachingFileLoader.h"
-#include "Core/Host.h"
 #include "Core/KeyMap.h"
 #include "Core/Reporting.h"
 #include "Core/SaveState.h"
@@ -106,22 +105,19 @@
 #include "Core/ThreadPools.h"
 
 #include "GPU/GPUInterface.h"
+#include "UI/AudioCommon.h"
 #include "UI/BackgroundAudio.h"
 #include "UI/ControlMappingScreen.h"
 #include "UI/DiscordIntegration.h"
 #include "UI/EmuScreen.h"
 #include "UI/GameInfoCache.h"
 #include "UI/GPUDriverTestScreen.h"
-#include "UI/HostTypes.h"
 #include "UI/MiscScreens.h"
 #include "UI/MemStickScreen.h"
 #include "UI/OnScreenDisplay.h"
 #include "UI/RemoteISOScreen.h"
 #include "UI/Theme.h"
 
-#if !defined(MOBILE_DEVICE) && defined(USING_QT_UI)
-#include "Qt/QtHost.h"
-#endif
 #if defined(USING_QT_UI)
 #include <QFontDatabase>
 #endif
@@ -203,12 +199,6 @@ public:
 	}
 };
 
-#ifdef _WIN32
-int Win32Mix(short *buffer, int numSamples, int bits, int rate) {
-	return NativeMix(buffer, numSamples);
-}
-#endif
-
 // globals
 static LogListener *logger = nullptr;
 Path boot_filename;
@@ -235,19 +225,8 @@ std::string NativeQueryConfig(std::string query) {
 	}
 }
 
-int NativeMix(short *audio, int num_samples) {
-	if (GetUIState() != UISTATE_INGAME) {
-		g_BackgroundAudio.Play();
-	}
-
-	int sample_rate = System_GetPropertyInt(SYSPROP_AUDIO_SAMPLE_RATE);
-	num_samples = __AudioMix(audio, num_samples, sample_rate > 0 ? sample_rate : 44100);
-
-#ifdef _WIN32
-	winAudioBackend->Update();
-#endif
-
-	return num_samples;
+int NativeMix(short *audio, int numSamples, int sampleRateHz) {
+	return __AudioMix(audio, numSamples, sampleRateHz);
 }
 
 // This is called before NativeInit so we do a little bit of initialization here.
@@ -467,12 +446,6 @@ void NativeInit(int argc, const char *argv[], const char *savegame_dir, const ch
 	g_VFS.Register("", new DirectoryReader(Path("assets")));
 #endif
 	g_VFS.Register("", new DirectoryReader(Path(savegame_dir)));
-
-#if (defined(MOBILE_DEVICE) || !defined(USING_QT_UI)) && !PPSSPP_PLATFORM(UWP)
-	if (host == nullptr) {
-		host = new NativeHost();
-	}
-#endif
 
 	g_Config.defaultCurrentDirectory = Path("/");
 	g_Config.internalDataDirectory = Path(savegame_dir);
@@ -867,9 +840,9 @@ bool NativeInitGraphics(GraphicsContext *graphicsContext) {
 #ifdef _WIN32
 	winAudioBackend = CreateAudioBackend((AudioBackendType)g_Config.iAudioBackend);
 #if PPSSPP_PLATFORM(UWP)
-	winAudioBackend->Init(0, &Win32Mix, 44100);
+	winAudioBackend->Init(0, &NativeMix, 44100);
 #else
-	winAudioBackend->Init(MainWindow::GetHWND(), &Win32Mix, 44100);
+	winAudioBackend->Init(MainWindow::GetHWND(), &NativeMix, 44100);
 #endif
 #endif
 
@@ -1242,6 +1215,7 @@ void NativeUpdate() {
 	g_screenManager->update();
 
 	g_Discord.Update();
+	g_BackgroundAudio.Play();
 
 	UI::SetSoundEnabled(g_Config.bUISound);
 }
@@ -1287,7 +1261,7 @@ bool NativeKey(const KeyInput &key) {
 	if (g_Config.bPauseExitsEmulator) {
 		static std::vector<int> pspKeys;
 		pspKeys.clear();
-		if (KeyMap::KeyToPspButton(key.deviceId, key.keyCode, &pspKeys)) {
+		if (KeyMap::InputMappingToPspButton(InputMapping(key.deviceId, key.keyCode), &pspKeys)) {
 			if (std::find(pspKeys.begin(), pspKeys.end(), VIRTKEY_PAUSE) != pspKeys.end()) {
 				System_ExitApp();
 				return true;
@@ -1367,6 +1341,14 @@ void NativeMessageReceived(const char *message, const char *value) {
 	pendingMessage.msg = message;
 	pendingMessage.value = value;
 	pendingMessages.push_back(pendingMessage);
+}
+
+void System_PostUIMessage(const std::string &message, const std::string &value) {
+	NativeMessageReceived(message.c_str(), value.c_str());
+}
+
+void System_NotifyUserMessage(const std::string &message, float duration_s, u32 color, const char *id) {
+	osm.Show(message, duration_s, color, -1, true, id);
 }
 
 void NativeResized() {
