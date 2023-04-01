@@ -189,19 +189,11 @@ u32 __CtrlReadLatch()
 	return ret;
 }
 
-// Functions so that the rest of the emulator can control what the sceCtrl interface should return
-// to the game:
-
-void __CtrlButtonDown(u32 buttonBit)
+void __CtrlUpdateButtons(u32 bitsToSet, u32 bitsToClear)
 {
 	std::lock_guard<std::mutex> guard(ctrlMutex);
-	ctrlCurrent.buttons |= buttonBit;
-}
-
-void __CtrlButtonUp(u32 buttonBit)
-{
-	std::lock_guard<std::mutex> guard(ctrlMutex);
-	ctrlCurrent.buttons &= ~buttonBit;
+	ctrlCurrent.buttons &= ~(bitsToClear & CTRL_MASK_USER);
+	ctrlCurrent.buttons |= (bitsToSet & CTRL_MASK_USER);
 }
 
 void __CtrlSetAnalogXY(int stick, float x, float y)

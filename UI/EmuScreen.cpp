@@ -176,16 +176,13 @@ EmuScreen::EmuScreen(const Path &filename)
 	lastNumFlips = gpuStats.numFlips;
 	startDumping = false;
 	controlMapper_.SetCallbacks(
-		std::bind(&EmuScreen::onVKeyDown, this, _1),
-		std::bind(&EmuScreen::onVKeyUp, this, _1),
-		[](int pspKey, bool down) {
-			if (down) {
-				__CtrlButtonDown(pspKey);
-			} else {
-				__CtrlButtonUp(pspKey);
-			}
+		std::bind(&EmuScreen::onVKey, this, _1, _2),
+		std::bind(&EmuScreen::onVKeyAnalog, this, _1, _2),
+		[](uint32_t bitsToSet, uint32_t bitsToClear) {
+			__CtrlUpdateButtons(bitsToSet, bitsToClear);
 		},
-		&SetPSPAnalog);
+		&SetPSPAnalog,
+		nullptr);
 
 	// Make sure we don't leave it at powerdown after the last game.
 	// TODO: This really should be handled elsewhere if it isn't.
@@ -562,192 +559,234 @@ void EmuScreen::touch(const TouchInput &touch) {
 	}
 }
 
-void EmuScreen::onVKeyDown(int virtualKeyCode) {
+void EmuScreen::onVKey(int virtualKeyCode, bool down) {
 	auto sc = GetI18NCategory("Screen");
 
 	switch (virtualKeyCode) {
 	case VIRTKEY_FASTFORWARD:
-		if (coreState == CORE_STEPPING) {
-			Core_EnableStepping(false);
+		if (down) {
+			if (coreState == CORE_STEPPING) {
+				Core_EnableStepping(false);
+			}
+			PSP_CoreParameter().fastForward = true;
+		} else {
+			PSP_CoreParameter().fastForward = false;
 		}
-		PSP_CoreParameter().fastForward = true;
 		break;
 
 	case VIRTKEY_SPEED_TOGGLE:
-		// Cycle through enabled speeds.
-		if (PSP_CoreParameter().fpsLimit == FPSLimit::NORMAL && g_Config.iFpsLimit1 >= 0) {
-			PSP_CoreParameter().fpsLimit = FPSLimit::CUSTOM1;
-			osm.Show(sc->T("fixed", "Speed: alternate"), 1.0);
-		} else if (PSP_CoreParameter().fpsLimit == FPSLimit::CUSTOM1 && g_Config.iFpsLimit2 >= 0) {
-			PSP_CoreParameter().fpsLimit = FPSLimit::CUSTOM2;
-			osm.Show(sc->T("SpeedCustom2", "Speed: alternate 2"), 1.0);
-		} else if (PSP_CoreParameter().fpsLimit == FPSLimit::CUSTOM1 || PSP_CoreParameter().fpsLimit == FPSLimit::CUSTOM2) {
-			PSP_CoreParameter().fpsLimit = FPSLimit::NORMAL;
-			osm.Show(sc->T("standard", "Speed: standard"), 1.0);
+		if (down) {
+			// Cycle through enabled speeds.
+			if (PSP_CoreParameter().fpsLimit == FPSLimit::NORMAL && g_Config.iFpsLimit1 >= 0) {
+				PSP_CoreParameter().fpsLimit = FPSLimit::CUSTOM1;
+				osm.Show(sc->T("fixed", "Speed: alternate"), 1.0);
+			} else if (PSP_CoreParameter().fpsLimit == FPSLimit::CUSTOM1 && g_Config.iFpsLimit2 >= 0) {
+				PSP_CoreParameter().fpsLimit = FPSLimit::CUSTOM2;
+				osm.Show(sc->T("SpeedCustom2", "Speed: alternate 2"), 1.0);
+			} else if (PSP_CoreParameter().fpsLimit == FPSLimit::CUSTOM1 || PSP_CoreParameter().fpsLimit == FPSLimit::CUSTOM2) {
+				PSP_CoreParameter().fpsLimit = FPSLimit::NORMAL;
+				osm.Show(sc->T("standard", "Speed: standard"), 1.0);
+			}
 		}
 		break;
 
 	case VIRTKEY_SPEED_CUSTOM1:
-		if (PSP_CoreParameter().fpsLimit == FPSLimit::NORMAL) {
-			PSP_CoreParameter().fpsLimit = FPSLimit::CUSTOM1;
-			osm.Show(sc->T("fixed", "Speed: alternate"), 1.0);
+		if (down) {
+			if (PSP_CoreParameter().fpsLimit == FPSLimit::NORMAL) {
+				PSP_CoreParameter().fpsLimit = FPSLimit::CUSTOM1;
+				osm.Show(sc->T("fixed", "Speed: alternate"), 1.0);
+			}
+		} else {
+			if (PSP_CoreParameter().fpsLimit == FPSLimit::CUSTOM1) {
+				PSP_CoreParameter().fpsLimit = FPSLimit::NORMAL;
+				osm.Show(sc->T("standard", "Speed: standard"), 1.0);
+			}
 		}
 		break;
 	case VIRTKEY_SPEED_CUSTOM2:
-		if (PSP_CoreParameter().fpsLimit == FPSLimit::NORMAL) {
-			PSP_CoreParameter().fpsLimit = FPSLimit::CUSTOM2;
-			osm.Show(sc->T("SpeedCustom2", "Speed: alternate 2"), 1.0);
+		if (down) {
+			if (PSP_CoreParameter().fpsLimit == FPSLimit::NORMAL) {
+				PSP_CoreParameter().fpsLimit = FPSLimit::CUSTOM2;
+				osm.Show(sc->T("SpeedCustom2", "Speed: alternate 2"), 1.0);
+			}
+		} else {
+			if (PSP_CoreParameter().fpsLimit == FPSLimit::CUSTOM2) {
+				PSP_CoreParameter().fpsLimit = FPSLimit::NORMAL;
+				osm.Show(sc->T("standard", "Speed: standard"), 1.0);
+			}
 		}
 		break;
 
 	case VIRTKEY_PAUSE:
-		pauseTrigger_ = true;
+		if (down) {
+			pauseTrigger_ = true;
+		}
 		break;
 
 	case VIRTKEY_FRAME_ADVANCE:
-		// If game is running, pause emulation immediately. Otherwise, advance a single frame.
-		if (Core_IsStepping())
-		{
-			frameStep_ = true;
-			Core_EnableStepping(false);
-		}
-		else if (!frameStep_)
-		{
-			Core_EnableStepping(true, "ui.frameAdvance", 0);
+		if (down) {
+			// If game is running, pause emulation immediately. Otherwise, advance a single frame.
+			if (Core_IsStepping()) {
+				frameStep_ = true;
+				Core_EnableStepping(false);
+			} else if (!frameStep_) {
+				Core_EnableStepping(true, "ui.frameAdvance", 0);
+			}
 		}
 		break;
 
 	case VIRTKEY_OPENCHAT:
-		if (g_Config.bEnableNetworkChat) {
+		if (down && g_Config.bEnableNetworkChat) {
 			UI::EventParams e{};
 			OnChatMenu.Trigger(e);
 		}
 		break;
 
 	case VIRTKEY_AXIS_SWAP:
-		KeyMap::SwapAxis();
+		if (down) {
+			KeyMap::SwapAxis();
+		}
 		break;
 
 	case VIRTKEY_DEVMENU:
-	{
-		UI::EventParams e{};
-		OnDevMenu.Trigger(e);
+		if (down) {
+			UI::EventParams e{};
+			OnDevMenu.Trigger(e);
+		}
 		break;
-	}
 
 #ifndef MOBILE_DEVICE
 	case VIRTKEY_RECORD:
-	{
-		if (g_Config.bDumpFrames == g_Config.bDumpAudio) {
-			g_Config.bDumpFrames = !g_Config.bDumpFrames;
-			g_Config.bDumpAudio = !g_Config.bDumpAudio;
-		} else {
-			// This hotkey should always toggle both audio and video together.
-			// So let's make sure that's the only outcome even if video OR audio was already being dumped.
-			if (g_Config.bDumpFrames) {
-				AVIDump::Stop();
-				AVIDump::Start(PSP_CoreParameter().renderWidth, PSP_CoreParameter().renderHeight);
-				g_Config.bDumpAudio = true;
+		if (down) {
+			if (g_Config.bDumpFrames == g_Config.bDumpAudio) {
+				g_Config.bDumpFrames = !g_Config.bDumpFrames;
+				g_Config.bDumpAudio = !g_Config.bDumpAudio;
 			} else {
-				WAVDump::Reset();
-				g_Config.bDumpFrames = true;
+				// This hotkey should always toggle both audio and video together.
+				// So let's make sure that's the only outcome even if video OR audio was already being dumped.
+				if (g_Config.bDumpFrames) {
+					AVIDump::Stop();
+					AVIDump::Start(PSP_CoreParameter().renderWidth, PSP_CoreParameter().renderHeight);
+					g_Config.bDumpAudio = true;
+				} else {
+					WAVDump::Reset();
+					g_Config.bDumpFrames = true;
+				}
 			}
 		}
 		break;
-	}
 #endif
 
 	case VIRTKEY_REWIND:
-		if (SaveState::CanRewind()) {
-			SaveState::Rewind(&AfterSaveStateAction);
-		} else {
-			osm.Show(sc->T("norewind", "No rewind save states available"), 2.0);
+		if (down) {
+			if (SaveState::CanRewind()) {
+				SaveState::Rewind(&AfterSaveStateAction);
+			} else {
+				osm.Show(sc->T("norewind", "No rewind save states available"), 2.0);
+			}
 		}
 		break;
 	case VIRTKEY_SAVE_STATE:
-		SaveState::SaveSlot(gamePath_, g_Config.iCurrentStateSlot, &AfterSaveStateAction);
+		if (down)
+			SaveState::SaveSlot(gamePath_, g_Config.iCurrentStateSlot, &AfterSaveStateAction);
 		break;
 	case VIRTKEY_LOAD_STATE:
-		SaveState::LoadSlot(gamePath_, g_Config.iCurrentStateSlot, &AfterSaveStateAction);
+		if (down)
+			SaveState::LoadSlot(gamePath_, g_Config.iCurrentStateSlot, &AfterSaveStateAction);
 		break;
 	case VIRTKEY_NEXT_SLOT:
-		SaveState::NextSlot();
-		NativeMessageReceived("savestate_displayslot", "");
+		if (down) {
+			SaveState::NextSlot();
+			NativeMessageReceived("savestate_displayslot", "");
+		}
 		break;
 	case VIRTKEY_TOGGLE_FULLSCREEN:
-		System_ToggleFullscreenState("");
+		if (down)
+			System_ToggleFullscreenState("");
 		break;
 
 	case VIRTKEY_SCREENSHOT:
-		g_TakeScreenshot = true;
+		if (down)
+			g_TakeScreenshot = true;
 		break;
 
 	case VIRTKEY_TEXTURE_DUMP:
-		g_Config.bSaveNewTextures = !g_Config.bSaveNewTextures;
-		if (g_Config.bSaveNewTextures) {
-			osm.Show(sc->T("saveNewTextures_true", "Textures will now be saved to your storage"), 2.0);
-			NativeMessageReceived("gpu_configChanged", "");
-		} else {
-			osm.Show(sc->T("saveNewTextures_false", "Texture saving was disabled"), 2.0);
+		if (down) {
+			g_Config.bSaveNewTextures = !g_Config.bSaveNewTextures;
+			if (g_Config.bSaveNewTextures) {
+				osm.Show(sc->T("saveNewTextures_true", "Textures will now be saved to your storage"), 2.0);
+				NativeMessageReceived("gpu_configChanged", "");
+			} else {
+				osm.Show(sc->T("saveNewTextures_false", "Texture saving was disabled"), 2.0);
+			}
 		}
 		break;
 	case VIRTKEY_TEXTURE_REPLACE:
-		g_Config.bReplaceTextures = !g_Config.bReplaceTextures;
-		if (g_Config.bReplaceTextures)
-			osm.Show(sc->T("replaceTextures_true", "Texture replacement enabled"), 2.0);
-		else
-			osm.Show(sc->T("replaceTextures_false", "Textures no longer are being replaced"), 2.0);
-		NativeMessageReceived("gpu_configChanged", "");
+		if (down) {
+			g_Config.bReplaceTextures = !g_Config.bReplaceTextures;
+			if (g_Config.bReplaceTextures)
+				osm.Show(sc->T("replaceTextures_true", "Texture replacement enabled"), 2.0);
+			else
+				osm.Show(sc->T("replaceTextures_false", "Textures no longer are being replaced"), 2.0);
+			NativeMessageReceived("gpu_configChanged", "");
+		}
 		break;
 	case VIRTKEY_RAPID_FIRE:
-		__CtrlSetRapidFire(true);
+		__CtrlSetRapidFire(down);
 		break;
 	case VIRTKEY_MUTE_TOGGLE:
-		g_Config.bEnableSound = !g_Config.bEnableSound;
+		if (down)
+			g_Config.bEnableSound = !g_Config.bEnableSound;
 		break;
 	case VIRTKEY_SCREEN_ROTATION_VERTICAL:
-		g_Config.iInternalScreenRotation = ROTATION_LOCKED_VERTICAL;
+		if (down)
+			g_Config.iInternalScreenRotation = ROTATION_LOCKED_VERTICAL;
 		break;
 	case VIRTKEY_SCREEN_ROTATION_VERTICAL180:
-		g_Config.iInternalScreenRotation = ROTATION_LOCKED_VERTICAL180;
+		if (down)
+			g_Config.iInternalScreenRotation = ROTATION_LOCKED_VERTICAL180;
 		break;
 	case VIRTKEY_SCREEN_ROTATION_HORIZONTAL:
-		g_Config.iInternalScreenRotation = ROTATION_LOCKED_HORIZONTAL;
+		if (down)
+			g_Config.iInternalScreenRotation = ROTATION_LOCKED_HORIZONTAL;
 		break;
 	case VIRTKEY_SCREEN_ROTATION_HORIZONTAL180:
-		g_Config.iInternalScreenRotation = ROTATION_LOCKED_HORIZONTAL180;
+		if (down)
+			g_Config.iInternalScreenRotation = ROTATION_LOCKED_HORIZONTAL180;
 		break;
 	}
 }
 
-void EmuScreen::onVKeyUp(int virtualKeyCode) {
-	auto sc = GetI18NCategory("Screen");
-
-	switch (virtualKeyCode) {
-	case VIRTKEY_FASTFORWARD:
-		PSP_CoreParameter().fastForward = false;
-		break;
-
-	case VIRTKEY_SPEED_CUSTOM1:
-		if (PSP_CoreParameter().fpsLimit == FPSLimit::CUSTOM1) {
-			PSP_CoreParameter().fpsLimit = FPSLimit::NORMAL;
-			osm.Show(sc->T("standard", "Speed: standard"), 1.0);
-		}
-		break;
-	case VIRTKEY_SPEED_CUSTOM2:
-		if (PSP_CoreParameter().fpsLimit == FPSLimit::CUSTOM2) {
-			PSP_CoreParameter().fpsLimit = FPSLimit::NORMAL;
-			osm.Show(sc->T("standard", "Speed: standard"), 1.0);
-		}
-		break;
-
-	case VIRTKEY_RAPID_FIRE:
-		__CtrlSetRapidFire(false);
-		break;
-
-	default:
-		break;
+void EmuScreen::onVKeyAnalog(int virtualKeyCode, float value) {
+	if (virtualKeyCode != VIRTKEY_SPEED_ANALOG) {
+		return;
 	}
+
+	// We only handle VIRTKEY_SPEED_ANALOG here.
+
+	// Xbox controllers need a pretty big deadzone here to not leave behind small values
+	// on occasion when releasing the trigger. Still feels right.
+	static constexpr float DEADZONE_THRESHOLD = 0.20f;
+	static constexpr float DEADZONE_SCALE = 1.0f / (1.0f - DEADZONE_THRESHOLD);
+
+	FPSLimit &limitMode = PSP_CoreParameter().fpsLimit;
+	// If we're using an alternate speed already, let that win.
+	if (limitMode != FPSLimit::NORMAL && limitMode != FPSLimit::ANALOG)
+		return;
+	// Don't even try if the limit is invalid.
+	if (g_Config.iAnalogFpsLimit <= 0)
+		return;
+
+	// Apply a small deadzone (against the resting position.)
+	value = std::max(0.0f, (value - DEADZONE_THRESHOLD) * DEADZONE_SCALE);
+
+	// If target is above 60, value is how much to speed up over 60.  Otherwise, it's how much slower.
+	// So normalize the target.
+	int target = g_Config.iAnalogFpsLimit - 60;
+	PSP_CoreParameter().analogFpsLimit = 60 + (int)(target * value);
+
+	// If we've reset back to normal, turn it off.
+	limitMode = PSP_CoreParameter().analogFpsLimit == 60 ? FPSLimit::NORMAL : FPSLimit::ANALOG;
 }
 
 bool EmuScreen::key(const KeyInput &key) {
@@ -1189,7 +1228,7 @@ static void DrawCrashDump(UIContext *ctx, const Path &gamePath) {
 
 	ctx->PushScissor(Bounds(x, y, columnWidth, height));
 
-	INFO_LOG(SYSTEM, "DrawCrashDump (%d %d %d %d)", x, y, columnWidth, height);
+	// INFO_LOG(SYSTEM, "DrawCrashDump (%d %d %d %d)", x, y, columnWidth, height);
 
 	snprintf(statbuf, sizeof(statbuf), R"(%s
 %s (%s)
@@ -1250,6 +1289,14 @@ Invalid / Unknown (%d)
 
 	ctx->Draw()->DrawTextShadow(ubuntu24, kernelState.c_str(), x, y, 0xFFFFFFFF);
 
+	y += 40;
+
+	ctx->Draw()->SetFontScale(.5f, .5f);
+
+	ctx->Draw()->DrawTextShadow(ubuntu24, info.stackTrace.c_str(), x, y, 0xFFFFFFFF);
+
+	ctx->Draw()->SetFontScale(.7f, .7f);
+
 	ctx->PopScissor();
 
 	// Draw some additional stuff to the right.
@@ -1272,6 +1319,7 @@ Invalid / Unknown (%d)
 
 static void DrawAudioDebugStats(UIContext *ctx, const Bounds &bounds) {
 	FontID ubuntu24("UBUNTU24");
+
 	char statbuf[4096] = { 0 };
 	System_AudioGetDebugStats(statbuf, sizeof(statbuf));
 
@@ -1280,6 +1328,22 @@ static void DrawAudioDebugStats(UIContext *ctx, const Bounds &bounds) {
 	ctx->Draw()->SetFontScale(0.7f, 0.7f);
 	ctx->Draw()->DrawTextRect(ubuntu24, statbuf, bounds.x + 11, bounds.y + 31, bounds.w - 20, bounds.h - 30, 0xc0000000, FLAG_DYNAMIC_ASCII | FLAG_WRAP_TEXT);
 	ctx->Draw()->DrawTextRect(ubuntu24, statbuf, bounds.x + 10, bounds.y + 30, bounds.w - 20, bounds.h - 30, 0xFFFFFFFF, FLAG_DYNAMIC_ASCII | FLAG_WRAP_TEXT);
+	ctx->Draw()->SetFontScale(1.0f, 1.0f);
+	ctx->Flush();
+	ctx->RebindTexture();
+}
+
+static void DrawControlDebug(UIContext *ctx, const ControlMapper &mapper, const Bounds &bounds) {
+	FontID ubuntu24("UBUNTU24");
+
+	char statbuf[4096] = { 0 };
+	mapper.GetDebugString(statbuf, sizeof(statbuf));
+
+	ctx->Flush();
+	ctx->BindFontTexture();
+	ctx->Draw()->SetFontScale(0.5f, 0.5f);
+	ctx->Draw()->DrawTextRect(ubuntu24, statbuf, bounds.x + 11, bounds.y + 31, bounds.w - 20, bounds.h - 30, 0xc0000000, FLAG_DYNAMIC_ASCII);
+	ctx->Draw()->DrawTextRect(ubuntu24, statbuf, bounds.x + 10, bounds.y + 30, bounds.w - 20, bounds.h - 30, 0xFFFFFFFF, FLAG_DYNAMIC_ASCII);
 	ctx->Draw()->SetFontScale(1.0f, 1.0f);
 	ctx->Flush();
 	ctx->RebindTexture();
@@ -1497,7 +1561,7 @@ bool EmuScreen::hasVisibleUI() {
 	if (g_Config.bEnableCardboardVR || g_Config.bEnableNetworkChat)
 		return true;
 	// Debug UI.
-	if (g_Config.bShowDebugStats || g_Config.bShowDeveloperMenu || g_Config.bShowAudioDebug || g_Config.bShowFrameProfiler)
+	if (g_Config.bShowDebugStats || g_Config.bShowDeveloperMenu || g_Config.bShowAudioDebug || g_Config.bShowFrameProfiler || g_Config.bShowControlDebug)
 		return true;
 
 	// Exception information.
@@ -1531,20 +1595,26 @@ void EmuScreen::renderUI() {
 		root_->Draw(*ctx);
 	}
 
-	if (g_Config.bShowDebugStats && !invalid_) {
-		DrawDebugStats(ctx, ctx->GetLayoutBounds());
-	}
+	if (!invalid_) {
+		if (g_Config.bShowDebugStats) {
+			DrawDebugStats(ctx, ctx->GetLayoutBounds());
+		}
 
-	if (g_Config.bShowAudioDebug && !invalid_) {
-		DrawAudioDebugStats(ctx, ctx->GetLayoutBounds());
-	}
+		if (g_Config.bShowAudioDebug) {
+			DrawAudioDebugStats(ctx, ctx->GetLayoutBounds());
+		}
 
-	if (g_Config.iShowStatusFlags && !invalid_) {
-		DrawFPS(ctx, ctx->GetLayoutBounds());
-	}
+		if (g_Config.iShowStatusFlags) {
+			DrawFPS(ctx, ctx->GetLayoutBounds());
+		}
 
-	if (g_Config.bDrawFrameGraph && !invalid_) {
-		DrawFrameTimes(ctx, ctx->GetLayoutBounds());
+		if (g_Config.bDrawFrameGraph) {
+			DrawFrameTimes(ctx, ctx->GetLayoutBounds());
+		}
+
+		if (g_Config.bShowControlDebug) {
+			DrawControlDebug(ctx, controlMapper_, ctx->GetLayoutBounds());
+		}
 	}
 
 #if !PPSSPP_PLATFORM(UWP) && !PPSSPP_PLATFORM(SWITCH)

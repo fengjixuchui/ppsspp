@@ -1,10 +1,11 @@
 #include <algorithm>
+
 #include "UI/JoystickHistoryView.h"
+
 #include "Common/UI/Context.h"
 #include "Common/UI/UI.h"
 
-// From ControlMapper.h
-void ConvertAnalogStick(float &x, float &y);
+#include "Core/ControlMapper.h"
 
 void JoystickHistoryView::Draw(UIContext &dc) {
 	const AtlasImage *image = dc.Draw()->GetAtlas()->getImage(ImageID("I_CROSS"));
@@ -33,8 +34,8 @@ void JoystickHistoryView::Draw(UIContext &dc) {
 			float by = (iy + 1) * dx;
 
 			if (type_ == StickHistoryViewType::OUTPUT) {
-				ConvertAnalogStick(ax, ay);
-				ConvertAnalogStick(bx, by);
+				ConvertAnalogStick(ax, ay, &ax, &ay);
+				ConvertAnalogStick(bx, by, &bx, &by);
 			}
 
 			ax = ax * minRadius + bounds_.centerX();
@@ -57,8 +58,8 @@ void JoystickHistoryView::Draw(UIContext &dc) {
 			float by = fy;
 
 			if (type_ == StickHistoryViewType::OUTPUT) {
-				ConvertAnalogStick(ax, ay);
-				ConvertAnalogStick(bx, by);
+				ConvertAnalogStick(ax, ay, &ax, &ay);
+				ConvertAnalogStick(bx, by, &bx, &by);
 			}
 
 			ax = ax * minRadius + bounds_.centerX();
