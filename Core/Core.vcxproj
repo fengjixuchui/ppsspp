@@ -540,6 +540,7 @@
     <ClCompile Include="..\ext\udis86\syn-intel.c" />
     <ClCompile Include="..\ext\udis86\syn.c" />
     <ClCompile Include="..\ext\udis86\udis86.c" />
+    <ClCompile Include="ConfigSettings.cpp" />
     <ClCompile Include="ControlMapper.cpp" />
     <ClCompile Include="AVIDump.cpp" />
     <ClCompile Include="Debugger\MemBlockInfo.cpp" />
@@ -590,6 +591,7 @@
     <ClCompile Include="MIPS\IR\IRJit.cpp" />
     <ClCompile Include="MIPS\IR\IRPassSimplify.cpp" />
     <ClCompile Include="MIPS\IR\IRRegCache.cpp" />
+    <ClCompile Include="MIPS\MIPSVFPUFallbacks.cpp" />
     <ClCompile Include="Replay.cpp" />
     <ClCompile Include="Compatibility.cpp" />
     <ClCompile Include="Config.cpp" />
@@ -1109,6 +1111,7 @@
     <ClInclude Include="..\ext\udis86\types.h" />
     <ClInclude Include="..\ext\udis86\udint.h" />
     <ClInclude Include="..\ext\udis86\udis86.h" />
+    <ClInclude Include="ConfigSettings.h" />
     <ClInclude Include="ControlMapper.h" />
     <ClInclude Include="AVIDump.h" />
     <ClInclude Include="ConfigValues.h" />
@@ -1154,6 +1157,7 @@
     <ClInclude Include="MIPS\IR\IRJit.h" />
     <ClInclude Include="MIPS\IR\IRPassSimplify.h" />
     <ClInclude Include="MIPS\IR\IRRegCache.h" />
+    <ClInclude Include="MIPS\MIPSVFPUFallbacks.h" />
     <ClInclude Include="Replay.h" />
     <ClInclude Include="Compatibility.h" />
     <ClInclude Include="Config.h" />

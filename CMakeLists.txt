@@ -1740,6 +1740,8 @@ add_library(${CoreLibName} ${CoreLinkType}
 	${CommonJIT}
 	Core/Config.cpp
 	Core/Config.h
+	Core/ConfigSettings.cpp
+	Core/ConfigSettings.h
 	Core/ConfigValues.h
 	Core/ControlMapper.cpp
 	Core/ControlMapper.h
@@ -2067,6 +2069,8 @@ add_library(${CoreLibName} ${CoreLinkType}
 	Core/MIPS/MIPSTables.h
 	Core/MIPS/MIPSVFPUUtils.cpp
 	Core/MIPS/MIPSVFPUUtils.h
+	Core/MIPS/MIPSVFPUFallbacks.cpp
+	Core/MIPS/MIPSVFPUFallbacks.h
 	Core/MIPS/MIPSAsm.cpp
 	Core/MIPS/MIPSAsm.h
 	Core/MemFault.cpp

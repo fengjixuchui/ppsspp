@@ -110,7 +110,7 @@ extern bool g_TakeScreenshot;
 
 static void __EmuScreenVblank()
 {
-	auto sy = GetI18NCategory("System");
+	auto sy = GetI18NCategory(I18NCat::SYSTEM);
 
 	if (frameStep_ && lastNumFlips != gpuStats.numFlips)
 	{
@@ -259,7 +259,7 @@ void EmuScreen::bootGame(const Path &filename) {
 	if (!bootAllowStorage(filename))
 		return;
 
-	auto sc = GetI18NCategory("Screen");
+	auto sc = GetI18NCategory(I18NCat::SCREEN);
 
 	invalid_ = true;
 
@@ -332,17 +332,17 @@ void EmuScreen::bootGame(const Path &filename) {
 	}
 
 	if (PSP_CoreParameter().compat.flags().RequireBufferedRendering && g_Config.bSkipBufferEffects) {
-		auto gr = GetI18NCategory("Graphics");
+		auto gr = GetI18NCategory(I18NCat::GRAPHICS);
 		System_NotifyUserMessage(gr->T("BufferedRenderingRequired", "Warning: This game requires Rendering Mode to be set to Buffered."), 15.0f);
 	}
 
 	if (PSP_CoreParameter().compat.flags().RequireBlockTransfer && g_Config.bSkipGPUReadbacks) {
-		auto gr = GetI18NCategory("Graphics");
+		auto gr = GetI18NCategory(I18NCat::GRAPHICS);
 		System_NotifyUserMessage(gr->T("BlockTransferRequired", "Warning: This game requires Simulate Block Transfer Mode to be set to On."), 15.0f);
 	}
 
 	if (PSP_CoreParameter().compat.flags().RequireDefaultCPUClock && g_Config.iLockedCPUSpeed != 0) {
-		auto gr = GetI18NCategory("Graphics");
+		auto gr = GetI18NCategory(I18NCat::GRAPHICS);
 		System_NotifyUserMessage(gr->T("DefaultCPUClockRequired", "Warning: This game requires the CPU clock to be set to default."), 15.0f);
 	}
 
@@ -360,7 +360,7 @@ void EmuScreen::bootComplete() {
 	NOTICE_LOG(BOOT, "Loading %s...", PSP_CoreParameter().fileToStart.c_str());
 	autoLoad();
 
-	auto sc = GetI18NCategory("Screen");
+	auto sc = GetI18NCategory(I18NCat::SCREEN);
 
 #ifndef MOBILE_DEVICE
 	if (g_Config.bFirstRun) {
@@ -384,7 +384,7 @@ void EmuScreen::bootComplete() {
 #endif
 
 	if (Core_GetPowerSaving()) {
-		auto sy = GetI18NCategory("System");
+		auto sy = GetI18NCategory(I18NCat::SYSTEM);
 #ifdef __ANDROID__
 		osm.Show(sy->T("WARNING: Android battery save mode is on"), 2.0f, 0xFFFFFF, -1, true, "core_powerSaving");
 #else
@@ -560,7 +560,7 @@ void EmuScreen::touch(const TouchInput &touch) {
 }
 
 void EmuScreen::onVKey(int virtualKeyCode, bool down) {
-	auto sc = GetI18NCategory("Screen");
+	auto sc = GetI18NCategory(I18NCat::SCREEN);
 
 	switch (virtualKeyCode) {
 	case VIRTKEY_FASTFORWARD:
@@ -636,7 +636,10 @@ void EmuScreen::onVKey(int virtualKeyCode, bool down) {
 		break;
 
 	case VIRTKEY_OPENCHAT:
-		if (down && g_Config.bEnableNetworkChat) {
+		// If we react at "down", the control mapper will never receive the "up" since
+		// we pop up a dialog which takes over input.
+		// Could hack around it, but this seems more sensible, even if it might feel less snappy.
+		if (!down && g_Config.bEnableNetworkChat) {
 			UI::EventParams e{};
 			OnChatMenu.Trigger(e);
 		}
@@ -852,12 +855,28 @@ protected:
 	uint32_t color_ = 0xFFC0C0C0;
 };
 
+// TODO: Shouldn't actually need bounds for this, Anchor can center too.
+static UI::AnchorLayoutParams *AnchorInCorner(const Bounds &bounds, int corner, float xOffset, float yOffset) {
+	using namespace UI;
+	switch (g_Config.iChatButtonPosition) {
+	case 0:  return new AnchorLayoutParams(WRAP_CONTENT, WRAP_CONTENT, xOffset, NONE, NONE, yOffset, true);
+	case 1:  return new AnchorLayoutParams(WRAP_CONTENT, WRAP_CONTENT, bounds.centerX(), NONE, NONE, yOffset, true);
+	case 2:  return new AnchorLayoutParams(WRAP_CONTENT, WRAP_CONTENT, NONE, NONE, xOffset, yOffset, true);
+	case 3:  return new AnchorLayoutParams(WRAP_CONTENT, WRAP_CONTENT, xOffset, yOffset, NONE, NONE, true);
+	case 4:  return new AnchorLayoutParams(WRAP_CONTENT, WRAP_CONTENT, bounds.centerX(), yOffset, NONE, NONE, true);
+	case 5:  return new AnchorLayoutParams(WRAP_CONTENT, WRAP_CONTENT, NONE, yOffset, xOffset, NONE, true);
+	case 6:  return new AnchorLayoutParams(WRAP_CONTENT, WRAP_CONTENT, xOffset, bounds.centerY(), NONE, NONE, true);
+	case 7:  return new AnchorLayoutParams(WRAP_CONTENT, WRAP_CONTENT, NONE, bounds.centerY(), xOffset, NONE, true);
+	default: return new AnchorLayoutParams(WRAP_CONTENT, WRAP_CONTENT, xOffset, NONE, NONE, yOffset, true);
+	}
+}
+
 void EmuScreen::CreateViews() {
 	using namespace UI;
 
-	auto dev = GetI18NCategory("Developer");
-	auto n = GetI18NCategory("Networking");
-	auto sc = GetI18NCategory("Screen");
+	auto dev = GetI18NCategory(I18NCat::DEVELOPER);
+	auto n = GetI18NCategory(I18NCat::NETWORKING);
+	auto sc = GetI18NCategory(I18NCat::SCREEN);
 
 	const Bounds &bounds = screenManager()->getUIContext()->GetLayoutBounds();
 	InitPadLayout(bounds.w, bounds.h);
@@ -887,41 +906,13 @@ void EmuScreen::CreateViews() {
 	cardboardDisableButton_->SetVisibility(V_GONE);
 	cardboardDisableButton_->SetScale(0.65f);  // make it smaller - this button can be in the way otherwise.
 
-	if (g_Config.bEnableNetworkChat && g_Config.iChatButtonPosition != 8) {
-		AnchorLayoutParams *layoutParams = nullptr;
-		switch (g_Config.iChatButtonPosition) {
-		case 0:
-			layoutParams = new AnchorLayoutParams(WRAP_CONTENT, WRAP_CONTENT, 80, NONE, NONE, 50, true);
-			break;
-		case 1:
-			layoutParams = new AnchorLayoutParams(WRAP_CONTENT, WRAP_CONTENT, bounds.centerX(), NONE, NONE, 50, true);
-			break;
-		case 2:
-			layoutParams = new AnchorLayoutParams(WRAP_CONTENT, WRAP_CONTENT, NONE, NONE, 80, 50, true);
-			break;
-		case 3:
-			layoutParams = new AnchorLayoutParams(WRAP_CONTENT, WRAP_CONTENT, 80, 50, NONE, NONE, true);
-			break;
-		case 4:
-			layoutParams = new AnchorLayoutParams(WRAP_CONTENT, WRAP_CONTENT, bounds.centerX(), 50, NONE, NONE, true);
-			break;
-		case 5:
-			layoutParams = new AnchorLayoutParams(WRAP_CONTENT, WRAP_CONTENT, NONE, 50, 80, NONE, true);
-			break;
-		case 6:
-			layoutParams = new AnchorLayoutParams(WRAP_CONTENT, WRAP_CONTENT, 80, bounds.centerY(), NONE, NONE, true);
-			break;
-		case 7:
-			layoutParams = new AnchorLayoutParams(WRAP_CONTENT, WRAP_CONTENT, NONE, bounds.centerY(), 80, NONE, true);
-			break;
-		default:
-			layoutParams = new AnchorLayoutParams(WRAP_CONTENT, WRAP_CONTENT, 80, NONE, NONE, 50, true);
-			break;
+	if (g_Config.bEnableNetworkChat) {
+		if (g_Config.iChatButtonPosition != 8) {
+			AnchorLayoutParams *layoutParams = AnchorInCorner(bounds, g_Config.iChatButtonPosition, 80.0f, 50.0f);
+			ChoiceWithValueDisplay *btn = new ChoiceWithValueDisplay(&newChatMessages_, n->T("Chat"), layoutParams);
+			root_->Add(btn)->OnClick.Handle(this, &EmuScreen::OnChat);
+			chatButton_ = btn;
 		}
-
-		ChoiceWithValueDisplay *btn = new ChoiceWithValueDisplay(&newChatMessages_, n->T("Chat"), layoutParams);
-		root_->Add(btn)->OnClick.Handle(this, &EmuScreen::OnChat);
-		chatButton_ = btn;
 		chatMenu_ = root_->Add(new ChatMenu(screenManager()->getUIContext()->GetBounds(), new LayoutParams(FILL_PARENT, FILL_PARENT)));
 		chatMenu_->SetVisibility(UI::V_GONE);
 	} else {
@@ -988,8 +979,7 @@ void EmuScreen::CreateViews() {
 }
 
 UI::EventReturn EmuScreen::OnDevTools(UI::EventParams &params) {
-	auto dev = GetI18NCategory("Developer");
-	DevMenuScreen *devMenu = new DevMenuScreen(gamePath_, dev);
+	DevMenuScreen *devMenu = new DevMenuScreen(gamePath_, I18NCat::DEVELOPER);
 	if (params.v)
 		devMenu->SetPopupOrigin(params.v);
 	screenManager()->push(devMenu);
@@ -1076,7 +1066,7 @@ void EmuScreen::update() {
 	}
 
 	if (errorMessage_.size()) {
-		auto err = GetI18NCategory("Error");
+		auto err = GetI18NCategory(I18NCat::ERRORS);
 		std::string errLoadingFile = gamePath_.ToVisualString() + "\n";
 		errLoadingFile.append(err->T("Error loading file", "Could not load game"));
 		errLoadingFile.append(" ");
@@ -1183,7 +1173,7 @@ static const char *CPUCoreAsString(int core) {
 static void DrawCrashDump(UIContext *ctx, const Path &gamePath) {
 	const ExceptionInfo &info = Core_GetExceptionInfo();
 
-	auto sy = GetI18NCategory("System");
+	auto sy = GetI18NCategory(I18NCat::SYSTEM);
 	FontID ubuntu24("UBUNTU24");
 
 	int x = 20 + System_GetPropertyFloat(SYSPROP_DISPLAY_SAFE_INSET_LEFT);

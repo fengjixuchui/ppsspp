@@ -1188,11 +1188,11 @@ void FramebufferManagerCommon::DrawPixels(VirtualFramebuffer *vfb, int dstX, int
 		// Should more of this be handled by the presentation engine?
 		if (needBackBufferYSwap_)
 			std::swap(v0, v1);
-		flags = g_Config.iBufFilter == SCALE_LINEAR ? DRAWTEX_LINEAR : DRAWTEX_NEAREST;
+		flags = g_Config.iDisplayFilter == SCALE_LINEAR ? DRAWTEX_LINEAR : DRAWTEX_NEAREST;
 		flags = flags | DRAWTEX_TO_BACKBUFFER;
 		FRect frame = GetScreenFrame(pixelWidth_, pixelHeight_);
 		FRect rc;
-		CenterDisplayOutputRect(&rc, 480.0f, 272.0f, frame, ROTATION_LOCKED_HORIZONTAL);
+		CalculateDisplayOutputRect(&rc, 480.0f, 272.0f, frame, ROTATION_LOCKED_HORIZONTAL);
 		SetViewport2D(rc.x, rc.y, rc.w, rc.h);
 		draw_->SetScissorRect(0, 0, pixelWidth_, pixelHeight_);
 	}
@@ -1434,7 +1434,7 @@ void FramebufferManagerCommon::DrawFramebufferToOutput(const u8 *srcPixels, int 
 		return;
 
 	int uvRotation = useBufferedRendering_ ? g_Config.iInternalScreenRotation : ROTATION_LOCKED_HORIZONTAL;
-	OutputFlags flags = g_Config.iBufFilter == SCALE_LINEAR ? OutputFlags::LINEAR : OutputFlags::NEAREST;
+	OutputFlags flags = g_Config.iDisplayFilter == SCALE_LINEAR ? OutputFlags::LINEAR : OutputFlags::NEAREST;
 	if (needBackBufferYSwap_) {
 		flags |= OutputFlags::BACKBUFFER_FLIPPED;
 	}
@@ -1588,7 +1588,7 @@ void FramebufferManagerCommon::CopyDisplayToOutput(bool reallyDirty) {
 		textureCache_->ForgetLastTexture();
 
 		int uvRotation = useBufferedRendering_ ? g_Config.iInternalScreenRotation : ROTATION_LOCKED_HORIZONTAL;
-		OutputFlags flags = g_Config.iBufFilter == SCALE_LINEAR ? OutputFlags::LINEAR : OutputFlags::NEAREST;
+		OutputFlags flags = g_Config.iDisplayFilter == SCALE_LINEAR ? OutputFlags::LINEAR : OutputFlags::NEAREST;
 		if (needBackBufferYSwap_) {
 			flags |= OutputFlags::BACKBUFFER_FLIPPED;
 		}
@@ -2651,7 +2651,7 @@ void FramebufferManagerCommon::UpdateFramebufUsage(VirtualFramebuffer *vfb) {
 }
 
 void FramebufferManagerCommon::ShowScreenResolution() {
-	auto gr = GetI18NCategory("Graphics");
+	auto gr = GetI18NCategory(I18NCat::GRAPHICS);
 
 	std::ostringstream messageStream;
 	messageStream << gr->T("Internal Resolution") << ": ";

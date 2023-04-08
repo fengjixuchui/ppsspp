@@ -31,8 +31,8 @@
 void TiltAnalogSettingsScreen::CreateViews() {
 	using namespace UI;
 
-	auto co = GetI18NCategory("Controls");
-	auto di = GetI18NCategory("Dialog");
+	auto co = GetI18NCategory(I18NCat::CONTROLS);
+	auto di = GetI18NCategory(I18NCat::DIALOG);
 
 	bool vertical = UseVerticalLayout();
 
@@ -102,7 +102,7 @@ void TiltAnalogSettingsScreen::CreateViews() {
 
 	static const char *tiltTypes[] = { "None (Disabled)", "Analog Stick", "D-PAD", "PSP Action Buttons", "L/R Trigger Buttons" };
 	settings->Add(new ItemHeader(co->T("Tilt control setup")));
-	settings->Add(new PopupMultiChoice(&g_Config.iTiltInputType, co->T("Tilt Input Type"), tiltTypes, 0, ARRAY_SIZE(tiltTypes), co->GetName(), screenManager()))->OnChoice.Add(
+	settings->Add(new PopupMultiChoice(&g_Config.iTiltInputType, co->T("Tilt Input Type"), tiltTypes, 0, ARRAY_SIZE(tiltTypes), I18NCat::CONTROLS, screenManager()))->OnChoice.Add(
 		[=](UI::EventParams &p) {
 			//when the tilt event type is modified, we need to reset all tilt settings.
 			//refer to the ResetTiltEvents() function for a detailed explanation.
@@ -122,10 +122,10 @@ void TiltAnalogSettingsScreen::CreateViews() {
 
 	settings->Add(new ItemHeader(co->T("Sensitivity")));
 	if (g_Config.iTiltInputType == 1) {
-		settings->Add(new PopupSliderChoiceFloat(&g_Config.fTiltAnalogDeadzoneRadius, 0.0f, 0.8f, co->T("Deadzone radius"), 0.01f, screenManager(), "/ 1.0"))->SetEnabledFunc(enabledFunc);
+		settings->Add(new PopupSliderChoiceFloat(&g_Config.fTiltAnalogDeadzoneRadius, 0.0f, 0.8f, 0.0f, co->T("Deadzone radius"), 0.01f, screenManager(), "/ 1.0"))->SetEnabledFunc(enabledFunc);
 	}
-	settings->Add(new PopupSliderChoice(&g_Config.iTiltSensitivityX, 0, 100, co->T("Tilt Sensitivity along X axis"), screenManager(), "%"))->SetEnabledFunc(enabledFunc);
-	settings->Add(new PopupSliderChoice(&g_Config.iTiltSensitivityY, 0, 100, co->T("Tilt Sensitivity along Y axis"), screenManager(), "%"))->SetEnabledFunc(enabledFunc);
+	settings->Add(new PopupSliderChoice(&g_Config.iTiltSensitivityX, 0, 100, 60, co->T("Tilt Sensitivity along X axis"), screenManager(), "%"))->SetEnabledFunc(enabledFunc);
+	settings->Add(new PopupSliderChoice(&g_Config.iTiltSensitivityY, 0, 100, 60, co->T("Tilt Sensitivity along Y axis"), screenManager(), "%"))->SetEnabledFunc(enabledFunc);
 
 	settings->Add(new ItemHeader(co->T("Invert Axes")));
 	settings->Add(new CheckBox(&g_Config.bInvertTiltX, co->T("Invert Tilt along X axis")))->SetEnabledFunc(enabledFunc);

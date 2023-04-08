@@ -618,8 +618,8 @@ void TouchControlLayoutScreen::CreateViews() {
 	const float leftColumnWidth = 200.0f;
 	layoutAreaScale = 1.0f - (leftColumnWidth + 10.0f) / std::max(bounds.w, 1.0f);
 
-	auto co = GetI18NCategory("Controls");
-	auto di = GetI18NCategory("Dialog");
+	auto co = GetI18NCategory(I18NCat::CONTROLS);
+	auto di = GetI18NCategory(I18NCat::DIALOG);
 
 	auto rootLayout = new LinearLayout(ORIENT_HORIZONTAL, new LayoutParams(FILL_PARENT, FILL_PARENT));
 	rootLayout->SetSpacing(0.0f);
@@ -636,7 +636,7 @@ void TouchControlLayoutScreen::CreateViews() {
 	mode_->OnChoice.Handle(this, &TouchControlLayoutScreen::OnMode);
 
 	CheckBox *snap = new CheckBox(&g_Config.bTouchSnapToGrid, di->T("Snap"));
-	PopupSliderChoice *gridSize = new PopupSliderChoice(&g_Config.iTouchSnapGridSize, 2, 256, di->T("Grid"), screenManager(), "");
+	PopupSliderChoice *gridSize = new PopupSliderChoice(&g_Config.iTouchSnapGridSize, 2, 256, 64, di->T("Grid"), screenManager(), "");
 	gridSize->SetEnabledPtr(&g_Config.bTouchSnapToGrid);
 
 	leftColumn->Add(mode_);

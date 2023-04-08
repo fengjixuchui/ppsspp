@@ -48,22 +48,6 @@ namespace http {
 struct UrlEncoder;
 struct ConfigPrivate;
 
-struct ConfigTouchPos {
-	float x;
-	float y;
-	float scale;
-	// Note: Show is not used for all settings.
-	bool show;
-};
-
-struct ConfigCustomButton {
-	uint64_t key;
-	int image;
-	int shape;
-	bool toggle;
-	bool repeat;
-};
-
 struct Config {
 public:
 	Config();
@@ -168,12 +152,13 @@ public:
 	bool bSkipBufferEffects;
 
 	int iTexFiltering; // 1 = auto , 2 = nearest , 3 = linear , 4 = auto max quality
-	int iBufFilter; // 1 = linear, 2 = nearest
 
 	bool bDisplayStretch;  // Automatically matches the aspect ratio of the window.
+	int iDisplayFilter;    // 1 = linear, 2 = nearest
 	float fDisplayOffsetX;
 	float fDisplayOffsetY;
 	float fDisplayScale;   // Relative to the most constraining axis (x or y).
+	bool bDisplayIntegerScale;  // Snaps scaling to integer scale factors in raw pixels.
 	float fDisplayAspectRatio;  // Stored relative to the PSP's native ratio, so 1.0 is the normal pixel aspect ratio.
 
 	bool bImmersiveMode;  // Mode on Android Kitkat 4.4 and later that hides the back button etc.
@@ -463,6 +448,7 @@ public:
 	bool bEnableMotions;
 	bool bForce72Hz;
 	bool bManualForceVR;
+	bool bRescaleHUD;
 	float fCameraDistance;
 	float fCameraHeight;
 	float fCameraSide;

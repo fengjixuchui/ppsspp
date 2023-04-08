@@ -133,7 +133,7 @@ namespace MainWindow {
 	}
 
 	void CreateHelpMenu(HMENU menu) {
-		auto des = GetI18NCategory("DesktopUI");
+		auto des = GetI18NCategory(I18NCat::DESKTOPUI);
 
 		const std::wstring visitMainWebsite = ConvertUTF8ToWString(des->T("www.ppsspp.org"));
 		const std::wstring visitForum = ConvertUTF8ToWString(des->T("PPSSPP Forums"));
@@ -156,7 +156,7 @@ namespace MainWindow {
 	}
 
 	static void TranslateMenuItem(const HMENU hMenu, const int menuID, const std::wstring& accelerator = L"", const char *key = nullptr) {
-		auto des = GetI18NCategory("DesktopUI");
+		auto des = GetI18NCategory(I18NCat::DESKTOPUI);
 
 		std::wstring translated;
 		if (key == nullptr || !strcmp(key, "")) {
@@ -291,7 +291,7 @@ namespace MainWindow {
 	void TranslateMenus(HWND hWnd, HMENU menu) {
 		bool changed = false;
 
-		const std::string curLanguageID = i18nrepo.LanguageID();
+		const std::string curLanguageID = g_i18nrepo.LanguageID();
 		if (curLanguageID != menuLanguageID || KeyMap::HasChanged(menuKeymapGeneration)) {
 			DoTranslateMenus(hWnd, menu);
 			menuLanguageID = curLanguageID;
@@ -318,7 +318,7 @@ namespace MainWindow {
 			if (!browsePauseAfter)
 				Core_EnableStepping(true, "ui.boot", 0);
 		}
-		auto mm = GetI18NCategory("MainMenu");
+		auto mm = GetI18NCategory(I18NCat::MAINMENU);
 
 		W32Util::MakeTopMost(GetHWND(), false);
 
@@ -387,7 +387,7 @@ namespace MainWindow {
 				g_Config.iFrameSkip = FRAMESKIP_OFF;
 		}
 
-		auto gr = GetI18NCategory("Graphics");
+		auto gr = GetI18NCategory(I18NCat::GRAPHICS);
 
 		std::ostringstream messageStream;
 		messageStream << gr->T("Frame Skipping") << ":" << " ";
@@ -407,7 +407,7 @@ namespace MainWindow {
 			g_Config.iFrameSkipType = 0;
 		}
 
-		auto gr = GetI18NCategory("Graphics");
+		auto gr = GetI18NCategory(I18NCat::GRAPHICS);
 
 		std::ostringstream messageStream;
 		messageStream << gr->T("Frame Skipping Type") << ":" << " ";
@@ -432,7 +432,7 @@ namespace MainWindow {
 	void MainWindowMenu_Process(HWND hWnd, WPARAM wParam) {
 		std::string fn;
 
-		auto gr = GetI18NCategory("Graphics");
+		auto gr = GetI18NCategory(I18NCat::GRAPHICS);
 
 		int wmId = LOWORD(wParam);
 		// Parse the menu selections:
@@ -845,8 +845,8 @@ namespace MainWindow {
 		case ID_OPTIONS_LINEARFILTERING:         g_Config.iTexFiltering = TEX_FILTER_FORCE_LINEAR; break;
 		case ID_OPTIONS_AUTOMAXQUALITYFILTERING: g_Config.iTexFiltering = TEX_FILTER_AUTO_MAX_QUALITY; break;
 
-		case ID_OPTIONS_BUFLINEARFILTER:  g_Config.iBufFilter = SCALE_LINEAR; break;
-		case ID_OPTIONS_BUFNEARESTFILTER: g_Config.iBufFilter = SCALE_NEAREST; break;
+		case ID_OPTIONS_BUFLINEARFILTER:  g_Config.iDisplayFilter = SCALE_LINEAR; break;
+		case ID_OPTIONS_BUFNEARESTFILTER: g_Config.iDisplayFilter = SCALE_NEAREST; break;
 
 		case ID_OPTIONS_TOPMOST:
 			g_Config.bTopMost = !g_Config.bTopMost;
@@ -1082,14 +1082,14 @@ namespace MainWindow {
 			ID_OPTIONS_BUFLINEARFILTER,
 			ID_OPTIONS_BUFNEARESTFILTER,
 		};
-		if (g_Config.iBufFilter < SCALE_LINEAR)
-			g_Config.iBufFilter = SCALE_LINEAR;
+		if (g_Config.iDisplayFilter < SCALE_LINEAR)
+			g_Config.iDisplayFilter = SCALE_LINEAR;
 
-		else if (g_Config.iBufFilter > SCALE_NEAREST)
-			g_Config.iBufFilter = SCALE_NEAREST;
+		else if (g_Config.iDisplayFilter > SCALE_NEAREST)
+			g_Config.iDisplayFilter = SCALE_NEAREST;
 
 		for (int i = 0; i < ARRAY_SIZE(bufferfilteritems); i++) {
-			CheckMenuItem(menu, bufferfilteritems[i], MF_BYCOMMAND | ((i + 1) == g_Config.iBufFilter ? MF_CHECKED : MF_UNCHECKED));
+			CheckMenuItem(menu, bufferfilteritems[i], MF_BYCOMMAND | ((i + 1) == g_Config.iDisplayFilter ? MF_CHECKED : MF_UNCHECKED));
 		}
 
 		static const int frameskipping[] = {

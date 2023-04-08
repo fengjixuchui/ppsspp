@@ -501,6 +501,7 @@ SOURCES_CXX += \
 	       $(EXTDIR)/jpge/jpge.cpp \
 	       $(COREDIR)/AVIDump.cpp \
 	       $(COREDIR)/Config.cpp \
+	       $(COREDIR)/ConfigSettings.cpp \
 	       $(COREDIR)/ControlMapper.cpp \
 	       $(COREDIR)/Core.cpp \
 	       $(COREDIR)/WaveFile.cpp \
@@ -652,6 +653,7 @@ SOURCES_CXX += \
 	       $(COREDIR)/MIPS/MIPSTables.cpp \
 	       $(COREDIR)/MIPS/MIPSStackWalk.cpp \
 	       $(COREDIR)/MIPS/MIPSVFPUUtils.cpp \
+	       $(COREDIR)/MIPS/MIPSVFPUFallbacks.cpp \
 	       $(COREDIR)/MemFault.cpp \
 	       $(COREDIR)/MemMap.cpp \
 	       $(COREDIR)/MemMapFunctions.cpp \
@@ -907,7 +909,7 @@ SOURCES_C += $(LIBRETROCOMMONDIR)/compat/compat_posix_string.c \
 endif
 
 GIT_VERSION_SRC = $(CORE_DIR)/git-version.cpp
-GIT_VERSION := $(shell git describe --always || echo v1.7.0-git)
+GIT_VERSION := $(shell git describe --always || echo v-1.unknown)
 GIT_VERSION_NO_UPDATE = $(findstring 1,$(shell grep -s PPSSPP_GIT_VERSION_NO_UPDATE $(GIT_VERSION_SRC)))
 ifneq (,$(findstring $(GIT_VERSION),$(shell grep -s char $(GIT_VERSION_SRC))))
    GIT_VERSION_NO_UPDATE = 1

@@ -347,6 +347,7 @@ EXEC_AND_LIB_FILES := \
   $(SRC)/Core/MIPS/MIPSStackWalk.cpp \
   $(SRC)/Core/MIPS/MIPSTables.cpp \
   $(SRC)/Core/MIPS/MIPSVFPUUtils.cpp.arm \
+  $(SRC)/Core/MIPS/MIPSVFPUFallbacks.cpp.arm \
   $(SRC)/Core/MIPS/MIPSCodeUtils.cpp.arm \
   $(SRC)/Core/MIPS/MIPSDebugInterface.cpp \
   $(SRC)/Core/MIPS/IR/IRFrontend.cpp \
@@ -439,6 +440,7 @@ EXEC_AND_LIB_FILES := \
   $(SRC)/Core/Core.cpp \
   $(SRC)/Core/Compatibility.cpp \
   $(SRC)/Core/Config.cpp \
+  $(SRC)/Core/ConfigSettings.cpp \
   $(SRC)/Core/CoreTiming.cpp \
   $(SRC)/Core/CwCheat.cpp \
   $(SRC)/Core/HDRemaster.cpp \
