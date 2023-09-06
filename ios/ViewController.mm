@@ -22,6 +22,7 @@
 
 #include "Common/System/Display.h"
 #include "Common/System/System.h"
+#include "Common/System/OSD.h"
 #include "Common/System/NativeApp.h"
 #include "Common/File/VFS/VFS.h"
 #include "Common/Log.h"
@@ -48,7 +49,7 @@ class IOSGraphicsContext : public GraphicsContext {
 public:
 	IOSGraphicsContext() {
 		CheckGLExtensions();
-		draw_ = Draw::T3DCreateGLContext();
+		draw_ = Draw::T3DCreateGLContext(false);
 		renderManager_ = (GLRenderManager *)draw_->GetNativeObject(Draw::NativeObject::RENDER_MANAGER);
 		renderManager_->SetInflightFrames(g_Config.iInflightFrames);
 		SetGPUBackend(GPUBackend::OPENGL);
@@ -62,8 +63,6 @@ public:
 		return draw_;
 	}
 
-	void SwapInterval(int interval) override {}
-	void SwapBuffers() override {}
 	void Resize() override {}
 	void Shutdown() override {}
 
@@ -105,7 +104,7 @@ static CameraHelper *cameraHelper;
 static LocationHelper *locationHelper;
 
 @interface ViewController () {
-	std::map<uint16_t, uint16_t> iCadeToKeyMap;
+	std::map<uint16_t, InputKeyCode> iCadeToKeyMap;
 }
 
 @property (nonatomic, strong) EAGLContext* context;
@@ -149,6 +148,10 @@ static LocationHelper *locationHelper;
 #endif
 	}
 	return self;
+}
+
+- (BOOL)prefersHomeIndicatorAutoHidden {
+    return YES;
 }
 
 - (void)shareText:(NSString *)text {
@@ -201,7 +204,7 @@ extern float g_safeInsetBottom;
 	graphicsContext = new IOSGraphicsContext();
 
 	graphicsContext->GetDrawContext()->SetErrorCallback([](const char *shortDesc, const char *details, void *userdata) {
-		System_NotifyUserMessage(details, 5.0, 0xFFFFFFFF, "error_callback");
+		g_OSD.Show(OSDType::MESSAGE_ERROR, details, 0.0f, "error_callback");
 	}, nullptr);
 
 	graphicsContext->ThreadStart();
@@ -233,8 +236,7 @@ extern float g_safeInsetBottom;
 
 		INFO_LOG(SYSTEM, "Emulation thread starting\n");
 		while (threadEnabled) {
-			NativeUpdate();
-			NativeRender(graphicsContext);
+			NativeFrame(graphicsContext);
 		}
 
 
@@ -460,7 +462,7 @@ int ToTouchID(UITouch *uiTouch, bool allowAllocate) {
 					break;
 			}
 			axis.deviceId = DEVICE_ID_PAD_0;
-			NativeAxis(axis);
+			NativeAxis(&axis, 1);
 		} else {
 			KeyInput key;
 			key.flags = KEY_DOWN;
@@ -529,7 +531,7 @@ int ToTouchID(UITouch *uiTouch, bool allowAllocate) {
 				break;
 		}
 		axis.deviceId = DEVICE_ID_PAD_0;
-		NativeAxis(axis);
+		NativeAxis(&axis, 1);
 	} else {
 		KeyInput key;
 		key.flags = KEY_UP;
@@ -563,7 +565,7 @@ int ToTouchID(UITouch *uiTouch, bool allowAllocate) {
 	}
 }
 
-- (void)controllerButtonPressed:(BOOL)pressed keyCode:(keycode_t)keyCode
+- (void)controllerButtonPressed:(BOOL)pressed keyCode:(InputKeyCode)keyCode
 {
 	KeyInput key;
 	key.deviceId = DEVICE_ID_PAD_0;
@@ -687,7 +689,7 @@ int ToTouchID(UITouch *uiTouch, bool allowAllocate) {
 		axisInput.deviceId = DEVICE_ID_PAD_0;
 		axisInput.axisId = JOYSTICK_AXIS_X;
 		axisInput.value = value;
-		NativeAxis(axisInput);
+		NativeAxis(&axisInput, 1);
 	};
 
 	extendedProfile.leftThumbstick.yAxis.valueChangedHandler = ^(GCControllerAxisInput *axis, float value) {
@@ -695,7 +697,7 @@ int ToTouchID(UITouch *uiTouch, bool allowAllocate) {
 		axisInput.deviceId = DEVICE_ID_PAD_0;
 		axisInput.axisId = JOYSTICK_AXIS_Y;
 		axisInput.value = -value;
-		NativeAxis(axisInput);
+		NativeAxis(&axisInput, 1);
 	};
 
 	// Map right thumbstick as another analog stick, particularly useful for controllers like the DualShock 3/4 when connected to an iOS device
@@ -704,7 +706,7 @@ int ToTouchID(UITouch *uiTouch, bool allowAllocate) {
 		axisInput.deviceId = DEVICE_ID_PAD_0;
 		axisInput.axisId = JOYSTICK_AXIS_Z;
 		axisInput.value = value;
-		NativeAxis(axisInput);
+		NativeAxis(&axisInput, 1);
 	};
 
 	extendedProfile.rightThumbstick.yAxis.valueChangedHandler = ^(GCControllerAxisInput *axis, float value) {
@@ -712,7 +714,7 @@ int ToTouchID(UITouch *uiTouch, bool allowAllocate) {
 		axisInput.deviceId = DEVICE_ID_PAD_0;
 		axisInput.axisId = JOYSTICK_AXIS_RZ;
 		axisInput.value = -value;
-		NativeAxis(axisInput);
+		NativeAxis(&axisInput, 1);
 	};
 }
 #endif
@@ -751,10 +753,6 @@ void stopLocation() {
 }
 
 @end
-
-void System_ShowFileInFolder(const char *path) {
-	// Unsupported
-}
 
 void System_LaunchUrl(LaunchUrlType urlType, char const* url)
 {

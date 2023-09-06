@@ -1,5 +1,7 @@
 #pragma once
 
+#include "Common/System/Request.h"
+
 #include "Common/Data/Text/I18n.h"
 #include "Common/UI/UIScreen.h"
 #include "Common/UI/UI.h"
@@ -53,6 +55,9 @@ class MessagePopupScreen : public PopupScreen {
 public:
 	MessagePopupScreen(std::string title, std::string message, std::string button1, std::string button2, std::function<void(bool)> callback)
 		: PopupScreen(title, button1, button2), message_(message), callback_(callback) {}
+
+	const char *tag() const override { return "MessagePopupScreen"; }
+
 	UI::Event OnChoice;
 
 protected:
@@ -191,10 +196,16 @@ public:
 	void Draw(UIContext &dc) override;
 	void GetContentDimensionsBySpec(const UIContext &dc, MeasureSpec horiz, MeasureSpec vert, float &w, float &h) const override;
 
+	void SetPasswordDisplay() {
+		passwordDisplay_ = true;
+	}
+
 protected:
 	virtual std::string ValueText() const = 0;
 
 	float CalculateValueScale(const UIContext &dc, const std::string &valueText, float availWidth) const;
+
+	bool passwordDisplay_ = false;
 };
 
 // Reads and writes value to determine the current selection.
@@ -204,12 +215,15 @@ public:
 		I18NCat category, ScreenManager *screenManager, UI::LayoutParams *layoutParams = nullptr)
 		: AbstractChoiceWithValueDisplay(text, layoutParams), value_(value), choices_(choices), minVal_(minVal), numChoices_(numChoices),
 		category_(category), screenManager_(screenManager) {
-		if (*value >= numChoices + minVal)
-			*value = numChoices + minVal - 1;
-		if (*value < minVal)
-			*value = minVal;
+		if (choices) {
+			// If choices is nullptr, we're being called from PopupMultiChoiceDynamic where value doesn't yet point to anything valid.
+			if (*value >= numChoices + minVal)
+				*value = numChoices + minVal - 1;
+			if (*value < minVal)
+				*value = minVal;
+			UpdateText();
+		}
 		OnClick.Handle(this, &PopupMultiChoice::HandleClick);
-		UpdateText();
 	}
 
 	void Update() override;
@@ -269,7 +283,9 @@ public:
 
 protected:
 	void PostChoiceCallback(int num) override {
-		*valueStr_ = choices_[num];
+		if (valueStr_) {
+			*valueStr_ = choices_[num];
+		}
 	}
 
 private:
@@ -306,7 +322,7 @@ private:
 	int maxValue_;
 	int defaultValue_;
 	int step_;
-	const char *fmt_;
+	std::string fmt_;
 	std::string zeroLabel_;
 	std::string negativeLabel_;
 	std::string units_;
@@ -345,7 +361,7 @@ private:
 	float maxValue_;
 	float defaultValue_;
 	float step_;
-	const char *fmt_;
+	std::string fmt_;
 	std::string zeroLabel_;
 	std::string units_;
 	ScreenManager *screenManager_;
@@ -354,6 +370,7 @@ private:
 	bool hasDropShadow_ = true;
 };
 
+// NOTE: This one will defer to a system-native dialog if possible.
 class PopupTextInputChoice : public AbstractChoiceWithValueDisplay {
 public:
 	PopupTextInputChoice(std::string *value, const std::string &title, const std::string &placeholder, int maxLen, ScreenManager *screenManager, LayoutParams *layoutParams = 0);
@@ -393,6 +410,22 @@ private:
 	int *iValue_ = nullptr;
 	I18NCat category_ = I18NCat::CATEGORY_COUNT;
 	std::string(*translateCallback_)(const char *value) = nullptr;
+};
+
+enum class FileChooserFileType {
+	WAVE_FILE,
+};
+
+class FileChooserChoice : public AbstractChoiceWithValueDisplay {
+public:
+	FileChooserChoice(std::string *value, const std::string &title, BrowseFileType fileType, LayoutParams *layoutParams = nullptr);
+	std::string ValueText() const override;
+
+	Event OnChange;
+
+private:
+	std::string *value_;
+	BrowseFileType fileType_;
 };
 
 }  // namespace UI

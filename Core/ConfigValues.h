@@ -50,7 +50,8 @@ struct ConfigCustomButton {
 enum class CPUCore {
 	INTERPRETER = 0,
 	JIT = 1,
-	IR_JIT = 2,
+	IR_INTERPRETER = 2,
+	JIT_IR = 3,
 };
 
 enum {
@@ -162,4 +163,30 @@ enum TiltTypes {
 	TILT_DPAD,
 	TILT_ACTION_BUTTON,
 	TILT_TRIGGER_BUTTONS,
+};
+
+enum class ScreenEdgePosition {
+	BOTTOM_LEFT = 0,
+	BOTTOM_CENTER = 1,
+	BOTTOM_RIGHT = 2,
+	TOP_LEFT = 3,
+	TOP_CENTER = 4,
+	TOP_RIGHT = 5,
+	CENTER_LEFT = 6,
+	CENTER_RIGHT = 7,
+	VALUE_COUNT,
+};
+
+enum class DebugOverlay : int {
+	OFF,
+	DEBUG_STATS,
+	FRAME_GRAPH,
+	FRAME_TIMING,
+#ifdef USE_PROFILER
+	FRAME_PROFILE,
+#endif
+	CONTROL,
+	AUDIO,
+	GPU_PROFILE,
+	GPU_ALLOCATOR,
 };

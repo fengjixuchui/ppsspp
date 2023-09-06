@@ -6,20 +6,20 @@
 #include "Common/UI/UI.h"
 #include "Common/UI/View.h"
 #include "Common/UI/ViewGroup.h"
+#include "Common/UI/IconCache.h"
 
 #include "Common/Log.h"
 #include "Common/TimeUtil.h"
 
-ScreenManager::ScreenManager() {
-	uiContext_ = 0;
-	dialogFinished_ = 0;
-}
+#include "Core/KeyMap.h"
 
 ScreenManager::~ScreenManager() {
 	shutdown();
 }
 
 void ScreenManager::switchScreen(Screen *screen) {
+	// TODO: inputLock_ ?
+
 	if (!nextStack_.empty() && screen == nextStack_.front().screen) {
 		ERROR_LOG(SYSTEM, "Already switching to this screen");
 		return;
@@ -48,9 +48,15 @@ void ScreenManager::update() {
 		switchToNext();
 	}
 
+	if (overlayScreen_) {
+		// NOTE: This is not a full UIScreen update, to avoid double global event processing.
+		overlayScreen_->update();
+	}
 	if (stack_.size()) {
 		stack_.back().screen->update();
 	}
+
+	g_iconCache.FrameUpdate();
 }
 
 void ScreenManager::switchToNext() {
@@ -82,11 +88,18 @@ void ScreenManager::touch(const TouchInput &touch) {
 	if (touch.flags & TOUCH_RELEASE_ALL) {
 		for (auto &layer : stack_) {
 			Screen *screen = layer.screen;
-			layer.screen->touch(screen->transformTouch(touch));
+			layer.screen->UnsyncTouch(screen->transformTouch(touch));
 		}
 	} else if (!stack_.empty()) {
-		Screen *screen = stack_.back().screen;
-		stack_.back().screen->touch(screen->transformTouch(touch));
+		// Let the overlay know about touch-downs, to be able to dismiss popups.
+		bool skip = false;
+		if (overlayScreen_ && (touch.flags & TOUCH_DOWN)) {
+			skip = overlayScreen_->UnsyncTouch(overlayScreen_->transformTouch(touch));
+		}
+		if (!skip) {
+			Screen *screen = stack_.back().screen;
+			stack_.back().screen->UnsyncTouch(screen->transformTouch(touch));
+		}
 	}
 }
 
@@ -96,10 +109,10 @@ bool ScreenManager::key(const KeyInput &key) {
 	// Send key up to every screen layer, to avoid stuck keys.
 	if (key.flags & KEY_UP) {
 		for (auto &layer : stack_) {
-			result = layer.screen->key(key);
+			result = layer.screen->UnsyncKey(key);
 		}
 	} else if (!stack_.empty()) {
-		result = stack_.back().screen->key(key);
+		result = stack_.back().screen->UnsyncKey(key);
 	}
 	return result;
 }
@@ -120,16 +133,17 @@ void ScreenManager::axis(const AxisInput &axis) {
 	// Send center axis to every screen layer.
 	if (axis.value == 0) {
 		for (auto &layer : stack_) {
-			layer.screen->axis(axis);
+			layer.screen->UnsyncAxis(axis);
 		}
 	} else if (!stack_.empty()) {
-		stack_.back().screen->axis(axis);
+		stack_.back().screen->UnsyncAxis(axis);
 	}
 }
 
 void ScreenManager::deviceLost() {
 	for (auto &iter : stack_)
 		iter.screen->deviceLost();
+	g_iconCache.ClearTextures();
 }
 
 void ScreenManager::deviceRestored() {
@@ -150,35 +164,49 @@ void ScreenManager::resized() {
 void ScreenManager::render() {
 	if (!stack_.empty()) {
 		switch (stack_.back().flags) {
-		case LAYER_SIDEMENU:
 		case LAYER_TRANSPARENT:
 			if (stack_.size() == 1) {
 				ERROR_LOG(SYSTEM, "Can't have sidemenu over nothing");
 				break;
 			} else {
-				auto iter = stack_.end();
+				auto last = stack_.end();
+				auto iter = last;
 				iter--;
-				iter--;
-				Layer backback = *iter;
-
-				_assert_(backback.screen);
+				while (iter->flags == LAYER_TRANSPARENT) {
+					iter--;
+				}
+				auto first = iter;
+				_assert_(iter->screen);
 
 				// TODO: Make really sure that this "mismatched" pre/post only happens
 				// when screens are "compatible" (both are UIScreens, for example).
-				backback.screen->preRender();
-				backback.screen->render();
+				first->screen->preRender();
+				while (iter < last) {
+					iter->screen->render();
+					iter++;
+				}
 				stack_.back().screen->render();
-				if (postRenderCb_)
+				if (overlayScreen_) {
+					overlayScreen_->render();
+				}
+				if (postRenderCb_) {
+					// Really can't render anything after this! Will crash the screenshot mechanism if we do.
 					postRenderCb_(getUIContext(), postRenderUserdata_);
-				backback.screen->postRender();
+				}
+				first->screen->postRender();
 				break;
 			}
 		default:
 			_assert_(stack_.back().screen);
 			stack_.back().screen->preRender();
 			stack_.back().screen->render();
-			if (postRenderCb_)
+			if (overlayScreen_) {
+				overlayScreen_->render();
+			}
+			if (postRenderCb_) {
+				// Really can't render anything after this! Will crash the screenshot mechanism if we do.
 				postRenderCb_(getUIContext(), postRenderUserdata_);
+			}
 			stack_.back().screen->postRender();
 			break;
 		}
@@ -229,6 +257,8 @@ void ScreenManager::shutdown() {
 	for (auto layer : nextStack_)
 		delete layer.screen;
 	nextStack_.clear();
+	delete overlayScreen_;
+	overlayScreen_ = nullptr;
 }
 
 void ScreenManager::push(Screen *screen, int layerFlags) {
@@ -320,4 +350,12 @@ void ScreenManager::processFinishDialog() {
 		delete dialogFinished_;
 		dialogFinished_ = nullptr;
 	}
+}
+
+void ScreenManager::SetOverlayScreen(Screen *screen) {
+	if (overlayScreen_) {
+		delete overlayScreen_;
+	}
+	overlayScreen_ = screen;
+	overlayScreen_->setScreenManager(this);
 }

@@ -3,6 +3,7 @@
 #include <cstdint>
 #include <string>
 #include <vector>
+
 #include "Common/CommonWindows.h"
 
 namespace W32Util
@@ -14,6 +15,9 @@ namespace W32Util
 	void ExitAndRestart(bool overrideArgs = false, const std::string &args = "");
 	void SpawnNewInstance(bool overrideArgs = false, const std::string &args = "");
 	void GetSelfExecuteParams(std::wstring &workingDirectory, std::wstring &moduleFilename);
+
+	void GetWindowRes(HWND hWnd, int *xres, int *yres);
+	void ShowFileInFolder(const std::string &path);
 
 	struct ClipboardData {
 		ClipboardData(const char *format, size_t sz);

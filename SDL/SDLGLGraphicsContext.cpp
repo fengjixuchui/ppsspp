@@ -414,7 +414,7 @@ int SDLGLGraphicsContext::Init(SDL_Window *&window, int x, int y, int w, int h, 
 
 	// Finally we can do the regular initialization.
 	CheckGLExtensions();
-	draw_ = Draw::T3DCreateGLContext();
+	draw_ = Draw::T3DCreateGLContext(true);
 	renderManager_ = (GLRenderManager *)draw_->GetNativeObject(Draw::NativeObject::RENDER_MANAGER);
 	renderManager_->SetInflightFrames(g_Config.iInflightFrames);
 	SetGPUBackend(GPUBackend::OPENGL);
@@ -429,7 +429,7 @@ int SDLGLGraphicsContext::Init(SDL_Window *&window, int x, int y, int w, int h, 
 #else
 		SDL_GL_SwapWindow(window_);
 #endif
-	}, false);
+	});
 
 	renderManager_->SetSwapIntervalFunction([&](int interval) {
 		INFO_LOG(G3D, "SDL SwapInterval: %d", interval);
@@ -439,19 +439,15 @@ int SDLGLGraphicsContext::Init(SDL_Window *&window, int x, int y, int w, int h, 
 	return 0;
 }
 
-void SDLGLGraphicsContext::SwapInterval(int interval) {
-	renderManager_->SwapInterval(interval);
-}
-
-void SDLGLGraphicsContext::Shutdown() {
-}
-
 void SDLGLGraphicsContext::ShutdownFromRenderThread() {
 	delete draw_;
 	draw_ = nullptr;
+	renderManager_ = nullptr;
 
 #ifdef USING_EGL
 	EGL_Close();
 #endif
 	SDL_GL_DeleteContext(glContext);
+	glContext = nullptr;
+	window_ = nullptr;
 }

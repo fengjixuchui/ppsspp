@@ -223,7 +223,7 @@ const char *GetFuncName(const char *moduleName, u32 nib)
 		return func->name;
 
 	static char temp[256];
-	sprintf(temp,"[UNK: 0x%08x]", nib);
+	snprintf(temp, sizeof(temp), "[UNK: 0x%08x]", nib);
 	return temp;
 }
 
@@ -540,6 +540,9 @@ void HLEReturnFromMipsCall() {
 const static u32 deadbeefRegs[12] = {0xDEADBEEF, 0xDEADBEEF, 0xDEADBEEF, 0xDEADBEEF, 0xDEADBEEF, 0xDEADBEEF, 0xDEADBEEF, 0xDEADBEEF, 0xDEADBEEF, 0xDEADBEEF, 0xDEADBEEF, 0xDEADBEEF};
 inline static void SetDeadbeefRegs()
 {
+	// Not exactly the same, but any time a syscall happens, it should clear ll.
+	currentMIPS->llBit = 0;
+
 	if (g_Config.bSkipDeadbeefFilling)
 		return;
 
@@ -850,7 +853,7 @@ size_t hleFormatLogArgs(char *message, size_t sz, const char *argmask) {
 	return used;
 }
 
-void hleDoLogInternal(LogTypes::LOG_TYPE t, LogTypes::LOG_LEVELS level, u64 res, const char *file, int line, const char *reportTag, char retmask, const char *reason, const char *formatted_reason) {
+void hleDoLogInternal(LogType t, LogLevel level, u64 res, const char *file, int line, const char *reportTag, char retmask, const char *reason, const char *formatted_reason) {
 	char formatted_args[4096];
 	const char *funcName = "?";
 	u32 funcFlags = 0;

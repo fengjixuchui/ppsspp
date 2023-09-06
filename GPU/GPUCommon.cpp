@@ -67,13 +67,11 @@ GPUCommon::GPUCommon(GraphicsContext *gfxCtx, Draw::DrawContext *draw) :
 	gstate_c.Reset();
 	gpuStats.Reset();
 
-	UpdateVsyncInterval(true);
 	PPGeSetDrawContext(draw);
 	ResetMatrices();
 }
 
 void GPUCommon::BeginHostFrame() {
-	UpdateVsyncInterval(displayResized_);
 	ReapplyGfxState();
 
 	// TODO: Assume config may have changed - maybe move to resize.
@@ -113,38 +111,6 @@ void GPUCommon::Reinitialize() {
 		textureCache_->Clear(true);
 	if (framebufferManager_)
 		framebufferManager_->DestroyAllFBOs();
-}
-
-void GPUCommon::UpdateVsyncInterval(bool force) {
-#if !(PPSSPP_PLATFORM(ANDROID) || defined(USING_QT_UI) || PPSSPP_PLATFORM(UWP) || PPSSPP_PLATFORM(IOS))
-	int desiredVSyncInterval = g_Config.bVSync ? 1 : 0;
-	if (PSP_CoreParameter().fastForward) {
-		desiredVSyncInterval = 0;
-	}
-	if (PSP_CoreParameter().fpsLimit != FPSLimit::NORMAL) {
-		int limit;
-		if (PSP_CoreParameter().fpsLimit == FPSLimit::CUSTOM1)
-			limit = g_Config.iFpsLimit1;
-		else if (PSP_CoreParameter().fpsLimit == FPSLimit::CUSTOM2)
-			limit = g_Config.iFpsLimit2;
-		else
-			limit = PSP_CoreParameter().analogFpsLimit;
-
-		// For an alternative speed that is a clean factor of 60, the user probably still wants vsync.
-		if (limit == 0 || (limit >= 0 && limit != 15 && limit != 30 && limit != 60)) {
-			desiredVSyncInterval = 0;
-		}
-	}
-
-	if (desiredVSyncInterval != lastVsync_ || force) {
-		// Disabled EXT_swap_control_tear for now, it never seems to settle at the correct timing
-		// so it just keeps tearing. Not what I hoped for... (gl_extensions.EXT_swap_control_tear)
-		// See http://developer.download.nvidia.com/opengl/specs/WGL_EXT_swap_control_tear.txt
-		if (gfxCtx_)
-			gfxCtx_->SwapInterval(desiredVSyncInterval);
-		lastVsync_ = desiredVSyncInterval;
-	}
-#endif
 }
 
 int GPUCommon::EstimatePerVertexCost() {
@@ -210,32 +176,6 @@ void GPUCommon::NotifyRenderResized() {
 
 void GPUCommon::NotifyDisplayResized() {
 	displayResized_ = true;
-}
-
-// Called once per frame. Might also get called during the pause screen
-// if "transparent".
-void GPUCommon::CheckConfigChanged() {
-	if (configChanged_) {
-		ClearCacheNextFrame();
-		gstate_c.SetUseFlags(CheckGPUFeatures());
-		drawEngineCommon_->NotifyConfigChanged();
-		textureCache_->NotifyConfigChanged();
-		framebufferManager_->NotifyConfigChanged();
-		BuildReportingInfo();
-		configChanged_ = false;
-	}
-
-	// Check needed when running tests.
-	if (framebufferManager_) {
-		framebufferManager_->CheckPostShaders();
-	}
-}
-
-void GPUCommon::CheckDisplayResized() {
-	if (displayResized_) {
-		framebufferManager_->NotifyDisplayResized();
-		displayResized_ = false;
-	}
 }
 
 void GPUCommon::DumpNextFrame() {
@@ -953,16 +893,11 @@ void GPUCommon::Execute_Jump(u32 op, u32 diff) {
 	currentList->pc = target - 4; // pc will be increased after we return, counteract that
 }
 
-void GPUCommon::Execute_JumpFast(u32 op, u32 diff) {
-	const u32 target = gstate_c.getRelativeAddress(op & 0x00FFFFFC);
-	UpdatePC(currentList->pc, target - 4);
-	currentList->pc = target - 4; // pc will be increased after we return, counteract that
-}
-
 void GPUCommon::Execute_BJump(u32 op, u32 diff) {
 	if (!currentList->bboxResult) {
 		// bounding box jump.
 		const u32 target = gstate_c.getRelativeAddress(op & 0x00FFFFFC);
+		gpuStats.numBBOXJumps++;
 		if (Memory::IsValidAddress(target)) {
 			UpdatePC(currentList->pc, target - 4);
 			currentList->pc = target - 4; // pc will be increased after we return, counteract that
@@ -982,13 +917,6 @@ void GPUCommon::Execute_Call(u32 op, u32 diff) {
 		UpdateState(GPUSTATE_ERROR);
 		return;
 	}
-	DoExecuteCall(target);
-}
-
-void GPUCommon::Execute_CallFast(u32 op, u32 diff) {
-	PROFILE_THIS_SCOPE("gpu_call");
-
-	const u32 target = gstate_c.getRelativeAddress(op & 0x00FFFFFC);
 	DoExecuteCall(target);
 }
 
@@ -1013,6 +941,7 @@ void GPUCommon::DoExecuteCall(u32 target) {
 
 	if (currentList->stackptr == ARRAY_SIZE(currentList->stack)) {
 		ERROR_LOG(G3D, "CALL: Stack full!");
+		// TODO: UpdateState(GPUSTATE_ERROR) ?
 	} else {
 		auto &stackEntry = currentList->stack[currentList->stackptr++];
 		stackEntry.pc = retval;

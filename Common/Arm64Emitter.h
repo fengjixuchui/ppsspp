@@ -94,7 +94,7 @@ enum ARM64Reg
 
 // R19-R28. R29 (FP), R30 (LR) are always saved and FP updated appropriately.
 const u32 ALL_CALLEE_SAVED = 0x1FF80000;
-const u32 ALL_CALLEE_SAVED_FP = 0x0000FF00;  // d8-d15
+const u32 ALL_CALLEE_SAVED_FP = 0x0000FF00;  // q8-q15
 
 inline bool Is64Bit(ARM64Reg reg) { return (reg & 0x20) != 0; }
 inline bool IsSingle(ARM64Reg reg) { return (reg & 0xC0) == 0x40; }
@@ -290,6 +290,23 @@ public:
 		}
 		m_shifttype = ST_LSL;
 	}
+	ArithOption(ARM64Reg Rd, bool index, bool signExtend) {
+		if (index)
+			m_shift = 4;
+		else
+			m_shift = 0;
+
+		m_destReg = Rd;
+		m_type = TYPE_EXTENDEDREG;
+		if (Is64Bit(Rd)) {
+			m_width = WIDTH_64BIT;
+			m_extend = EXTEND_UXTX;
+		} else {
+			m_width = WIDTH_32BIT;
+			m_extend = signExtend ? EXTEND_SXTW : EXTEND_UXTW;
+		}
+		m_shifttype = ST_LSL;
+	}
 	ArithOption(ARM64Reg Rd, ShiftType shift_type, u32 shift)
 	{
 		m_destReg = Rd;
@@ -401,6 +418,7 @@ public:
 	void ReserveCodeSpace(u32 bytes);
 	const u8* AlignCode16();
 	const u8* AlignCodePage();
+	const u8 *NopAlignCode16();
 	void FlushIcache();
 	void FlushIcacheSection(const u8* start, const u8* end);
 	u8* GetWritableCodePtr();
@@ -916,6 +934,8 @@ public:
 	void UZP2(u8 size, ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm);
 	void TRN2(u8 size, ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm);
 	void ZIP2(u8 size, ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm);
+	// Related to permute, extract vector from pair (always by byte arrangement.)
+	void EXT(ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm, int index);
 
 	// Shift by immediate
 	void SSHLL(u8 src_size, ARM64Reg Rd, ARM64Reg Rn, u32 shift);

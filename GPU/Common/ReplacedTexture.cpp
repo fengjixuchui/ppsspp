@@ -339,10 +339,34 @@ ReplacedTexture::LoadLevelResult ReplacedTexture::LoadLevelData(VFSFileReference
 				good = good && vfs_->Read(openFile, &header10, sizeof(header10)) == sizeof(header10);
 				format = header10.dxgiFormat;
 				switch (format) {
+				case 71: // DXGI_FORMAT_BC1_UNORM
+				case 72: // DXGI_FORMAT_BC1_UNORM_SRGB
+					if (!desc_.formatSupport.bc123) {
+						WARN_LOG(G3D, "BC1 format not supported, skipping texture");
+						good = false;
+					}
+					*pixelFormat = Draw::DataFormat::BC1_RGBA_UNORM_BLOCK;
+					break;
+				case 74: // DXGI_FORMAT_BC2_UNORM
+				case 75: // DXGI_FORMAT_BC2_UNORM_SRGB
+					if (!desc_.formatSupport.bc123) {
+						WARN_LOG(G3D, "BC2 format not supported, skipping texture");
+						good = false;
+					}
+					*pixelFormat = Draw::DataFormat::BC2_UNORM_BLOCK;
+					break;
+				case 77: // DXGI_FORMAT_BC3_UNORM
+				case 78: // DXGI_FORMAT_BC3_UNORM_SRGB
+					if (!desc_.formatSupport.bc123) {
+						WARN_LOG(G3D, "BC3 format not supported, skipping texture");
+						good = false;
+					}
+					*pixelFormat = Draw::DataFormat::BC3_UNORM_BLOCK;
+					break;
 				case 98: // DXGI_FORMAT_BC7_UNORM:
 				case 99: // DXGI_FORMAT_BC7_UNORM_SRGB:
 					if (!desc_.formatSupport.bc7) {
-						WARN_LOG(G3D, "BC1-3 formats not supported, skipping texture");
+						WARN_LOG(G3D, "BC7 format not supported, skipping texture");
 						good = false;
 					}
 					*pixelFormat = Draw::DataFormat::BC7_UNORM_BLOCK;
@@ -489,6 +513,10 @@ ReplacedTexture::LoadLevelResult ReplacedTexture::LoadLevelData(VFSFileReference
 		bool bc = Draw::DataFormatIsBlockCompressed(*pixelFormat, &blockSize);
 		_dbg_assert_(bc || *pixelFormat == Draw::DataFormat::R8G8B8A8_UNORM);
 
+		if (bc && ((level.w & 3) != 0 || (level.h & 3) != 0)) {
+			WARN_LOG(G3D, "Block compressed replacement texture '%s' not divisible by 4x4 (%dx%d). In D3D11 (only!) we will have to expand (potentially causing glitches).", filename.c_str(), level.w, level.h);
+		}
+
 		data_.resize(numMips);
 
 		basist::ktx2_transcoder_state transcodeState;  // Each thread needs one of these.
@@ -522,6 +550,7 @@ ReplacedTexture::LoadLevelResult ReplacedTexture::LoadLevelData(VFSFileReference
 		}
 		transcoder.clear();
 		vfs_->CloseFile(openFile);
+
 		return LoadLevelResult::DONE;  // don't read more levels
 	} else if (imageType == ReplacedImageType::DDS) {
 		// TODO: Do better with alphaStatus, it's possible.
@@ -537,6 +566,10 @@ ReplacedTexture::LoadLevelResult ReplacedTexture::LoadLevelData(VFSFileReference
 		int blockSize = 0;
 		bool bc = Draw::DataFormatIsBlockCompressed(*pixelFormat, &blockSize);
 		_dbg_assert_(bc);
+
+		if (bc && ((level.w & 3) != 0 || (level.h & 3) != 0)) {
+			WARN_LOG(G3D, "Block compressed replacement texture '%s' not divisible by 4x4 (%dx%d). In D3D11 (only!) we will have to expand (potentially causing glitches).", filename.c_str(), level.w, level.h);
+		}
 
 		data_.resize(numMips);
 
@@ -559,6 +592,7 @@ ReplacedTexture::LoadLevelResult ReplacedTexture::LoadLevelData(VFSFileReference
 				level.fileRef = nullptr;  // We only provide a fileref on level 0 if we have mipmaps.
 		}
 		vfs_->CloseFile(openFile);
+
 		return LoadLevelResult::DONE;  // don't read more levels
 
 	} else if (imageType == ReplacedImageType::ZIM) {

@@ -41,10 +41,14 @@
 #include "../ARM/ArmJit.h"
 #elif PPSSPP_ARCH(ARM64)
 #include "../ARM64/Arm64Jit.h"
+#include "../ARM64/Arm64IRJit.h"
 #elif PPSSPP_ARCH(X86) || PPSSPP_ARCH(AMD64)
 #include "../x86/Jit.h"
+#include "../x86/X64IRJit.h"
 #elif PPSSPP_ARCH(MIPS)
 #include "../MIPS/MipsJit.h"
+#elif PPSSPP_ARCH(RISCV64)
+#include "../RiscV/RiscVJit.h"
 #else
 #include "../fake/FakeJit.h"
 #endif
@@ -54,6 +58,8 @@ namespace MIPSComp {
 	std::recursive_mutex jitLock;
 
 	void JitAt() {
+		// TODO: We could probably check for a bad pc here, and fire an exception. Could spare us from some crashes.
+		// Although, we just tried to load from this address to check for a JIT block, and if we're here, that succeeded..
 		jit->Compile(currentMIPS->pc);
 	}
 
@@ -97,15 +103,21 @@ namespace MIPSComp {
 		return notTakenTarget;
 }
 
-	JitInterface *CreateNativeJit(MIPSState *mipsState) {
+	JitInterface *CreateNativeJit(MIPSState *mipsState, bool useIR) {
 #if PPSSPP_ARCH(ARM)
 		return new MIPSComp::ArmJit(mipsState);
 #elif PPSSPP_ARCH(ARM64)
+		if (useIR)
+			return new MIPSComp::Arm64IRJit(mipsState);
 		return new MIPSComp::Arm64Jit(mipsState);
 #elif PPSSPP_ARCH(X86) || PPSSPP_ARCH(AMD64)
+		if (useIR)
+			return new MIPSComp::X64IRJit(mipsState);
 		return new MIPSComp::Jit(mipsState);
 #elif PPSSPP_ARCH(MIPS)
 		return new MIPSComp::MipsJit(mipsState);
+#elif PPSSPP_ARCH(RISCV64)
+		return new MIPSComp::RiscVJit(mipsState);
 #else
 		return new MIPSComp::FakeJit(mipsState);
 #endif
@@ -329,12 +341,12 @@ std::vector<std::string> DisassembleRV64(const u8 *data, int size) {
 			// Force align in case we're somehow unaligned.
 			len = 2 - ((uintptr_t)data & 1);
 			invalid_count += (int)len;
-			i +=(int) len;
+			i += (int)len;
 			continue;
 		}
 
 		invalid_flush();
-		riscv_disasm_inst(temp, sizeof(temp), rv64, i * 4, inst);
+		riscv_disasm_inst(temp, sizeof(temp), rv64, (uintptr_t)data + i, inst);
 		lines.push_back(ReplaceAll(temp, "\t", "  "));
 
 		i += (int)len;

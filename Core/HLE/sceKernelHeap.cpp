@@ -2,11 +2,13 @@
 
 #include "Common/Serialize/Serializer.h"
 #include "Common/Serialize/SerializeFuncs.h"
+#include "Common/StringUtils.h"
 #include "Core/HLE/HLE.h"
 #include "Core/HLE/FunctionWrappers.h"
 #include "Core/HLE/sceKernel.h"
 #include "Core/HLE/sceKernelHeap.h"
 #include "Core/HLE/sceKernelMemory.h"
+#include "Core/Reporting.h"
 #include "Core/Util/BlockAllocator.h"
 
 static const u32 KERNEL_HEAP_BLOCK_HEADER_SIZE = 8;
@@ -51,7 +53,7 @@ static int sceKernelCreateHeap(int partitionId, int size, int flags, const char 
 		return hleLogError(SCEKERNEL, SCE_KERNEL_ERROR_ILLEGAL_ARGUMENT, "invalid partition");
 
 	// TODO: This should probably actually use flags?  Name?
-	u32 addr = allocator->Alloc(allocSize, g_fromBottom, "SysMemForKernel-Heap");
+	u32 addr = allocator->Alloc(allocSize, g_fromBottom, StringFromFormat("KernelHeap/%s", Name).c_str());
 	if (addr == (u32)-1) {
 		// TODO: Validate error code.
 		return hleLogError(SCEKERNEL, SCE_KERNEL_ERROR_NO_MEMORY, "fFailed to allocate %d bytes of memory", size);
@@ -112,9 +114,9 @@ static u32 sceKernelPartitionMaxFreeMemSize(int partitionId) {
 	return hleLogWarning(SCEKERNEL, allocator->GetLargestFreeBlockSize());
 }
 
-static u32 SysMemForKernel_536AD5E1()
+static u32 sceKernelGetUidmanCB()
 {
-	ERROR_LOG(SCEKERNEL, "UNIMP SysMemForKernel_536AD5E1");
+	ERROR_LOG_REPORT(SCEKERNEL, "UNIMP sceKernelGetUidmanCB");
 	return 0;
 }
 
@@ -165,9 +167,9 @@ const HLEFunction SysMemForKernel[] = {
 	{ 0x9697CD32, &WrapU_I<sceKernelPartitionTotalFreeMemSize>,    "sceKernelPartitionTotalFreeMemSize", 'x', "i" ,    HLE_KERNEL_SYSCALL },
 	{ 0xE6581468, &WrapU_I<sceKernelPartitionMaxFreeMemSize>,      "sceKernelPartitionMaxFreeMemSize",   'x', "i" ,    HLE_KERNEL_SYSCALL },
 	{ 0X3FC9AE6A, &WrapU_V<sceKernelDevkitVersion>,                "sceKernelDevkitVersion",             'x', "" ,     HLE_KERNEL_SYSCALL },
-	{ 0X536AD5E1, &WrapU_V<SysMemForKernel_536AD5E1>,              "SysMemForKernel_536AD5E1",           'i', "i" ,    HLE_KERNEL_SYSCALL },
+	{ 0X536AD5E1, &WrapU_V<sceKernelGetUidmanCB>,                  "sceKernelGetUidmanCB",               'i', "i" ,    HLE_KERNEL_SYSCALL },
 	{ 0X7B749390, &WrapI_IU<sceKernelFreeHeapMemory>,              "sceKernelFreeHeapMemory",            'i', "ix" ,   HLE_KERNEL_SYSCALL },
-	{ 0XEB7A74DB , &WrapI_IUU<sceKernelAllocHeapMemoryWithOption>, "sceKernelAllocHeapMemoryWithOption", 'i', "ixp" ,  HLE_KERNEL_SYSCALL },
+	{ 0XEB7A74DB, &WrapI_IUU<sceKernelAllocHeapMemoryWithOption>,  "sceKernelAllocHeapMemoryWithOption", 'i', "ixp" ,  HLE_KERNEL_SYSCALL },
 };
 
 void Register_SysMemForKernel() {

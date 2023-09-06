@@ -59,7 +59,7 @@ enum class DestroyType {
 // We should be careful not to access these block structures during runtime as they are large.
 // Fine to mess with them at block compile time though.
 struct JitBlock {
-	bool ContainsAddress(u32 em_address);
+	bool ContainsAddress(u32 em_address) const;
 
 	const u8 *checkedEntry;  // const, we have to translate to writable.
 	const u8 *normalEntry;
@@ -184,10 +184,10 @@ private:
 	MIPSOpcode GetEmuHackOpForBlock(int block_num) const;
 
 	CodeBlockCommon *codeBlock_;
-	JitBlock *blocks_;
+	JitBlock *blocks_ = nullptr;
 	std::unordered_multimap<u32, int> proxyBlockMap_;
 
-	int num_blocks_;
+	int num_blocks_ = 0;
 	std::unordered_multimap<u32, int> links_to_;
 	std::map<std::pair<u32,u32>, u32> block_map_; // (end_addr, start_addr) -> number
 

@@ -1,5 +1,11 @@
-#include "SDL_syswm.h"
+#include "ppsspp_config.h"
+#if PPSSPP_PLATFORM(MAC)
+#include "SDL2/SDL.h"
+#include "SDL2/SDL_syswm.h"
+#else
 #include "SDL.h"
+#include "SDL_syswm.h"
+#endif
 
 #include "Common/GPU/OpenGL/GLRenderManager.h"
 #include "Common/GPU/OpenGL/GLCommon.h"
@@ -10,15 +16,8 @@ public:
 	// Returns 0 on success.
 	int Init(SDL_Window *&window, int x, int y, int w, int h, int mode, std::string *error_message);
 
-	void Shutdown() override;
+	void Shutdown() override {}
 	void ShutdownFromRenderThread() override;
-
-	void SwapBuffers() override {
-		// Do nothing, the render thread takes care of this.
-	}
-
-	// Gets forwarded to the render thread.
-	void SwapInterval(int interval) override;
 
 	void Resize() override {}
 

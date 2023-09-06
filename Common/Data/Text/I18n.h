@@ -56,6 +56,8 @@ enum class I18NCat : uint8_t {
 	UI_ELEMENTS,
 	UPGRADE,
 	VR,
+	ACHIEVEMENTS,
+	PSPSETTINGS,
 	CATEGORY_COUNT,
 	NONE = CATEGORY_COUNT,
 };
@@ -117,6 +119,8 @@ public:
 	std::shared_ptr<I18NCategory> GetCategoryByName(const char *name);
 
 	const char *T(I18NCat category, const char *key, const char *def = nullptr) {
+		if (category == I18NCat::NONE)
+			return def ? def : key;
 		return cats_[(size_t)category]->T(key, def);
 	}
 
@@ -140,4 +144,3 @@ std::shared_ptr<I18NCategory> GetI18NCategory(I18NCat cat);
 inline const char *T(I18NCat category, const char *key, const char *def = nullptr) {
 	return g_i18nrepo.T(category, key, def);
 }
-

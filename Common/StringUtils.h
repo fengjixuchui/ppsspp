@@ -20,6 +20,7 @@
 #include <cstdarg>
 #include <cstdint>
 #include <string>
+#include <cstring>
 #include <vector>
 
 #ifdef _MSC_VER
@@ -34,6 +35,14 @@ std::string LineNumberString(const std::string &str);
 std::string IndentString(const std::string &str, const std::string &sep, bool skipFirst = false);
 
 // Other simple string utilities.
+
+// Optimized for string constants.
+inline bool startsWith(const std::string &str, const char *key) {
+	size_t keyLen = strlen(key);
+	if (str.size() < keyLen)
+		return false;
+	return !memcmp(str.data(), key, keyLen);
+}
 
 inline bool startsWith(const std::string &str, const std::string &what) {
 	if (str.size() < what.size())
@@ -59,6 +68,10 @@ inline bool endsWithNoCase(const std::string &str, const std::string &what) {
 		return false;
 	const size_t offset = str.size() - what.size();
 	return strncasecmp(str.c_str() + offset, what.c_str(), what.size()) == 0;
+}
+
+inline bool equalsNoCase(const std::string &str, const char *what) {
+	return strcasecmp(str.c_str(), what) == 0;
 }
 
 void DataToHexString(const uint8_t *data, size_t size, std::string *output);
@@ -107,3 +120,7 @@ inline void CharArrayFromFormat(char (& out)[Count], const char* format, ...)
 
 // "C:/Windows/winhelp.exe" to "C:/Windows/", "winhelp", ".exe"
 bool SplitPath(const std::string& full_path, std::string* _pPath, std::string* _pFilename, std::string* _pExtension);
+
+// Replaces %1, %2, %3 in format with arg1, arg2, arg3.
+// Much safer than snprintf and friends.
+std::string ApplySafeSubstitutions(const char *format, const std::string &string1, const std::string &string2 = "", const std::string &string3 = "");

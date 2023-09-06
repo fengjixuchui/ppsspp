@@ -39,7 +39,7 @@ std::vector<DIDEVICEINSTANCE> DinputDevice::devices;
 bool DinputDevice::needsCheck_ = true;
 
 // In order from 0.  There can be 128, but most controllers do not have that many.
-static const int dinput_buttons[] = {
+static const InputKeyCode dinput_buttons[] = {
 	NKCODE_BUTTON_1,
 	NKCODE_BUTTON_2,
 	NKCODE_BUTTON_3,
@@ -203,12 +203,12 @@ DinputDevice::~DinputDevice() {
 	}
 }
 
-void SendNativeAxis(int deviceId, int value, int &lastValue, int axisId) {
+void SendNativeAxis(InputDeviceID deviceId, int value, int &lastValue, InputAxis axisId) {
 	AxisInput axis;
 	axis.deviceId = deviceId;
 	axis.axisId = axisId;
-	axis.value = (float)value / 10000.0f; // Convert axis to normalised float
-	NativeAxis(axis);
+	axis.value = (float)value * (1.0f / 10000.0f); // Convert axis to normalised float
+	NativeAxis(&axis, 1);
 
 	lastValue = value;
 }
@@ -241,6 +241,7 @@ int DinputDevice::UpdateState() {
 	ApplyButtons(js);
 
 	if (analog)	{
+		// TODO: Use the batched interface.
 		AxisInput axis;
 		axis.deviceId = DEVICE_ID_PAD_0 + pDevNum;
 

@@ -142,7 +142,7 @@ namespace MIPSComp
 				// Prefix may say "z, z, z, z" but if this is a pair, we force to x.
 				// TODO: But some ops seem to use const 0 instead?
 				if (regnum >= n) {
-					WARN_LOG(CPU, "JIT: Invalid VFPU swizzle: %08x : %d / %d at PC = %08x (%s)", prefix, regnum, n, GetCompilerPC(), MIPSDisasmAt(GetCompilerPC()));
+					WARN_LOG(CPU, "JIT: Invalid VFPU swizzle: %08x : %d / %d at PC = %08x (%s)", prefix, regnum, n, GetCompilerPC(), MIPSDisasmAt(GetCompilerPC()).c_str());
 					regnum = 0;
 				}
 				
@@ -1310,10 +1310,13 @@ namespace MIPSComp
 				// Set these BEFORE disable!
 				if (imm - 128 == VFPU_CTRL_SPREFIX) {
 					js.prefixSFlag = JitState::PREFIX_UNKNOWN;
+					js.blockWrotePrefixes = true;
 				} else if (imm - 128 == VFPU_CTRL_TPREFIX) {
 					js.prefixTFlag = JitState::PREFIX_UNKNOWN;
+					js.blockWrotePrefixes = true;
 				} else if (imm - 128 == VFPU_CTRL_DPREFIX) {
 					js.prefixDFlag = JitState::PREFIX_UNKNOWN;
+					js.blockWrotePrefixes = true;
 				}
 			} else {
 				//ERROR
@@ -1369,10 +1372,13 @@ namespace MIPSComp
 
 			if (imm == VFPU_CTRL_SPREFIX) {
 				js.prefixSFlag = JitState::PREFIX_UNKNOWN;
+				js.blockWrotePrefixes = true;
 			} else if (imm == VFPU_CTRL_TPREFIX) {
 				js.prefixTFlag = JitState::PREFIX_UNKNOWN;
+				js.blockWrotePrefixes = true;
 			} else if (imm == VFPU_CTRL_DPREFIX) {
 				js.prefixDFlag = JitState::PREFIX_UNKNOWN;
+				js.blockWrotePrefixes = true;
 			}
 		}
 	}

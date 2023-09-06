@@ -22,6 +22,7 @@
 #include <set>
 #include <mutex>
 #include <vector>
+#include <string>
 
 #include "Common/UI/View.h"
 #include "Common/UI/UIScreen.h"
@@ -43,10 +44,7 @@ protected:
 	void update() override;
 
 private:
-	UI::EventReturn OnDefaultMapping(UI::EventParams &params);
-	UI::EventReturn OnClearMapping(UI::EventParams &params);
 	UI::EventReturn OnAutoConfigure(UI::EventParams &params);
-	UI::EventReturn OnVisualizeMapping(UI::EventParams &params);
 
 	void dialogFinished(const Screen *dialog, DialogResult result) override;
 
@@ -79,6 +77,8 @@ private:
 	std::function<void(KeyMap::MultiInputMapping)> callback_;
 
 	KeyMap::MultiInputMapping mapping_;
+
+	UI::View *comboMappingsNotEnabled_ = nullptr;
 
 	// We need to do our own detection for axis "keyup" here.
 	std::set<InputMapping> triggeredAxes_;
@@ -165,10 +165,12 @@ protected:
 	};
 	TrackedTouch touches_[MAX_TOUCH_POINTS]{};
 
-	UI::TextView *lastKeyEvent_ = nullptr;
-	UI::TextView *lastLastKeyEvent_ = nullptr;
+	std::vector<std::string> keyEventLog_;
+
+	UI::TextView *lastKeyEvents_ = nullptr;
 
 	void CreateViews() override;
+	void UpdateLogView();
 
 	UI::EventReturn OnImmersiveModeChange(UI::EventParams &e);
 	UI::EventReturn OnRenderingBackend(UI::EventParams &e);

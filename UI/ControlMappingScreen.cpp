@@ -46,6 +46,7 @@
 #include "UI/ControlMappingScreen.h"
 #include "UI/GameSettingsScreen.h"
 #include "UI/JoystickHistoryView.h"
+#include "UI/OnScreenDisplay.h"
 
 #if PPSSPP_PLATFORM(ANDROID)
 #include "android/jni/app-android.h"
@@ -163,6 +164,11 @@ void SingleControlMapper::Refresh() {
 }
 
 void SingleControlMapper::MappedCallback(MultiInputMapping kdf) {
+	if (kdf.empty()) {
+		// Don't want to try to add this.
+		return;
+	}
+
 	switch (action_) {
 	case ADD:
 		KeyMap::SetInputMapping(pspKey_, kdf, false);
@@ -237,16 +243,25 @@ void ControlMappingScreen::CreateViews() {
 	root_ = new LinearLayout(ORIENT_HORIZONTAL);
 
 	LinearLayout *leftColumn = new LinearLayout(ORIENT_VERTICAL, new LinearLayoutParams(200, FILL_PARENT, Margins(10, 0, 0, 10)));
-	leftColumn->Add(new Choice(km->T("Clear All")))->OnClick.Handle(this, &ControlMappingScreen::OnClearMapping);
-	leftColumn->Add(new Choice(km->T("Default All")))->OnClick.Handle(this, &ControlMappingScreen::OnDefaultMapping);
-
+	leftColumn->Add(new Choice(km->T("Clear All")))->OnClick.Add([](UI::EventParams &) {
+		KeyMap::ClearAllMappings();
+		return UI::EVENT_DONE;
+	});
+	leftColumn->Add(new Choice(km->T("Default All")))->OnClick.Add([](UI::EventParams &) {
+		KeyMap::RestoreDefault();
+		return UI::EVENT_DONE;
+	});
 	std::string sysName = System_GetProperty(SYSPROP_NAME);
 	// If there's a builtin controller, restore to default should suffice. No need to conf the controller on top.
 	if (!KeyMap::HasBuiltinController(sysName) && KeyMap::GetSeenPads().size()) {
 		leftColumn->Add(new Choice(km->T("Autoconfigure")))->OnClick.Handle(this, &ControlMappingScreen::OnAutoConfigure);
 	}
 
-	leftColumn->Add(new Choice(km->T("Show PSP")))->OnClick.Handle(this, &ControlMappingScreen::OnVisualizeMapping);
+	leftColumn->Add(new Choice(km->T("Show PSP")))->OnClick.Add([=](UI::EventParams &) {
+		screenManager()->push(new VisualMappingScreen(gamePath_));
+		return UI::EVENT_DONE;
+	});
+	leftColumn->Add(new CheckBox(&g_Config.bAllowMappingCombos, km->T("Allow combo mappings")));
 
 	leftColumn->Add(new Spacer(new LinearLayoutParams(1.0f)));
 	AddStandardBack(leftColumn);
@@ -280,16 +295,6 @@ void ControlMappingScreen::update() {
 	SetVRAppMode(VRAppMode::VR_MENU_MODE);
 }
 
-UI::EventReturn ControlMappingScreen::OnClearMapping(UI::EventParams &params) {
-	KeyMap::ClearAllMappings();
-	return UI::EVENT_DONE;
-}
-
-UI::EventReturn ControlMappingScreen::OnDefaultMapping(UI::EventParams &params) {
-	KeyMap::RestoreDefault();
-	return UI::EVENT_DONE;
-}
-
 UI::EventReturn ControlMappingScreen::OnAutoConfigure(UI::EventParams &params) {
 	std::vector<std::string> items;
 	const auto seenPads = KeyMap::GetSeenPads();
@@ -301,12 +306,6 @@ UI::EventReturn ControlMappingScreen::OnAutoConfigure(UI::EventParams &params) {
 	if (params.v)
 		autoConfList->SetPopupOrigin(params.v);
 	screenManager()->push(autoConfList);
-	return UI::EVENT_DONE;
-}
-
-UI::EventReturn ControlMappingScreen::OnVisualizeMapping(UI::EventParams &params) {
-	VisualMappingScreen *visualMapping = new VisualMappingScreen(gamePath_);
-	screenManager()->push(visualMapping);
 	return UI::EVENT_DONE;
 }
 
@@ -328,12 +327,18 @@ void KeyMappingNewKeyDialog::CreatePopupContents(UI::ViewGroup *parent) {
 	parent->Add(new TextView(std::string(km->T("Map a new key for")) + " " + mc->T(pspButtonName), new LinearLayoutParams(Margins(10, 0))));
 	parent->Add(new TextView(std::string(mapping_.ToVisualString()), new LinearLayoutParams(Margins(10, 0))));
 
+	comboMappingsNotEnabled_ = parent->Add(new NoticeView(NoticeLevel::WARN, km->T("Combo mappings are not enabled"), "", new LinearLayoutParams(Margins(10, 0))));
+	comboMappingsNotEnabled_->SetVisibility(UI::V_GONE);
+
 	SetVRAppMode(VRAppMode::VR_CONTROLLER_MAPPING_MODE);
 }
 
 bool KeyMappingNewKeyDialog::key(const KeyInput &key) {
+	if (ignoreInput_)
+		return true;
 	if (time_now_d() < delayUntil_)
 		return true;
+
 	if (key.flags & KEY_DOWN) {
 		if (key.keyCode == NKCODE_EXT_MOUSEBUTTON_1) {
 			// Don't map
@@ -348,13 +353,22 @@ bool KeyMappingNewKeyDialog::key(const KeyInput &key) {
 		InputMapping newMapping(key.deviceId, key.keyCode);
 
 		if (!(key.flags & KEY_IS_REPEAT)) {
-			if (!mapping_.mappings.contains(newMapping)) {
+			if (!g_Config.bAllowMappingCombos && !mapping_.mappings.empty()) {
+				comboMappingsNotEnabled_->SetVisibility(UI::V_VISIBLE);
+			} else if (!mapping_.mappings.contains(newMapping)) {
 				mapping_.mappings.push_back(newMapping);
 				RecreateViews();
 			}
 		}
 	}
 	if (key.flags & KEY_UP) {
+		// If the key released wasn't part of the mapping, ignore it here. Some device can cause
+		// stray key-up events.
+		InputMapping upMapping(key.deviceId, key.keyCode);
+		if (!mapping_.mappings.contains(upMapping)) {
+			return true;
+		}
+
 		if (callback_)
 			callback_(mapping_);
 		TriggerFinish(DR_YES);
@@ -378,6 +392,8 @@ void KeyMappingNewMouseKeyDialog::CreatePopupContents(UI::ViewGroup *parent) {
 bool KeyMappingNewMouseKeyDialog::key(const KeyInput &key) {
 	if (mapped_)
 		return false;
+	if (ignoreInput_)
+		return true;
 	if (key.flags & KEY_DOWN) {
 		if (key.keyCode == NKCODE_ESCAPE) {
 			TriggerFinish(DR_OK);
@@ -386,7 +402,9 @@ bool KeyMappingNewMouseKeyDialog::key(const KeyInput &key) {
 		}
 
 		mapped_ = true;
+
 		MultiInputMapping kdf(InputMapping(key.deviceId, key.keyCode));
+
 		TriggerFinish(DR_YES);
 		g_Config.bMapMouse = false;
 		if (callback_)
@@ -414,18 +432,24 @@ void KeyMappingNewKeyDialog::axis(const AxisInput &axis) {
 		return;
 	if (IgnoreAxisForMapping(axis.axisId))
 		return;
+	if (ignoreInput_)
+		return;
 
 	if (axis.value > AXIS_BIND_THRESHOLD) {
 		InputMapping mapping(axis.deviceId, axis.axisId, 1);
 		triggeredAxes_.insert(mapping);
-		if (!mapping_.mappings.contains(mapping)) {
+		if (!g_Config.bAllowMappingCombos && !mapping_.mappings.empty()) {
+			comboMappingsNotEnabled_->SetVisibility(UI::V_VISIBLE);
+		} else if (!mapping_.mappings.contains(mapping)) {
 			mapping_.mappings.push_back(mapping);
 			RecreateViews();
 		}
 	} else if (axis.value < -AXIS_BIND_THRESHOLD) {
 		InputMapping mapping(axis.deviceId, axis.axisId, -1);
 		triggeredAxes_.insert(mapping);
-		if (!mapping_.mappings.contains(mapping)) {
+		if (!g_Config.bAllowMappingCombos && !mapping_.mappings.empty()) {
+			comboMappingsNotEnabled_->SetVisibility(UI::V_VISIBLE);
+		} else if (!mapping_.mappings.contains(mapping)) {
 			mapping_.mappings.push_back(mapping);
 			RecreateViews();
 		}
@@ -480,7 +504,7 @@ AnalogSetupScreen::AnalogSetupScreen(const Path &gamePath) : UIDialogScreenWithG
 }
 
 void AnalogSetupScreen::update() {
-	mapper_.Update();
+	mapper_.Update(time_now_d());
 	// We ignore the secondary stick for now and just use the two views
 	// for raw and psp input.
 	if (stickView_[0]) {
@@ -610,6 +634,7 @@ void TouchTestScreen::touch(const TouchInput &touch) {
 	}
 }
 
+// TODO: Move this screen out into its own file.
 void TouchTestScreen::CreateViews() {
 	using namespace UI;
 
@@ -618,9 +643,7 @@ void TouchTestScreen::CreateViews() {
 	root_ = new LinearLayout(ORIENT_VERTICAL);
 	LinearLayout *theTwo = new LinearLayout(ORIENT_VERTICAL, new LinearLayoutParams(1.0f));
 
-	lastLastKeyEvent_ = theTwo->Add(new TextView("-", new LayoutParams(FILL_PARENT, WRAP_CONTENT)));
-	lastLastKeyEvent_->SetTextColor(0x80FFFFFF);   // semi-transparent
-	lastKeyEvent_ = theTwo->Add(new TextView("-", new LayoutParams(FILL_PARENT, WRAP_CONTENT)));
+	lastKeyEvents_ = theTwo->Add(new TextView("-", new LayoutParams(FILL_PARENT, WRAP_CONTENT)));
 
 	root_->Add(theTwo);
 
@@ -646,43 +669,48 @@ void TouchTestScreen::CreateViews() {
 	root_->Add(new Button(di->T("Back")))->OnClick.Handle<UIScreen>(this, &UIScreen::OnBack);
 }
 
-#if PPSSPP_PLATFORM(ANDROID)
-extern int display_xres;
-extern int display_yres;
-#endif
+void TouchTestScreen::UpdateLogView() {
+	while (keyEventLog_.size() > 8) {
+		keyEventLog_.erase(keyEventLog_.begin());
+	}
+
+	std::string text;
+	for (auto &iter : keyEventLog_) {
+		text += iter + "\n";
+	}
+
+	if (lastKeyEvents_) {
+		lastKeyEvents_->SetText(text);
+	}
+}
 
 bool TouchTestScreen::key(const KeyInput &key) {
+	UIScreen::key(key);
 	char buf[512];
-	snprintf(buf, sizeof(buf), "Keycode: %d Device ID: %d [%s%s%s%s]", key.keyCode, key.deviceId,
+	snprintf(buf, sizeof(buf), "%s (%d) Device ID: %d [%s%s%s%s]", KeyMap::GetKeyName(key.keyCode).c_str(), key.keyCode, key.deviceId,
 		(key.flags & KEY_IS_REPEAT) ? "REP" : "",
 		(key.flags & KEY_UP) ? "UP" : "",
 		(key.flags & KEY_DOWN) ? "DOWN" : "",
 		(key.flags & KEY_CHAR) ? "CHAR" : "");
-	if (lastLastKeyEvent_ && lastKeyEvent_) {
-		lastLastKeyEvent_->SetText(lastKeyEvent_->GetText());
-		lastKeyEvent_->SetText(buf);
-	}
+	keyEventLog_.push_back(buf);
+	UpdateLogView();
 	return true;
 }
 
 void TouchTestScreen::axis(const AxisInput &axis) {
-	// This is mainly to catch axis events that would otherwise get translated
-	// into arrow keys, since seeing keyboard arrow key events appear when using
-	// a controller would be confusing for the user.
+	// This just filters out accelerometer events. We show everything else.
 	if (IgnoreAxisForMapping(axis.axisId))
 		return;
 
-	const float AXIS_LOG_THRESHOLD = AXIS_BIND_THRESHOLD * 0.5f;
-	if (axis.value > AXIS_LOG_THRESHOLD || axis.value < -AXIS_LOG_THRESHOLD) {
-		char buf[512];
-		snprintf(buf, sizeof(buf), "Axis: %d (value %1.3f) Device ID: %d",
-			axis.axisId, axis.value, axis.deviceId);
-		// Null-check just in case they weren't created yet.
-		if (lastLastKeyEvent_ && lastKeyEvent_) {
-			lastLastKeyEvent_->SetText(lastKeyEvent_->GetText());
-			lastKeyEvent_->SetText(buf);
-		}
+	char buf[512];
+	snprintf(buf, sizeof(buf), "Axis: %s (%d) (value %1.3f) Device ID: %d",
+		KeyMap::GetAxisName(axis.axisId).c_str(), axis.axisId, axis.value, axis.deviceId);
+
+	keyEventLog_.push_back(buf);
+	if (keyEventLog_.size() > 8) {
+		keyEventLog_.erase(keyEventLog_.begin());
 	}
+	UpdateLogView();
 }
 
 void TouchTestScreen::render() {
@@ -723,7 +751,7 @@ void TouchTestScreen::render() {
 		"g_dpi: %0.3f g_dpi_scale: %0.3fx%0.3f\n"
 		"g_dpi_scale_real: %0.3fx%0.3f\n%s",
 #if PPSSPP_PLATFORM(ANDROID)
-		display_xres, display_yres,
+		System_GetPropertyInt(SYSPROP_DISPLAY_XRES), System_GetPropertyInt(SYSPROP_DISPLAY_YRES),
 #endif
 		g_display.dp_xres, g_display.dp_yres,
 		g_display.pixel_xres, g_display.pixel_yres,
@@ -752,6 +780,9 @@ void RecreateActivity() {
 
 UI::EventReturn TouchTestScreen::OnImmersiveModeChange(UI::EventParams &e) {
 	System_Notify(SystemNotification::IMMERSIVE_MODE_CHANGE);
+	if (g_Config.iAndroidHwScale != 0) {
+		RecreateActivity();
+	}
 	return UI::EVENT_DONE;
 }
 

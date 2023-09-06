@@ -76,9 +76,6 @@ public:
 	}
 	virtual u32 CheckGPUFeatures() const = 0;
 
-	void CheckDisplayResized() override;
-	void CheckConfigChanged() override;
-
 	virtual void UpdateCmdInfo() = 0;
 
 	bool IsReady() override {
@@ -140,10 +137,8 @@ public:
 	void Execute_Iaddr(u32 op, u32 diff);
 	void Execute_Origin(u32 op, u32 diff);
 	void Execute_Jump(u32 op, u32 diff);
-	void Execute_JumpFast(u32 op, u32 diff);
 	void Execute_BJump(u32 op, u32 diff);
 	void Execute_Call(u32 op, u32 diff);
-	void Execute_CallFast(u32 op, u32 diff);
 	void Execute_Ret(u32 op, u32 diff);
 	void Execute_End(u32 op, u32 diff);
 
@@ -248,7 +243,6 @@ protected:
 	}
 
 	void BeginFrame() override;
-	void UpdateVsyncInterval(bool force);
 
 	virtual void CheckDepthUsage(VirtualFramebuffer *vfb) {}
 	virtual void FastRunLoop(DisplayList &list) = 0;
@@ -357,6 +351,4 @@ private:
 	// Debug stats.
 	double timeSteppingStarted_;
 	double timeSpentStepping_;
-
-	int lastVsync_ = -1;
 };

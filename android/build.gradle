@@ -44,8 +44,10 @@ android {
 			}
 		}
 	}
-	compileSdkVersion 32
+
+	compileSdkVersion 33
 	ndkVersion "21.4.7075529"
+
 
 	defaultConfig {
 		applicationId 'org.ppsspp.ppsspp'
@@ -131,7 +133,7 @@ android {
 				}
 			}
 			ndk {
-				abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
+				abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86_64'
 			}
 		}
 		gold {
@@ -150,12 +152,13 @@ android {
 				}
 			}
 			ndk {
-				abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86', 'x86_64'
+				abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86_64'
 			}
 		}
 		vr {
 			applicationId 'org.ppsspp.ppssppvr'
 			dimension "variant"
+			targetSdkVersion 29
 			externalNativeBuild {
 				cmake {
 					// Available arguments listed at https://developer.android.com/ndk/guides/cmake.html

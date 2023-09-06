@@ -4,13 +4,17 @@
 #include <cstring>
 
 #include "Common/File/Path.h"
+#include "Common/File/AndroidContentURI.h"
 #include "Common/File/FileUtil.h"
 #include "Common/StringUtils.h"
 #include "Common/Log.h"
 #include "Common/Data/Encoding/Utf8.h"
 
 #include "android/jni/app-android.h"
-#include "android/jni/AndroidContentURI.h"
+
+#if PPSSPP_PLATFORM(UWP) && !defined(__LIBRETRO__)
+#include "UWP/UWPHelpers/StorageManager.h"
+#endif
 
 #if HOST_IS_CASE_SENSITIVE
 #include <dirent.h>
@@ -157,7 +161,7 @@ std::string Path::GetFilename() const {
 	return path_;
 }
 
-static std::string GetExtFromString(const std::string &str) {
+std::string GetExtFromString(const std::string &str) {
 	size_t pos = str.rfind(".");
 	if (pos == std::string::npos) {
 		return "";
@@ -177,7 +181,7 @@ static std::string GetExtFromString(const std::string &str) {
 std::string Path::GetFileExtension() const {
 	if (type_ == PathType::CONTENT_URI) {
 		AndroidContentURI uri(path_);
-		return GetExtFromString(uri.FilePath());
+		return uri.GetFileExtension();
 	}
 	return GetExtFromString(path_);
 }
@@ -258,6 +262,15 @@ std::wstring Path::ToWString() const {
 	}
 	return w;
 }
+std::string Path::ToCString() const {
+	std::string w = path_;
+	for (size_t i = 0; i < w.size(); i++) {
+		if (w[i] == '/') {
+			w[i] = '\\';
+		}
+	}
+	return w;
+}
 #endif
 
 std::string Path::ToVisualString(const char *relativeRoot) const {
@@ -265,6 +278,9 @@ std::string Path::ToVisualString(const char *relativeRoot) const {
 		return AndroidContentURI(path_).ToVisualString();
 #if PPSSPP_PLATFORM(WINDOWS)
 	} else if (type_ == PathType::NATIVE) {
+#if PPSSPP_PLATFORM(UWP) && !defined(__LIBRETRO__)
+		return GetPreviewPath(path_);
+#else
 		// It can be useful to show the path as relative to the memstick
 		if (relativeRoot) {
 			std::string root = ReplaceAll(relativeRoot, "/", "\\");
@@ -277,6 +293,7 @@ std::string Path::ToVisualString(const char *relativeRoot) const {
 		} else {
 			return ReplaceAll(path_, "/", "\\");
 		}
+#endif
 #else
 		if (relativeRoot) {
 			std::string root = relativeRoot;

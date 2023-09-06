@@ -219,13 +219,15 @@ int u8_strlen(const char *s)
 }
 
 /* reads the next utf-8 sequence out of a string, updating an index */
-uint32_t u8_nextchar(const char *s, int *i) {
+uint32_t u8_nextchar(const char *s, int *index) {
 	uint32_t ch = 0;
 	int sz = 0;
+	int i = *index;
 	do {
-		ch = (ch << 6) + (unsigned char)s[(*i)++];
+		ch = (ch << 6) + (unsigned char)s[i++];
 		sz++;
-	} while (s[*i] && ((s[*i]) & 0xC0) == 0x80);
+	} while (s[i] && ((s[i]) & 0xC0) == 0x80);
+	*index = i;
 	return ch - offsetsFromUTF8[sz - 1];
 }
 
@@ -426,6 +428,17 @@ int u8_is_locale_utf8(const char *locale)
   return 0;
 }
 
+bool AnyEmojiInString(const char *s, size_t byteCount) {
+	int i = 0;
+	while (i < byteCount) {
+		uint32_t c = u8_nextchar(s, &i);
+		if (CodepointIsProbablyEmoji(c)) {
+			return true;
+		}
+	}
+	return false;
+}
+
 int UTF8StringNonASCIICount(const char *utf8string) {
 	UTF8 utf(utf8string);
 	int count = 0;
@@ -556,6 +569,12 @@ std::u16string ConvertUTF8ToUCS2(const std::string &source) {
 	size_t realLen = ConvertUTF8ToUCS2Internal(&dst[0], source.size() + 1, source);
 	dst.resize(realLen);
 	return dst;
+}
+
+std::string CodepointToUTF8(uint32_t codePoint) {
+	char temp[16]{};
+	UTF8::encode(temp, codePoint);
+	return std::string(temp);
 }
 
 #ifndef _WIN32

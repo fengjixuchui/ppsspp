@@ -174,9 +174,6 @@
     <ClCompile Include="..\..\Core\MIPS\x86\CompVFPU.cpp">
       <Filter>MIPS\x86</Filter>
     </ClCompile>
-    <ClCompile Include="..\..\Core\MIPS\x86\IRToX86.cpp">
-      <Filter>MIPS\x86</Filter>
-    </ClCompile>
     <ClCompile Include="..\..\Core\MIPS\x86\Jit.cpp">
       <Filter>MIPS\x86</Filter>
     </ClCompile>
@@ -187,6 +184,33 @@
       <Filter>MIPS\x86</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Core\MIPS\x86\RegCacheFPU.cpp">
+      <Filter>MIPS\x86</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Core\MIPS\x86\X64IRAsm.cpp">
+      <Filter>MIPS\x86</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Core\MIPS\x86\X64IRCompALU.cpp">
+      <Filter>MIPS\x86</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Core\MIPS\x86\X64IRCompBranch.cpp">
+      <Filter>MIPS\x86</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Core\MIPS\x86\X64IRCompFPU.cpp">
+      <Filter>MIPS\x86</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Core\MIPS\x86\X64IRCompLoadStore.cpp">
+      <Filter>MIPS\x86</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Core\MIPS\x86\X64IRCompSystem.cpp">
+      <Filter>MIPS\x86</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Core\MIPS\x86\X64IRCompVec.cpp">
+      <Filter>MIPS\x86</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Core\MIPS\x86\X64IRJit.cpp">
+      <Filter>MIPS\x86</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Core\MIPS\x86\X64IRRegCache.cpp">
       <Filter>MIPS\x86</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Core\FileSystems\BlobFileSystem.cpp">
@@ -645,6 +669,12 @@
     <ClCompile Include="..\..\Core\MIPS\IR\IRJit.cpp">
       <Filter>MIPS\IR</Filter>
     </ClCompile>
+    <ClCompile Include="..\..\Core\MIPS\IR\IRNativeCommon.cpp">
+      <Filter>MIPS\IR</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Core\MIPS\IR\IRAnalysis.cpp">
+      <Filter>MIPS\IR</Filter>
+    </ClCompile>
     <ClCompile Include="..\..\Core\MIPS\IR\IRPassSimplify.cpp">
       <Filter>MIPS\IR</Filter>
     </ClCompile>
@@ -669,6 +699,9 @@
       <Filter>Debugger\WebSocket</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Core\Debugger\WebSocket\CPUCoreSubscriber.cpp">
+      <Filter>Debugger\WebSocket</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Core\Debugger\WebSocket\ClientConfigSubscriber.cpp">
       <Filter>Debugger\WebSocket</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Core\Debugger\WebSocket\DisasmSubscriber.cpp">
@@ -747,6 +780,33 @@
       <Filter>MIPS\ARM64</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Core\MIPS\ARM64\Arm64RegCacheFPU.cpp">
+      <Filter>MIPS\ARM64</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Core\MIPS\ARM64\Arm64IRAsm.cpp">
+      <Filter>MIPS\ARM64</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Core\MIPS\ARM64\Arm64IRCompALU.cpp">
+      <Filter>MIPS\ARM64</Filter>
+    </ClCompile>
+     <ClCompile Include="..\..\Core\MIPS\ARM64\Arm64IRCompBranch.cpp">
+      <Filter>MIPS\ARM64</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Core\MIPS\ARM64\Arm64IRCompFPU.cpp">
+      <Filter>MIPS\ARM64</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Core\MIPS\ARM64\Arm64IRCompLoadStore.cpp">
+      <Filter>MIPS\ARM64</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Core\MIPS\ARM64\Arm64IRCompSystem.cpp">
+      <Filter>MIPS\ARM64</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Core\MIPS\ARM64\Arm64IRCompVec.cpp">
+      <Filter>MIPS\ARM64</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Core\MIPS\ARM64\Arm64IRJit.cpp">
+      <Filter>MIPS\ARM64</Filter>
+    </ClCompile>
+    <ClCompile Include="..\..\Core\MIPS\ARM64\Arm64IRRegCache.cpp">
       <Filter>MIPS\ARM64</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Core\HW\BufferQueue.cpp">
@@ -1127,6 +1187,8 @@
       <Filter>MIPS</Filter>
     </ClCompile>
     <ClCompile Include="..\..\Core\ConfigSettings.cpp" />
+    <ClCompile Include="..\..\Core\RetroAchievements.cpp" />
+    <ClCompile Include="..\..\Core\FrameTiming.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="pch.h" />
@@ -1174,9 +1236,6 @@
     <ClInclude Include="..\..\Core\MIPS\JitCommon\JitState.h">
       <Filter>MIPS\JitCommon</Filter>
     </ClInclude>
-    <ClInclude Include="..\..\Core\MIPS\x86\IRToX86.h">
-      <Filter>MIPS\x86</Filter>
-    </ClInclude>
     <ClInclude Include="..\..\Core\MIPS\x86\Jit.h">
       <Filter>MIPS\x86</Filter>
     </ClInclude>
@@ -1187,6 +1246,12 @@
       <Filter>MIPS\x86</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Core\MIPS\x86\RegCacheFPU.h">
+      <Filter>MIPS\x86</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Core\MIPS\x86\X64IRJit.h">
+      <Filter>MIPS\x86</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Core\MIPS\x86\X64IRRegCache.h">
       <Filter>MIPS\x86</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Core\FileSystems\BlobFileSystem.h">
@@ -1663,6 +1728,12 @@
     <ClInclude Include="..\..\Core\MIPS\IR\IRJit.h">
       <Filter>MIPS\IR</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\Core\MIPS\IR\IRNativeCommon.h">
+      <Filter>MIPS\IR</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Core\MIPS\IR\IRAnalysis.h">
+      <Filter>MIPS\IR</Filter>
+    </ClInclude>
     <ClInclude Include="..\..\Core\MIPS\IR\IRPassSimplify.h">
       <Filter>MIPS\IR</Filter>
     </ClInclude>
@@ -1746,6 +1817,12 @@
     <ClInclude Include="..\..\Core\MIPS\ARM64\Arm64RegCacheFPU.h">
       <Filter>MIPS\ARM64</Filter>
     </ClInclude>
+    <ClInclude Include="..\..\Core\MIPS\ARM64\Arm64IRJit.h">
+      <Filter>MIPS\ARM64</Filter>
+    </ClInclude>
+    <ClInclude Include="..\..\Core\MIPS\ARM64\Arm64IRRegCache.h">
+      <Filter>MIPS\ARM64</Filter>
+    </ClInclude>
     <ClInclude Include="..\..\Core\HW\Camera.h">
       <Filter>HW</Filter>
     </ClInclude>
@@ -1782,6 +1859,9 @@
       <Filter>MIPS</Filter>
     </ClInclude>
     <ClInclude Include="..\..\Core\ConfigSettings.h" />
+    <ClInclude Include="..\..\Core\Debugger\WebSocket\ClientConfigSubscriber.h" />
+    <ClInclude Include="..\..\Core\RetroAchievements.h" />
+    <ClInclude Include="..\..\Core\FrameTiming.h" />
   </ItemGroup>
   <ItemGroup>
     <None Include="..\..\ext\gason\LICENSE">

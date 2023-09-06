@@ -37,8 +37,7 @@
 #include "Core/HLE/HLE.h"
 
 // Temporary hacks around annoying linking errors.  Copied from Headless.
-void NativeUpdate() { }
-void NativeRender(GraphicsContext *graphicsContext) { }
+void NativeFrame(GraphicsContext *graphicsContext) { }
 void NativeResized() { }
 
 bool System_MakeRequest(SystemRequestType type, int requestId, const std::string &param1, const std::string &param2, int param3) { return false; }
@@ -164,7 +163,7 @@ bool TestJit() {
 	addr = currentMIPS->pc;
 	for (size_t j = 0; j < ARRAY_SIZE(lines); ++j) {
 		char line[512];
-		MIPSDisAsm(Memory::Read_Instruction(addr), addr, line, true);
+		MIPSDisAsm(Memory::Read_Instruction(addr), addr, line, sizeof(line), true);
 		addr += 4;
 		printf("%s\n", line);
 	}
@@ -178,26 +177,18 @@ bool TestJit() {
 		jit_speed = ExecCPUTest();
 
 		// Disassemble
-		JitBlockCache *cache = MIPSComp::jit->GetBlockCache();
-		JitBlock *block = cache->GetBlock(0);  // Should only be one block.
-#if PPSSPP_ARCH(ARM)
-		std::vector<std::string> lines = DisassembleArm2(block->normalEntry, block->codeSize);
-#elif PPSSPP_ARCH(ARM64)
-		std::vector<std::string> lines = DisassembleArm64(block->normalEntry, block->codeSize);
-#elif PPSSPP_ARCH(X86) || PPSSPP_ARCH(AMD64)
-		std::vector<std::string> lines = DisassembleX86(block->normalEntry, block->codeSize);
-#elif PPSSPP_ARCH(RISCV64)
-		std::vector<std::string> lines = DisassembleRV64(block->normalEntry, block->codeSize);
-#else
-		std::vector<std::string> lines;
-#endif
-		// Cut off at 25 due to the repetition above. Might need tweaking for large instructions.
-		const int cutoff = 25;
-		for (int i = 0; i < std::min((int)lines.size(), cutoff); i++) {
-			printf("%s\n", lines[i].c_str());
+		JitBlockCacheDebugInterface *cache = MIPSComp::jit->GetBlockCacheDebugInterface();
+		if (cache) {
+			JitBlockDebugInfo block = cache->GetBlockDebugInfo(0);  // Should only be one block.
+			std::vector<std::string> &lines = block.targetDisasm;
+			// Cut off at 25 due to the repetition above. Might need tweaking for large instructions.
+			const int cutoff = 25;
+			for (int i = 0; i < std::min((int)lines.size(), cutoff); i++) {
+				printf("%s\n", lines[i].c_str());
+			}
+			if (lines.size() > cutoff)
+				printf("...\n");
 		}
-		if (lines.size() > cutoff)
-			printf("...\n");
 		printf("Jit was %fx faster than interp.\n\n", jit_speed / interp_speed);
 	}
 

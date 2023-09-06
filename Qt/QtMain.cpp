@@ -161,6 +161,8 @@ std::string System_GetProperty(SystemProperty prop) {
 			return result;
 		}
 #endif
+	case SYSPROP_BUILD_VERSION:
+		return PPSSPP_GIT_VERSION;
 	default:
 		return "";
 	}
@@ -249,6 +251,8 @@ bool System_GetPropertyBool(SystemProperty prop) {
 	case SYSPROP_HAS_FILE_BROWSER:
 	case SYSPROP_HAS_FOLDER_BROWSER:
 	case SYSPROP_HAS_OPEN_DIRECTORY:
+	case SYSPROP_HAS_TEXT_INPUT_DIALOG:
+	case SYSPROP_CAN_SHOW_FILE:
 		return true;
 	case SYSPROP_SUPPORTS_OPEN_FILE_IN_EDITOR:
 		return true;  // FileUtil.cpp: OpenFileInEditor
@@ -278,8 +282,10 @@ void System_Notify(SystemNotification notification) {
 			g_symbolMap->SortSymbols();
 		break;
 	case SystemNotification::AUDIO_RESET_DEVICE:
+#ifdef SDL
 		StopSDLAudioDevice();
 		InitSDLAudioDevice();
+#endif
 		break;
 	default:
 		break;
@@ -308,6 +314,9 @@ bool MainUI::HandleCustomEvent(QEvent *e) {
 			break;
 		case BrowseFileType::DB:
 			filter = "DB files (*.db)";
+			break;
+		case BrowseFileType::SOUND_EFFECT:
+			filter = "WAVE files (*.wav)";
 			break;
 		case BrowseFileType::ANY:
 			break;
@@ -399,6 +408,9 @@ bool System_MakeRequest(SystemRequestType type, int requestId, const std::string
 			emit(qtcamera->onStopCamera());
 		}
 		return true;
+	case SystemRequestType::SHOW_FILE_IN_FOLDER:
+		QDesktopServices::openUrl(QUrl::fromLocalFile(QString::fromUtf8(param1.c_str())));
+		return true;
 	default:
 		return false;
 	}
@@ -414,10 +426,6 @@ void System_Vibrate(int length_ms) {
 		length_ms = 50;
 	else if (length_ms == -2)
 		length_ms = 25;
-}
-
-void System_ShowFileInFolder(const char *path) {
-	QDesktopServices::openUrl(QUrl::fromLocalFile(QString::fromUtf8(path)));
 }
 
 void System_LaunchUrl(LaunchUrlType urlType, const char *url)
@@ -467,7 +475,7 @@ void MainUI::EmuThreadFunc() {
 	emuThreadState = (int)EmuThreadState::RUNNING;
 	while (emuThreadState != (int)EmuThreadState::QUIT_REQUESTED) {
 		updateAccelerometer();
-		UpdateRunLoop();
+		UpdateRunLoop(graphicsContext);
 	}
 	emuThreadState = (int)EmuThreadState::STOPPED;
 
@@ -534,7 +542,7 @@ QString MainUI::InputBoxGetQString(QString title, QString defaultValue) {
 
 void MainUI::resizeGL(int w, int h) {
 	if (UpdateScreenScale(w, h)) {
-		NativeMessageReceived("gpu_displayResized", "");
+		System_PostUIMessage("gpu_displayResized", "");
 	}
 	xscale = w / this->width();
 	yscale = h / this->height();
@@ -631,7 +639,7 @@ bool MainUI::event(QEvent *e) {
 		{
 			auto qtKeycode = ((QKeyEvent*)e)->key();
 			auto iter = KeyMapRawQttoNative.find(qtKeycode);
-			int nativeKeycode = 0;
+			InputKeyCode nativeKeycode = NKCODE_UNKNOWN;
 			if (iter != KeyMapRawQttoNative.end()) {
 				nativeKeycode = iter->second;
 				NativeKey(KeyInput(DEVICE_ID_KEYBOARD, nativeKeycode, KEY_DOWN));
@@ -650,8 +658,8 @@ bool MainUI::event(QEvent *e) {
 			default:
 				if (str.size()) {
 					int pos = 0;
-					int code = u8_nextchar(str.c_str(), &pos);
-					NativeKey(KeyInput(DEVICE_ID_KEYBOARD, code, KEY_CHAR));
+					int unicode = u8_nextchar(str.c_str(), &pos);
+					NativeKey(KeyInput(DEVICE_ID_KEYBOARD, unicode));
 				}
 				break;
 			}
@@ -711,7 +719,7 @@ void MainUI::paintGL() {
 #endif
 	updateAccelerometer();
 	if (emuThreadState == (int)EmuThreadState::DISABLED) {
-		UpdateRunLoop();
+		UpdateRunLoop(graphicsContext);
 	} else {
 		graphicsContext->ThreadFrame();
 		// Do the rest in EmuThreadFunc
@@ -723,20 +731,18 @@ void MainUI::updateAccelerometer() {
 	// TODO: Toggle it depending on whether it is enabled
 	QAccelerometerReading *reading = acc->reading();
 	if (reading) {
-		AxisInput axis;
-		axis.deviceId = DEVICE_ID_ACCELEROMETER;
+		AxisInput axis[3];
+		for (int i = 0; i < 3; i++) {
+			axis[i].deviceId = DEVICE_ID_ACCELEROMETER;
+		}
 
-		axis.axisId = JOYSTICK_AXIS_ACCELEROMETER_X;
-		axis.value = reading->x();
-		NativeAxis(axis);
-
-		axis.axisId = JOYSTICK_AXIS_ACCELEROMETER_Y;
-		axis.value = reading->y();
-		NativeAxis(axis);
-
-		axis.axisId = JOYSTICK_AXIS_ACCELEROMETER_Z;
-		axis.value = reading->z();
-		NativeAxis(axis);
+		axis[0].axisId = JOYSTICK_AXIS_ACCELEROMETER_X;
+		axis[0].value = reading->x();
+		axis[1].axisId = JOYSTICK_AXIS_ACCELEROMETER_Y;
+		axis[1].value = reading->y();
+		axis[2].axisId = JOYSTICK_AXIS_ACCELEROMETER_Z;
+		axis[2].value = reading->z();
+		NativeAxis(axis, 3);
 	}
 #endif
 }

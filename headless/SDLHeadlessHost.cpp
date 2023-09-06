@@ -18,7 +18,13 @@
 #ifdef SDL
 
 #include <cstdio>
-#include <SDL.h>
+
+#include "ppsspp_config.h"
+#if PPSSPP_PLATFORM(MAC)
+#include "SDL2/SDL.h"
+#else
+#include "SDL.h"
+#endif
 
 #include "headless/SDLHeadlessHost.h"
 #include "Common/GPU/OpenGL/GLCommon.h"
@@ -89,8 +95,6 @@ public:
 
 	void Shutdown() override {}
 	void Resize() override {}
-	void SwapInterval(int interval) override {}
-	void SwapBuffers() override {}
 
 private:
 	Draw::DrawContext *draw_ = nullptr;
@@ -152,7 +156,7 @@ bool GLDummyGraphicsContext::InitFromRenderThread(std::string *errorMessage) {
 #endif
 
 	CheckGLExtensions();
-	draw_ = Draw::T3DCreateGLContext();
+	draw_ = Draw::T3DCreateGLContext(false);
 	renderManager_ = (GLRenderManager *)draw_->GetNativeObject(Draw::NativeObject::RENDER_MANAGER);
 	renderManager_->SetInflightFrames(g_Config.iInflightFrames);
 	SetGPUBackend(GPUBackend::OPENGL);
@@ -160,8 +164,7 @@ bool GLDummyGraphicsContext::InitFromRenderThread(std::string *errorMessage) {
 	_assert_(success);
 	renderManager_->SetSwapFunction([&]() {
 		SDL_GL_SwapWindow(screen_);
-	}, false);
-
+	});
 	return success;
 }
 
@@ -187,7 +190,6 @@ bool SDLHeadlessHost::InitGraphics(std::string *error_message, GraphicsContext *
 			if (!gfx_->ThreadFrame()) {
 				break;
 			}
-			gfx_->SwapBuffers();
 		}
 
 		threadState_ = RenderThreadState::STOPPING;
@@ -215,7 +217,6 @@ void SDLHeadlessHost::ShutdownGraphics() {
 }
 
 void SDLHeadlessHost::SwapBuffers() {
-	gfx_->SwapBuffers();
 }
 
 #endif

@@ -70,22 +70,22 @@ class PrintfLogger : public LogListener {
 public:
 	void Log(const LogMessage &message) override {
 		switch (message.level) {
-		case LogTypes::LVERBOSE:
+		case LogLevel::LVERBOSE:
 			fprintf(stderr, "V %s", message.msg.c_str());
 			break;
-		case LogTypes::LDEBUG:
+		case LogLevel::LDEBUG:
 			fprintf(stderr, "D %s", message.msg.c_str());
 			break;
-		case LogTypes::LINFO:
+		case LogLevel::LINFO:
 			fprintf(stderr, "I %s", message.msg.c_str());
 			break;
-		case LogTypes::LERROR:
+		case LogLevel::LERROR:
 			fprintf(stderr, "E %s", message.msg.c_str());
 			break;
-		case LogTypes::LWARNING:
+		case LogLevel::LWARNING:
 			fprintf(stderr, "W %s", message.msg.c_str());
 			break;
-		case LogTypes::LNOTICE:
+		case LogLevel::LNOTICE:
 		default:
 			fprintf(stderr, "N %s", message.msg.c_str());
 			break;
@@ -94,8 +94,7 @@ public:
 };
 
 // Temporary hacks around annoying linking errors.
-void NativeUpdate() { }
-void NativeRender(GraphicsContext *graphicsContext) { }
+void NativeFrame(GraphicsContext *graphicsContext) { }
 void NativeResized() { }
 
 std::string System_GetProperty(SystemProperty prop) { return ""; }
@@ -118,7 +117,6 @@ bool System_GetPropertyBool(SystemProperty prop) {
 }
 void System_Notify(SystemNotification notification) {}
 void System_PostUIMessage(const std::string &message, const std::string &param) {}
-void System_NotifyUserMessage(const std::string &message, float duration, u32 color, const char *id) {}
 bool System_MakeRequest(SystemRequestType type, int requestId, const std::string &param1, const std::string &param2, int param3) {
 	switch (type) {
 	case SystemRequestType::SEND_DEBUG_OUTPUT:
@@ -133,8 +131,9 @@ bool System_MakeRequest(SystemRequestType type, int requestId, const std::string
 			return true;
 		}
 		return false;
+	default:
+		return false;
 	}
-	return false;
 }
 void System_InputBoxGetString(const std::string &title, const std::string &defaultValue, std::function<void(bool, const std::string &)> cb) { cb(false, ""); }
 void System_AskForPermission(SystemPermission permission) {}
@@ -142,6 +141,12 @@ PermissionStatus System_GetPermissionStatus(SystemPermission permission) { retur
 void System_AudioGetDebugStats(char *buf, size_t bufSize) { if (buf) buf[0] = '\0'; }
 void System_AudioClear() {}
 void System_AudioPushSamples(const s32 *audio, int numSamples) {}
+
+// TODO: To avoid having to define these here, these should probably be turned into system "requests".
+void NativeSaveSecret(const char *nameOfSecret, const std::string &data) {}
+std::string NativeLoadSecret(const char *nameOfSecret) {
+	return "";
+}
 
 int printUsage(const char *progname, const char *reason)
 {
@@ -228,12 +233,12 @@ bool RunAutoTest(HeadlessHost *headlessHost, CoreParameter &coreParameter, const
 
 	System_Notify(SystemNotification::BOOT_DONE);
 
-	Core_UpdateDebugStats(g_Config.bShowDebugStats || g_Config.bLogFrameDrops);
+	Core_UpdateDebugStats((DebugOverlay)g_Config.iDebugOverlay == DebugOverlay::DEBUG_STATS || g_Config.bLogFrameDrops);
 
 	PSP_BeginHostFrame();
 	Draw::DrawContext *draw = coreParameter.graphicsContext ? coreParameter.graphicsContext->GetDrawContext() : nullptr;
 	if (draw)
-		draw->BeginFrame();
+		draw->BeginFrame(Draw::DebugFlags::NONE);
 
 	bool passed = true;
 	double deadline = time_now_d() + opt.timeout;
@@ -360,8 +365,10 @@ int main(int argc, const char* argv[])
 			cpuCore = CPUCore::INTERPRETER;
 		else if (!strcmp(argv[i], "-j"))
 			cpuCore = CPUCore::JIT;
+		else if (!strcmp(argv[i], "--jit-ir"))
+			cpuCore = CPUCore::JIT_IR;
 		else if (!strcmp(argv[i], "--ir"))
-			cpuCore = CPUCore::IR_JIT;
+			cpuCore = CPUCore::IR_INTERPRETER;
 		else if (!strcmp(argv[i], "-c") || !strcmp(argv[i], "--compare"))
 			testOptions.compare = true;
 		else if (!strcmp(argv[i], "--bench"))
@@ -421,10 +428,10 @@ int main(int argc, const char* argv[])
 
 	PrintfLogger *printfLogger = new PrintfLogger();
 
-	for (int i = 0; i < LogTypes::NUMBER_OF_LOGS; i++) {
-		LogTypes::LOG_TYPE type = (LogTypes::LOG_TYPE)i;
+	for (int i = 0; i < (int)LogType::NUMBER_OF_LOGS; i++) {
+		LogType type = (LogType)i;
 		logman->SetEnabled(type, fullLog);
-		logman->SetLogLevel(type, LogTypes::LDEBUG);
+		logman->SetLogLevel(type, LogLevel::LDEBUG);
 	}
 	logman->AddListener(printfLogger);
 
@@ -491,20 +498,22 @@ int main(int argc, const char* argv[])
 	g_Config.iPSPModel = PSP_MODEL_SLIM;
 	g_Config.iGlobalVolume = VOLUME_FULL;
 	g_Config.iReverbVolume = VOLUME_FULL;
+	g_Config.internalDataDirectory.clear();
+
+	Path exePath = File::GetExeDirectory();
+	g_Config.flash0Directory = exePath / "assets/flash0";
 
 #if PPSSPP_PLATFORM(WINDOWS)
-	g_Config.internalDataDirectory.clear();
-	InitSysDirectories();
-#endif
-
-	Path executablePath = File::GetExeDirectory();
-#if !PPSSPP_PLATFORM(ANDROID) && !PPSSPP_PLATFORM(WINDOWS)
+	// Mount a filesystem
+	g_Config.memStickDirectory = exePath / "memstick";
+	File::CreateDir(g_Config.memStickDirectory);
+	CreateSysDirectories();
+#elif !PPSSPP_PLATFORM(ANDROID)
 	g_Config.memStickDirectory = Path(std::string(getenv("HOME"))) / ".ppsspp";
-	g_Config.flash0Directory = executablePath / "assets/flash0";
 #endif
 
 	// Try to find the flash0 directory.  Often this is from a subdirectory.
-	Path nextPath = executablePath;
+	Path nextPath = exePath;
 	for (int i = 0; i < 5; ++i) {
 		if (File::Exists(nextPath / "assets/flash0")) {
 			g_Config.flash0Directory = nextPath / "assets/flash0";

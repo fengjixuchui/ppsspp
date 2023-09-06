@@ -315,6 +315,14 @@ const u8* ARM64XEmitter::AlignCodePage()
 	return m_code;
 }
 
+const u8 *ARM64XEmitter::NopAlignCode16() {
+	int bytes = ((-(intptr_t)m_code) & 15);
+	for (int i = 0; i < bytes / 4; i++) {
+		Write32(0xD503201F); // official nop instruction
+	}
+	return m_code;
+}
+
 void ARM64XEmitter::FlushIcache()
 {
 	FlushIcacheSection(m_lastCacheFlushEnd, m_code);
@@ -506,7 +514,7 @@ void ARM64XEmitter::EncodeTestBranchInst(u32 op, ARM64Reg Rt, u8 bits, const voi
 
 	distance >>= 2;
 
-	_assert_msg_(distance >= -0x1FFF && distance < 0x1FFF, "%s: Received too large distance: %llx", __FUNCTION__, distance);
+	_assert_msg_(distance >= -0x2000 && distance <= 0x1FFF, "%s: Received too large distance: %llx", __FUNCTION__, distance);
 
 	Rt = DecodeReg(Rt);
 	Write32((b64Bit << 31) | (0x36 << 24) | (op << 24) | \
@@ -3440,6 +3448,20 @@ void ARM64FloatEmitter::TRN2(u8 size, ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm)
 void ARM64FloatEmitter::ZIP2(u8 size, ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm)
 {
 	EmitPermute(size, 7, Rd, Rn, Rm);
+}
+
+void ARM64FloatEmitter::EXT(ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm, int index) {
+	_assert_msg_(!IsSingle(Rd), "%s doesn't support singles!", __FUNCTION__);
+
+	bool quad = IsQuad(Rd);
+	_assert_msg_(index >= 0 && index < 16 && (quad || index < 8), "%s start index out of bounds", __FUNCTION__);
+	_assert_msg_(IsQuad(Rd) == IsQuad(Rn) && IsQuad(Rd) == IsQuad(Rm), "%s operands not same size", __FUNCTION__);
+
+	Rd = DecodeReg(Rd);
+	Rn = DecodeReg(Rn);
+	Rm = DecodeReg(Rm);
+
+	Write32((quad << 30) | (0x17 << 25) | (Rm << 16) | (index << 11) | (Rn << 5) | Rd);
 }
 
 // Shift by immediate

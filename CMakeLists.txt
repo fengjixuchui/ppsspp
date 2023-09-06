@@ -67,6 +67,8 @@ if(CMAKE_SYSTEM_PROCESSOR)
 		set(MIPS_DEVICE ON)
 	elseif(${CMAKE_SYSTEM_PROCESSOR} MATCHES "^riscv64")
 		set(RISCV64_DEVICE ON)
+	elseif(${CMAKE_SYSTEM_PROCESSOR} MATCHES "^loongarch64")
+		set(LOONGARCH64_DEVICE ON)
 	else()
 		message("Unknown CMAKE_SYSTEM_PROCESSOR: ${CMAKE_SYSTEM_PROCESSOR}")
 	endif()
@@ -102,13 +104,16 @@ if(ANDROID OR WIN32 OR (UNIX AND NOT ARM_NO_VULKAN))
 	set(VULKAN ON)
 endif()
 
+# Default to bundled SDL2 on macOS, system SDL2 elsewhere.
+if(APPLE AND NOT IOS)
+	set(DEFAULT_USE_SYSTEM_LIBSDL2 OFF)
+else()
+	set(DEFAULT_USE_SYSTEM_LIBSDL2 ON)
+endif()
+
 list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/Modules)
 if(NOT IOS)
 	list(APPEND CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake/sdl)
-endif()
-
-if(MACOSX AND NOT USE_SYSTEM_LIBSDL2)
-	set(SDL2_LIBRARY ${CMAKE_SOURCE_DIR}/SDL/macOS/SDL2.framework)
 endif()
 
 include(ccache)
@@ -136,6 +141,7 @@ option(ARMV7 "Set to ON if targeting an ARMv7 processor" ${ARMV7_DEVICE})
 option(ARM "Set to ON if targeting an ARM processor" ${ARM_DEVICE})
 option(MIPS "Set to ON if targeting a MIPS processor" ${MIPS_DEVICE})
 option(RISCV64 "Set to ON if targeting a RISCV64 processor" ${RISCV64_DEVICE})
+option(LOONGARCH64 "Set to ON if targeting a LOONGARCH64 processor" ${LOONGARCH64_DEVICE})
 option(X86 "Set to ON if targeting an X86 processor" ${X86_DEVICE})
 option(X86_64 "Set to ON if targeting an X86_64 processor" ${X86_64_DEVICE})
 # :: Environments
@@ -161,7 +167,7 @@ option(USE_ARMIPS "Build with armips support in API/debugger" ON)
 option(USE_SYSTEM_SNAPPY "Dynamically link against system snappy" ${USE_SYSTEM_SNAPPY})
 option(USE_SYSTEM_FFMPEG "Dynamically link against system FFMPEG" ${USE_SYSTEM_FFMPEG})
 option(USE_SYSTEM_LIBZIP "Dynamically link against system libzip" ${USE_SYSTEM_LIBZIP})
-option(USE_SYSTEM_LIBSDL2 "Dynamically link against system SDL2" ON)
+option(USE_SYSTEM_LIBSDL2 "Dynamically link against system SDL2" ${DEFAULT_USE_SYSTEM_LIBSDL2})
 option(USE_SYSTEM_LIBPNG "Dynamically link against system libpng" ON)
 option(USE_SYSTEM_ZSTD "Dynamically link against system zstd" ${USE_SYSTEM_ZSTD})
 option(USE_SYSTEM_MINIUPNPC "Dynamically link against system miniUPnPc" ${USE_SYSTEM_MINIUPNPC})
@@ -171,20 +177,21 @@ option(USE_UBSAN "Use undefined behaviour sanitizer" OFF)
 if(UNIX AND NOT (APPLE OR ANDROID) AND VULKAN)
 	if(USING_X11_VULKAN)
 		message("Using X11 for Vulkan")
+		find_package(X11)
+		include_directories(${X11_Xlib_INCLUDE_PATH})
 		add_definitions(-DVK_USE_PLATFORM_XLIB_KHR)
 	else()
 		message("NOT using X11 for Vulkan")
 	endif()
 
 	# add_definitions(-DVK_USE_PLATFORM_XCB_KHR)
-	if(USE_WAYLAND_WSI)
-		find_package(Wayland)
-		if(NOT WAYLAND_FOUND)
-			message(STATUS "Could not find Wayland libraries, disabling Wayland WSI support for Vulkan.")
-		else()
-			include_directories(${WAYLAND_INCLUDE_DIR})
-			add_definitions(-DVK_USE_PLATFORM_WAYLAND_KHR)
-		endif()
+	find_package(Wayland)
+	if(NOT WAYLAND_FOUND)
+		message(STATUS "Could not find Wayland libraries, disabling Wayland WSI support for Vulkan.")
+	else()
+		include_directories(${WAYLAND_INCLUDE_DIR})
+		add_definitions(-DVK_USE_PLATFORM_WAYLAND_KHR)
+		add_definitions(-DUSE_WAYLAND_WSI=ON)
 	endif()
 
 	if(USE_VULKAN_DISPLAY_KHR)
@@ -214,6 +221,16 @@ else()
 	set(CoreLinkType STATIC)
 endif()
 
+if(NOT ANDROID AND NOT WIN32 AND NOT APPLE)
+	set(HTTPS_NOT_AVAILABLE ON)
+endif()
+
+# Made this flag negative because it's hopefully quite temporary and didn't
+# want to have to update all build systems.
+if(HTTPS_NOT_AVAILABLE)
+	add_definitions(-DHTTPS_NOT_AVAILABLE)
+endif()
+
 # Work around for some misfeature of the current glslang build system
 include_directories(ext/glslang)
 
@@ -241,9 +258,23 @@ if(USING_EGL)
 	set(OPENGL_LIBRARIES ${OPENGL_LIBRARIES} ${EGL_LIBRARIES})
 endif()
 
-if(NOT LIBRETRO AND NOT IOS)
+if(NOT LIBRETRO AND NOT IOS AND NOT MACOSX)
 	find_package(SDL2)
+	find_package(SDL2_ttf)
+	find_package(Fontconfig)
 endif()
+
+if(MACOSX AND NOT IOS)
+	if(USE_SYSTEM_LIBSDL2)
+		find_package(SDL2)
+		find_package(SDL2_ttf)
+	else()
+		find_library(SDL2Fwk SDL2 REQUIRED PATHS SDL/macOS)
+		message(STATUS "found SDL2Fwk=${SDL2Fwk}")
+		add_definitions(-DHAVE_SYSCTLBYNAME)
+	endif()
+endif()
+
 include(FindThreads)
 
 if(APPLE)
@@ -289,6 +320,9 @@ if(MIPS)
 endif()
 if(RISCV64)
 	message("Generating for RISCV64, ${CMAKE_BUILD_TYPE}")
+endif()
+if(LOONGARCH64)
+	message("Generating for LOONGARCH64, ${CMAKE_BUILD_TYPE}")
 endif()
 if(X86)
 	message("Generating for x86, ${CMAKE_BUILD_TYPE}")
@@ -390,8 +424,11 @@ if(NOT MSVC)
 			add_definitions(-Wno-psabi)
 		endif()
 		add_definitions(-D_XOPEN_SOURCE=700)
-		add_definitions(-D_XOPEN_SOURCE_EXTENDED -D__BSD_VISIBLE=1)
+		add_definitions(-D_XOPEN_SOURCE_EXTENDED -D__BSD_VISIBLE=1 -D_BSD_SOURCE -D_DEFAULT_SOURCE)
 		add_definitions(-D_LARGEFILE64_SOURCE=1 -D_FILE_OFFSET_BITS=64)
+		if(${CMAKE_SYSTEM_NAME} STREQUAL "NetBSD")
+			add_definitions(-D_NETBSD_SOURCE)
+		endif()
 	elseif(ANDROID)
 		add_definitions(-fsigned-char)
 	endif()
@@ -403,6 +440,7 @@ else()
 	endif()
 	set(CMAKE_CXX_FLAGS_DEBUG "${CMAKE_CXX_FLAGS_DEBUG} -D_DEBUG")
 	set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -D_NDEBUG")
+	set(CMAKE_EXE_LINKER_FLAGS /NODEFAULTLIB:"libcmt.lib")
 endif()
 
 if(WIN32)
@@ -495,6 +533,14 @@ set(CommonRISCV64
 )
 source_group(RISCV64 FILES ${CommonRISCV64})
 
+set(CommonLOONGARCH64
+	${CommonJIT}
+	Common/LoongArchCPUDetect.cpp
+	Core/MIPS/fake/FakeJit.cpp
+	Core/MIPS/fake/FakeJit.h
+)
+source_group(LOONGARCH64 FILES ${CommonLOONGARCH64})
+
 if(WIN32)
 	set(CommonD3D
 		Common/GPU/D3D9/D3D9ShaderCompiler.cpp
@@ -533,6 +579,7 @@ add_library(Common STATIC
 	${CommonARM64}
 	${CommonMIPS}
 	${CommonRISCV64}
+	${CommonLOONGARCH64}
 	${CommonD3D}
 	${CommonVR}
 	Common/Serialize/Serializer.cpp
@@ -552,6 +599,7 @@ add_library(Common STATIC
 	Common/Data/Collections/FixedSizeQueue.h
 	Common/Data/Collections/Hashmaps.h
 	Common/Data/Collections/TinySet.h
+	Common/Data/Collections/FastVec.h
 	Common/Data/Collections/ThreadSafeList.h
 	Common/Data/Color/RGBAUtil.cpp
 	Common/Data/Color/RGBAUtil.h
@@ -600,6 +648,8 @@ add_library(Common STATIC
 	Common/File/VFS/DirectoryReader.h
 	Common/File/AndroidStorage.h
 	Common/File/AndroidStorage.cpp
+	Common/File/AndroidContentURI.h
+	Common/File/AndroidContentURI.cpp
 	Common/File/DiskFree.h
 	Common/File/DiskFree.cpp
 	Common/File/Path.h
@@ -614,6 +664,8 @@ add_library(Common STATIC
 	Common/File/FileDescriptor.h
 	Common/GPU/DataFormat.h
 	Common/GPU/MiscTypes.h
+	Common/GPU/GPUBackendCommon.cpp
+	Common/GPU/GPUBackendCommon.h
 	Common/GPU/thin3d.cpp
 	Common/GPU/thin3d.h
 	Common/GPU/thin3d_create.h
@@ -635,6 +687,8 @@ add_library(Common STATIC
 	Common/GPU/OpenGL/GLFrameData.cpp
 	Common/GPU/OpenGL/GLFrameData.h
 	Common/GPU/OpenGL/thin3d_gl.cpp
+	Common/GPU/OpenGL/GLMemory.cpp
+	Common/GPU/OpenGL/GLMemory.h
 	Common/GPU/OpenGL/GLRenderManager.cpp
 	Common/GPU/OpenGL/GLRenderManager.h
 	Common/GPU/OpenGL/GLQueueRunner.cpp
@@ -686,6 +740,10 @@ add_library(Common STATIC
 	Common/Net/HTTPClient.h
 	Common/Net/HTTPHeaders.cpp
 	Common/Net/HTTPHeaders.h
+	Common/Net/HTTPNaettRequest.cpp
+	Common/Net/HTTPNaettRequest.h
+	Common/Net/HTTPRequest.cpp
+	Common/Net/HTTPRequest.h
 	Common/Net/HTTPServer.cpp
 	Common/Net/HTTPServer.h
 	Common/Net/NetBuffer.cpp
@@ -710,6 +768,8 @@ add_library(Common STATIC
 	Common/Render/Text/draw_text.h
 	Common/Render/Text/draw_text_android.cpp
 	Common/Render/Text/draw_text_android.h
+	Common/Render/Text/draw_text_sdl.cpp
+	Common/Render/Text/draw_text_sdl.h
 	Common/Render/Text/draw_text_win.cpp
 	Common/Render/Text/draw_text_win.h
 	Common/Render/Text/draw_text_uwp.cpp
@@ -720,6 +780,8 @@ add_library(Common STATIC
 	Common/System/NativeApp.h
 	Common/System/Request.cpp
 	Common/System/Request.h
+	Common/System/OSD.cpp
+	Common/System/OSD.h
 	Common/Thread/Channel.h
 	Common/Thread/ParallelLoop.cpp
 	Common/Thread/ParallelLoop.h
@@ -738,6 +800,8 @@ add_library(Common STATIC
 	Common/UI/UI.h
 	Common/UI/Context.cpp
 	Common/UI/Context.h
+	Common/UI/IconCache.cpp
+	Common/UI/IconCache.h
 	Common/UI/UIScreen.cpp
 	Common/UI/UIScreen.h
 	Common/UI/Tween.cpp
@@ -775,8 +839,10 @@ add_library(Common STATIC
 	Common/MemArenaDarwin.cpp
 	Common/MemArenaPosix.cpp
 	Common/MemArenaWin32.cpp
+	Common/MemArenaHorizon.cpp
 	Common/MemArena.h
 	Common/MemoryUtil.cpp
+	Common/MemoryUtilHorizon.cpp
 	Common/MemoryUtil.h
 	Common/OSVersion.cpp
 	Common/OSVersion.h
@@ -836,6 +902,8 @@ if(USE_FFMPEG)
 					set(PLATFORM_ARCH "linux/mips32")
 				elseif(RISCV64)
 					set(PLATFORM_ARCH "linux/riscv64")
+				elseif(LOONGARCH64)
+					set(PLATFORM_ARCH "linux/loongarch64")
 				elseif(CMAKE_SIZEOF_VOID_P EQUAL 8)
 					set(PLATFORM_ARCH "linux/x86_64")
 				elseif(X86)
@@ -916,6 +984,7 @@ endif()
 
 find_package(LIBZIP)
 if(LIBZIP_FOUND AND USE_SYSTEM_LIBZIP)
+	include_directories(${LIBZIP_INCLUDE_DIRS})
 	add_definitions(-DSHARED_LIBZIP)
 else()
 	add_library(libzip STATIC
@@ -1133,15 +1202,6 @@ set(nativeExtra)
 set(nativeExtraLibs)
 
 if(ANDROID)
-	set(nativeExtra ${nativeExtra}
-		Common/GL/GLInterface/EGLAndroid.cpp
-		Common/GL/GLInterface/EGLAndroid.h
-		Common/GL/GLInterface/EGL.cpp
-		Common/GL/GLInterface/EGL.h
-		Common/GL/GLInterface/GLInterface.cpp
-		Common/GL/GLInterfaceBase.h
-	)
-
 	set(NativeAppSource ${NativeAppSource}
 		android/jni/app-android.cpp
 		android/jni/AndroidJavaGLContext.cpp
@@ -1252,8 +1312,13 @@ elseif(WIN32)
 	else()
 		link_directories(dx9sdk/Lib/x86)
 	endif()
-elseif(TARGET SDL2::SDL2)
-	set(TargetBin PPSSPPSDL)
+elseif(LIBRETRO)
+else()
+	if(GOLD)
+		set(TargetBin PPSSPPGold)
+	else()
+		set(TargetBin PPSSPPSDL)
+	endif()
 	# Require SDL
 	add_definitions(-DSDL)
 	set(nativeExtra ${nativeExtra}
@@ -1267,7 +1332,15 @@ elseif(TARGET SDL2::SDL2)
 			SDL/SDLVulkanGraphicsContext.cpp
 		)
 	endif()
-	set(nativeExtraLibs ${nativeExtraLibs} SDL2::SDL2)
+	if(SDL2_ttf_FOUND)
+		add_definitions(-DUSE_SDL2_TTF)
+		set(nativeExtraLibs ${nativeExtraLibs} SDL2_ttf::SDL2_ttf)
+
+		if(FONTCONFIG_FOUND)
+			add_definitions(-DUSE_SDL2_TTF_FONTCONFIG)
+			set(nativeExtraLibs ${nativeExtraLibs} Fontconfig::Fontconfig)
+		endif()
+	endif()
 	if(APPLE)
 		set(nativeExtra ${nativeExtra} 
 		SDL/SDLMain.h 
@@ -1290,11 +1363,17 @@ elseif(TARGET SDL2::SDL2)
 		set_source_files_properties(SDL/PPSSPPAboutViewController.m PROPERTIES COMPILE_FLAGS -fobjc-arc)
 		set_source_files_properties(Common/Battery/AppleBatteryClient.m PROPERTIES COMPILE_FLAGS -fobjc-arc)
 		set(nativeExtraLibs ${nativeExtraLibs} ${COCOA_LIBRARY} ${QUARTZ_CORE_LIBRARY} ${IOKIT_LIBRARY})
+
+		if(USE_SYSTEM_LIBSDL2)
+			set(nativeExtraLibs ${nativeExtraLibs} SDL2::SDL2)
+		else()
+			set(nativeExtraLibs ${nativeExtraLibs} ${SDL2Fwk})
+		endif()
 	elseif(USING_EGL)
-		set(nativeExtraLibs ${nativeExtraLibs} pthread)
+		set(nativeExtraLibs ${nativeExtraLibs} pthread SDL2::SDL2)
+	else()
+		set(nativeExtraLibs ${nativeExtraLibs} SDL2::SDL2)
 	endif()
-elseif(NOT LIBRETRO)
-	message(FATAL_ERROR "Could not find SDL2. Failing.")
 endif()
 
 if(WIN32)
@@ -1323,6 +1402,8 @@ list(APPEND NativeAppSource
 	UI/BackgroundAudio.cpp
 	UI/ChatScreen.h
 	UI/ChatScreen.cpp
+	UI/DebugOverlay.cpp
+	UI/DebugOverlay.h
 	UI/DevScreens.cpp
 	UI/DevScreens.h
 	UI/DisplayLayoutScreen.cpp
@@ -1337,6 +1418,8 @@ list(APPEND NativeAppSource
 	UI/MiscScreens.cpp
 	UI/PauseScreen.h
 	UI/PauseScreen.cpp
+	UI/TabbedDialogScreen.h
+	UI/TabbedDialogScreen.cpp
 	UI/GameScreen.h
 	UI/GameScreen.cpp
 	UI/GameSettingsScreen.h
@@ -1377,6 +1460,8 @@ list(APPEND NativeAppSource
 	UI/CustomButtonMappingScreen.cpp
 	UI/Theme.h
 	UI/Theme.cpp
+	UI/RetroAchievementScreens.cpp
+	UI/RetroAchievementScreens.h
 )
 
 if(ANDROID)
@@ -1410,7 +1495,7 @@ if(LINUX AND NOT ANDROID)
 endif()
 
 set(ATOMIC_LIB)
-if(ANDROID OR (LINUX AND ARM_DEVICE) OR (LINUX AND RISCV64))
+if(ANDROID OR (LINUX AND ARM_DEVICE) OR (LINUX AND RISCV64) OR (LINUX AND LOONGARCH64))
 	set(ATOMIC_LIB atomic)
 endif()
 
@@ -1467,6 +1552,8 @@ set(CoreExtra)
 set(CoreExtraLibs)
 
 set(CoreExtra ${CoreExtra}
+	Core/MIPS/IR/IRAnalysis.cpp
+	Core/MIPS/IR/IRAnalysis.h
 	Core/MIPS/IR/IRCompALU.cpp
 	Core/MIPS/IR/IRCompBranch.cpp
 	Core/MIPS/IR/IRCompFPU.cpp
@@ -1480,6 +1567,8 @@ set(CoreExtra ${CoreExtra}
 	Core/MIPS/IR/IRInterpreter.h
 	Core/MIPS/IR/IRJit.cpp
 	Core/MIPS/IR/IRJit.h
+	Core/MIPS/IR/IRNativeCommon.cpp
+	Core/MIPS/IR/IRNativeCommon.h
 	Core/MIPS/IR/IRPassSimplify.cpp
 	Core/MIPS/IR/IRPassSimplify.h
 	Core/MIPS/IR/IRRegCache.cpp
@@ -1519,6 +1608,17 @@ list(APPEND CoreExtra
 	Core/MIPS/ARM64/Arm64RegCache.h
 	Core/MIPS/ARM64/Arm64RegCacheFPU.cpp
 	Core/MIPS/ARM64/Arm64RegCacheFPU.h
+	Core/MIPS/ARM64/Arm64IRAsm.cpp
+	Core/MIPS/ARM64/Arm64IRCompALU.cpp
+	Core/MIPS/ARM64/Arm64IRCompBranch.cpp
+	Core/MIPS/ARM64/Arm64IRCompFPU.cpp
+	Core/MIPS/ARM64/Arm64IRCompLoadStore.cpp
+	Core/MIPS/ARM64/Arm64IRCompSystem.cpp
+	Core/MIPS/ARM64/Arm64IRCompVec.cpp
+	Core/MIPS/ARM64/Arm64IRJit.cpp
+	Core/MIPS/ARM64/Arm64IRJit.h
+	Core/MIPS/ARM64/Arm64IRRegCache.cpp
+	Core/MIPS/ARM64/Arm64IRRegCache.h
 	GPU/Common/VertexDecoderArm64.cpp
 	Core/Util/DisArm64.cpp
 )
@@ -1539,6 +1639,17 @@ list(APPEND CoreExtra
 	Core/MIPS/x86/RegCache.h
 	Core/MIPS/x86/RegCacheFPU.cpp
 	Core/MIPS/x86/RegCacheFPU.h
+	Core/MIPS/x86/X64IRAsm.cpp
+	Core/MIPS/x86/X64IRCompALU.cpp
+	Core/MIPS/x86/X64IRCompBranch.cpp
+	Core/MIPS/x86/X64IRCompFPU.cpp
+	Core/MIPS/x86/X64IRCompLoadStore.cpp
+	Core/MIPS/x86/X64IRCompSystem.cpp
+	Core/MIPS/x86/X64IRCompVec.cpp
+	Core/MIPS/x86/X64IRJit.cpp
+	Core/MIPS/x86/X64IRJit.h
+	Core/MIPS/x86/X64IRRegCache.cpp
+	Core/MIPS/x86/X64IRRegCache.h
 	GPU/Common/VertexDecoderX86.cpp
 	GPU/Software/DrawPixelX86.cpp
 	GPU/Software/SamplerX86.cpp
@@ -1550,6 +1661,17 @@ list(APPEND CoreExtra
 )
 
 list(APPEND CoreExtra
+	Core/MIPS/RiscV/RiscVAsm.cpp
+	Core/MIPS/RiscV/RiscVCompALU.cpp
+	Core/MIPS/RiscV/RiscVCompBranch.cpp
+	Core/MIPS/RiscV/RiscVCompFPU.cpp
+	Core/MIPS/RiscV/RiscVCompLoadStore.cpp
+	Core/MIPS/RiscV/RiscVCompSystem.cpp
+	Core/MIPS/RiscV/RiscVCompVec.cpp
+	Core/MIPS/RiscV/RiscVJit.cpp
+	Core/MIPS/RiscV/RiscVJit.h
+	Core/MIPS/RiscV/RiscVRegCache.cpp
+	Core/MIPS/RiscV/RiscVRegCache.h
 	GPU/Common/VertexDecoderRiscV.cpp
 )
 
@@ -1770,6 +1892,8 @@ add_library(${CoreLibName} ${CoreLinkType}
 	Core/CoreTiming.h
 	Core/CwCheat.cpp
 	Core/CwCheat.h
+	Core/FrameTiming.cpp
+	Core/FrameTiming.h
 	Core/HDRemaster.cpp
 	Core/HDRemaster.h
 	Core/Instance.cpp
@@ -1778,6 +1902,8 @@ add_library(${CoreLibName} ${CoreLinkType}
 	Core/KeyMap.h
 	Core/KeyMapDefaults.cpp
 	Core/KeyMapDefaults.h
+	Core/RetroAchievements.h
+	Core/RetroAchievements.cpp
 	Core/ThreadEventQueue.h
 	Core/TiltEventProcessor.h
 	Core/TiltEventProcessor.cpp
@@ -1804,6 +1930,8 @@ add_library(${CoreLibName} ${CoreLinkType}
 	Core/Debugger/WebSocket/GameBroadcaster.h
 	Core/Debugger/WebSocket/GameSubscriber.cpp
 	Core/Debugger/WebSocket/GameSubscriber.h
+	Core/Debugger/WebSocket/ClientConfigSubscriber.cpp
+	Core/Debugger/WebSocket/ClientConfigSubscriber.h
 	Core/Debugger/WebSocket/GPUBufferSubscriber.cpp
 	Core/Debugger/WebSocket/GPUBufferSubscriber.h
 	Core/Debugger/WebSocket/GPURecordSubscriber.cpp
@@ -2171,8 +2299,12 @@ else()
 	include_directories(ext/zstd/lib)
 endif()
 
-target_link_libraries(${CoreLibName} Common native kirk cityhash sfmt19937 xbrz xxhash ${GlslangLibs}
+target_link_libraries(${CoreLibName} Common native kirk cityhash sfmt19937 xbrz xxhash rcheevos ${GlslangLibs}
 	${CoreExtraLibs} ${OPENGL_LIBRARIES} ${X11_LIBRARIES} ${CMAKE_DL_LIBS})
+
+if(NOT HTTPS_NOT_AVAILABLE)
+	target_link_libraries(${CoreLibName} naett)
+endif()
 
 target_compile_features(${CoreLibName} PUBLIC cxx_std_17)
 
@@ -2320,11 +2452,12 @@ set(WindowsFiles
 	Windows/Debugger/Debugger_MemoryDlg.h
 	Windows/Debugger/Debugger_Lists.cpp
 	Windows/Debugger/Debugger_Lists.h
-	Windows/Debugger/Debugger_SymbolMap.h
 	Windows/Debugger/Debugger_VFPUDlg.cpp
 	Windows/Debugger/Debugger_VFPUDlg.h
 	Windows/Debugger/WatchItemWindow.cpp
 	Windows/Debugger/WatchItemWindow.h
+	Windows/Debugger/EditSymbolsWindow.cpp
+	Windows/Debugger/EditSymbolsWindow.h
 	Windows/GEDebugger/CtrlDisplayListView.cpp
 	Windows/GEDebugger/SimpleGLWindow.cpp
 	Windows/GEDebugger/TabState.cpp
@@ -2368,6 +2501,13 @@ set(WindowsFiles
 	Windows/W32Util/ShellUtil.h
 	Windows/W32Util/TabControl.cpp
 	Windows/W32Util/TabControl.h
+	Windows/W32Util/IatHook.h
+	Windows/W32Util/ContextMenu.h
+	Windows/W32Util/ContextMenu.cpp
+	Windows/W32Util/DarkMode.h
+	Windows/W32Util/DarkMode.cpp
+	Windows/W32Util/UAHMenuBar.h
+	Windows/W32Util/UAHMenuBar.cpp
 	Windows/WindowsHost.cpp
 	Windows/WindowsHost.h
 	Windows/MainWindow.cpp
@@ -2391,7 +2531,7 @@ set(WindowsFiles
 list(APPEND LinkCommon ${CoreLibName} ${CMAKE_THREAD_LIBS_INIT})
 
 if(WIN32)
-	list(APPEND LinkCommon kernel32 user32 gdi32 shell32 comctl32 dsound xinput d3d9 winmm dinput8 ole32 winspool ksuser mf mfplat mfreadwrite mfuuid shlwapi)
+	list(APPEND LinkCommon kernel32 user32 gdi32 shell32 comctl32 dsound xinput d3d9 winmm dinput8 ole32 winspool ksuser mf uxtheme mfplat mfreadwrite mfuuid shlwapi)
 	#setup_target_project(${TargetBin} Windows)
 	list(APPEND NativeAppSource ${WindowsFiles})
 endif()
@@ -2473,6 +2613,7 @@ if(UNITTEST)
 		unittest/TestIRPassSimplify.cpp
 		unittest/TestX64Emitter.cpp
 		unittest/TestVertexJit.cpp
+		unittest/TestVFS.cpp
 		unittest/TestRiscVEmitter.cpp
 		unittest/TestSoftwareGPUJit.cpp
 		unittest/TestThreadManager.cpp
@@ -2546,11 +2687,11 @@ if(TargetBin)
 			file(INSTALL "${CMAKE_SOURCE_DIR}/ext/vulkan/iOS/Frameworks/libMoltenVK.dylib" DESTINATION "${CMAKE_BINARY_DIR}/PPSSPP.app/Frameworks/")
 		else()
 			add_executable(${TargetBin} MACOSX_BUNDLE ${ICON_PATH_ABS} ${NativeAssets} ${BigFontAssets} ${SHADER_FILES} ${THEME_FILE} ${DEBUGGER_FILES} ${FLASH0_FILES} ${LANG_FILES} ${NativeAppSource})
-			file(INSTALL "${CMAKE_SOURCE_DIR}/ext/vulkan/macOS/Frameworks/libMoltenVK.dylib" DESTINATION "${CMAKE_BINARY_DIR}/PPSSPPSDL.app/Contents/Frameworks/")
-			if(TARGET SDL2::SDL2 AND NOT USING_QT_UI)
-				add_custom_command(TARGET ${TargetBin} POST_BUILD COMMAND /bin/bash "${CMAKE_SOURCE_DIR}/SDL/macbundle.sh" "${CMAKE_BINARY_DIR}/PPSSPPSDL.app")
-			elseif(USING_QT_UI)
+			file(INSTALL "${CMAKE_SOURCE_DIR}/ext/vulkan/macOS/Frameworks/libMoltenVK.dylib" DESTINATION "${CMAKE_BINARY_DIR}/${TargetBin}.app/Contents/Frameworks/")
+			if(USING_QT_UI)
 				add_custom_command(TARGET ${TargetBin} POST_BUILD COMMAND /bin/bash "${CMAKE_SOURCE_DIR}/Qt/macbundle.sh" "${CMAKE_BINARY_DIR}/PPSSPPQt.app")
+			elseif(NOT USE_SYSTEM_LIBSDL2)
+				add_custom_command(TARGET ${TargetBin} POST_BUILD COMMAND /bin/bash "${CMAKE_SOURCE_DIR}/SDL/macbundle.sh" "${CMAKE_BINARY_DIR}/${TargetBin}.app" "${TargetBin}")
 			endif()
 		endif()
 	elseif(WIN32)
@@ -2615,10 +2756,16 @@ if(IOS AND NOT LIBRETRO)
 	)
 endif()
 
-if(MACOSX)
-set_target_properties(${TargetBin} PROPERTIES
-		MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/macOS/Info.plist"
-	)
+if(MACOSX AND NOT IOS)
+	if(GOLD)
+		set_target_properties(${TargetBin} PROPERTIES
+			MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/macOS/InfoGold.plist"
+		)
+	else()
+		set_target_properties(${TargetBin} PROPERTIES
+			MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/macOS/Info.plist"
+		)
+	endif()
 endif()
 
 if(UNIX AND NOT ANDROID AND NOT APPLE)

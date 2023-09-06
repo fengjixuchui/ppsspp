@@ -27,7 +27,7 @@
 #include "Common/Profiler/Profiler.h"
 #include "Common/GPU/thin3d.h"
 #include "Common/GPU/Vulkan/VulkanRenderManager.h"
-#include "Common/System/System.h"
+#include "Common/System/OSD.h"
 #include "Common/Data/Convert/ColorConv.h"
 #include "Common/StringUtils.h"
 #include "Common/TimeUtil.h"
@@ -454,6 +454,8 @@ void TextureCacheVulkan::BuildTexture(TexCacheEntry *const entry) {
 		plan.levelsToCreate = plan.maxPossibleLevels;
 	}
 
+	_dbg_assert_(plan.levelsToCreate >= plan.levelsToLoad);
+
 	// Any texture scaling is gonna move away from the original 16-bit format, if any.
 	VkFormat actualFmt = plan.scaleFactor > 1 ? VULKAN_8888_FORMAT : dstFmt;
 	bool bcFormat = false;
@@ -513,9 +515,9 @@ void TextureCacheVulkan::BuildTexture(TexCacheEntry *const entry) {
 
 		auto err = GetI18NCategory(I18NCat::ERRORS);
 		if (plan.scaleFactor > 1) {
-			System_NotifyUserMessage(err->T("Warning: Video memory FULL, reducing upscaling and switching to slow caching mode"), 2.0f);
+			g_OSD.Show(OSDType::MESSAGE_WARNING, err->T("Warning: Video memory FULL, reducing upscaling and switching to slow caching mode"), 2.0f);
 		} else {
-			System_NotifyUserMessage(err->T("Warning: Video memory FULL, switching to slow caching mode"), 2.0f);
+			g_OSD.Show(OSDType::MESSAGE_WARNING, err->T("Warning: Video memory FULL, switching to slow caching mode"), 2.0f);
 		}
 
 		// Turn off texture replacement for this texture.

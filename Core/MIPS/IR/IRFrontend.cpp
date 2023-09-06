@@ -32,9 +32,8 @@
 namespace MIPSComp {
 
 IRFrontend::IRFrontend(bool startDefaultPrefix) {
-	js.startDefaultPrefix = true;
+	js.startDefaultPrefix = startDefaultPrefix;
 	js.hasSetRounding = false;
-	// js.currentRoundingFunc = convertS0ToSCRATCH1[0];
 
 	// The debugger sets this so that "go" on a breakpoint will actually... go.
 	// But if they reset, we can end up hitting it by mistake, since it's based on PC and ticks.
@@ -64,6 +63,15 @@ void IRFrontend::FlushAll() {
 }
 
 void IRFrontend::FlushPrefixV() {
+	if (js.startDefaultPrefix && !js.blockWrotePrefixes && js.HasNoPrefix()) {
+		// They started default, we never modified in memory, and they're default now.
+		// No reason to modify memory.  This is common at end of blocks.  Just clear dirty.
+		js.prefixSFlag = (JitState::PrefixState)(js.prefixSFlag & ~JitState::PREFIX_DIRTY);
+		js.prefixTFlag = (JitState::PrefixState)(js.prefixTFlag & ~JitState::PREFIX_DIRTY);
+		js.prefixDFlag = (JitState::PrefixState)(js.prefixDFlag & ~JitState::PREFIX_DIRTY);
+		return;
+	}
+
 	if ((js.prefixSFlag & JitState::PREFIX_DIRTY) != 0) {
 		ir.Write(IROp::SetCtrlVFPU, VFPU_CTRL_SPREFIX, ir.AddConstant(js.prefixS));
 		js.prefixSFlag = (JitState::PrefixState) (js.prefixSFlag & ~JitState::PREFIX_DIRTY);
@@ -78,6 +86,9 @@ void IRFrontend::FlushPrefixV() {
 		ir.Write(IROp::SetCtrlVFPU, VFPU_CTRL_DPREFIX, ir.AddConstant(js.prefixD));
 		js.prefixDFlag = (JitState::PrefixState) (js.prefixDFlag & ~JitState::PREFIX_DIRTY);
 	}
+
+	// If we got here, we must've written prefixes to memory in this block.
+	js.blockWrotePrefixes = true;
 }
 
 void IRFrontend::EatInstruction(MIPSOpcode op) {
@@ -120,8 +131,7 @@ bool IRFrontend::CheckRounding(u32 blockAddress) {
 
 		// Let's try that one more time.  We won't get back here because we toggled the value.
 		js.startDefaultPrefix = false;
-		// TODO: Make sure this works.
-		// cleanSlate = true;
+		cleanSlate = true;
 	}
 
 	return cleanSlate;
@@ -179,6 +189,10 @@ void IRFrontend::Comp_Generic(MIPSOpcode op) {
 		// If it does eat them, it'll happen in MIPSCompileOp().
 		if ((info & OUT_EAT_PREFIX) == 0)
 			js.PrefixUnknown();
+
+		// Even if DISABLE'd, we want to set this flag so we overwrite.
+		if ((info & OUT_VFPU_PREFIX) != 0)
+			js.blockWrotePrefixes = true;
 	}
 }
 
@@ -233,6 +247,7 @@ void IRFrontend::DoJit(u32 em_address, std::vector<IRInst> &instructions, u32 &m
 	js.curBlock = nullptr;
 	js.compiling = true;
 	js.hadBreakpoints = false;
+	js.blockWrotePrefixes = false;
 	js.inDelaySlot = false;
 	js.PrefixStart();
 	ir.Clear();
@@ -265,6 +280,7 @@ void IRFrontend::DoJit(u32 em_address, std::vector<IRInst> &instructions, u32 &m
 			&OptimizeFPMoves,
 			&PropagateConstants,
 			&PurgeTemps,
+			&ReduceVec4Flush,
 			// &ReorderLoadStore,
 			// &MergeLoadStore,
 			// &ThreeOpToTwoOp,
@@ -283,7 +299,7 @@ void IRFrontend::DoJit(u32 em_address, std::vector<IRInst> &instructions, u32 &m
 		NOTICE_LOG(JIT, "=============== mips %08x ===============", em_address);
 		for (u32 cpc = em_address; cpc != GetCompilerPC(); cpc += 4) {
 			temp2[0] = 0;
-			MIPSDisAsm(Memory::Read_Opcode_JIT(cpc), cpc, temp2, true);
+			MIPSDisAsm(Memory::Read_Opcode_JIT(cpc), cpc, temp2, sizeof(temp2), true);
 			NOTICE_LOG(JIT, "M: %08x   %s", cpc, temp2);
 		}
 	}
@@ -323,16 +339,27 @@ void IRFrontend::CheckBreakpoint(u32 addr) {
 	if (CBreakPoints::IsAddressBreakPoint(addr)) {
 		FlushAll();
 
+		if (GetCompilerPC() != js.blockStart)
+			ir.Write(IROp::SetPCConst, 0, ir.AddConstant(GetCompilerPC()));
+
 		RestoreRoundingMode();
-		ir.Write(IROp::SetPCConst, 0, ir.AddConstant(GetCompilerPC()));
-		// 0 because we normally execute before increasing.
-		// TODO: In likely branches, downcount will be incorrect.
-		int downcountOffset = js.inDelaySlot && js.downcountAmount >= 2 ? -2 : 0;
+		// At this point, downcount HAS the delay slot, but not the instruction itself.
+		int downcountOffset = 0;
+		if (js.inDelaySlot) {
+			MIPSOpcode branchOp = Memory::Read_Opcode_JIT(GetCompilerPC());
+			MIPSOpcode delayOp = Memory::Read_Opcode_JIT(addr);
+			downcountOffset = -MIPSGetInstructionCycleEstimate(delayOp);
+			if ((MIPSGetInfo(branchOp) & LIKELY) != 0) {
+				// Okay, we're in a likely branch.  Also negate the branch cycles.
+				downcountOffset += -MIPSGetInstructionCycleEstimate(branchOp);
+			}
+		}
 		int downcountAmount = js.downcountAmount + downcountOffset;
-		ir.Write(IROp::Downcount, 0, ir.AddConstant(downcountAmount));
+		if (downcountAmount != 0)
+			ir.Write(IROp::Downcount, 0, ir.AddConstant(downcountAmount));
 		// Note that this means downcount can't be metadata on the block.
 		js.downcountAmount = -downcountOffset;
-		ir.Write(IROp::Breakpoint);
+		ir.Write(IROp::Breakpoint, 0, ir.AddConstant(addr));
 		ApplyRoundingMode();
 
 		js.hadBreakpoints = true;
@@ -343,19 +370,28 @@ void IRFrontend::CheckMemoryBreakpoint(int rs, int offset) {
 	if (CBreakPoints::HasMemChecks()) {
 		FlushAll();
 
+		if (GetCompilerPC() != js.blockStart)
+			ir.Write(IROp::SetPCConst, 0, ir.AddConstant(GetCompilerPC()));
+
 		RestoreRoundingMode();
-		ir.Write(IROp::SetPCConst, 0, ir.AddConstant(GetCompilerPC()));
-		// 0 because we normally execute before increasing.
-		int downcountOffset = js.inDelaySlot ? -2 : -1;
-		// TODO: In likely branches, downcount will be incorrect.  This might make resume fail.
-		if (js.downcountAmount == 0) {
-			downcountOffset = 0;
+		// At this point, downcount HAS the delay slot, but not the instruction itself.
+		int downcountOffset = 0;
+		if (js.inDelaySlot) {
+			// We assume delay slot in compilerPC + 4.
+			MIPSOpcode branchOp = Memory::Read_Opcode_JIT(GetCompilerPC());
+			MIPSOpcode delayOp = Memory::Read_Opcode_JIT(GetCompilerPC() + 4);
+			downcountOffset = -MIPSGetInstructionCycleEstimate(delayOp);
+			if ((MIPSGetInfo(branchOp) & LIKELY) != 0) {
+				// Okay, we're in a likely branch.  Also negate the branch cycles.
+				downcountOffset += -MIPSGetInstructionCycleEstimate(branchOp);
+			}
 		}
 		int downcountAmount = js.downcountAmount + downcountOffset;
-		ir.Write(IROp::Downcount, 0, ir.AddConstant(downcountAmount));
+		if (downcountAmount != 0)
+			ir.Write(IROp::Downcount, 0, ir.AddConstant(downcountAmount));
 		// Note that this means downcount can't be metadata on the block.
 		js.downcountAmount = -downcountOffset;
-		ir.Write(IROp::MemoryCheck, 0, rs, ir.AddConstant(offset));
+		ir.Write(IROp::MemoryCheck, js.inDelaySlot ? 4 : 0, rs, ir.AddConstant(offset));
 		ApplyRoundingMode();
 
 		js.hadBreakpoints = true;

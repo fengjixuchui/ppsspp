@@ -21,6 +21,7 @@
 #endif
 
 #if !defined(_WIN32)
+#include <sys/types.h>
 #include <netinet/tcp.h>
 #endif
 
@@ -38,7 +39,7 @@
 #include "Common/Serialize/Serializer.h"
 #include "Common/Serialize/SerializeFuncs.h"
 #include "Common/Serialize/SerializeMap.h"
-#include "Common/System/System.h"
+#include "Common/System/OSD.h"
 #include "Common/Thread/ThreadUtil.h"
 #include "Common/TimeUtil.h"
 
@@ -276,7 +277,7 @@ static void __GameModeNotify(u64 userdata, int cyclesLate) {
 						if (peer != NULL)
 							truncate_cpy(name, sizeof(name), (const char*)peer->nickname.data);
 						WARN_LOG(SCENET, "GameMode: Unknown Source Port from [%s][%s:%u -> %u] (Result=%i, Size=%i)", name, mac2str(&sendermac).c_str(), senderport, ADHOC_GAMEMODE_PORT, ret, bufsz);
-						System_NotifyUserMessage(std::string(n->T("GM: Data from Unknown Port")) + std::string(" [") + std::string(name) + std::string("]:") + std::to_string(senderport) + std::string(" -> ") + std::to_string(ADHOC_GAMEMODE_PORT) + std::string(" (") + std::to_string(portOffset) + std::string(")"), 2.0, 0x0080ff);
+						g_OSD.Show(OSDType::MESSAGE_WARNING, std::string(n->T("GM: Data from Unknown Port")) + std::string(" [") + std::string(name) + std::string("]:") + std::to_string(senderport) + std::string(" -> ") + std::to_string(ADHOC_GAMEMODE_PORT) + std::string(" (") + std::to_string(portOffset) + std::string(")"));
 						peerlock.unlock();
 					}
 					// Keeping track of the source port for further communication, in case it was re-mapped by router or ISP for some reason.
@@ -1491,7 +1492,8 @@ static int sceNetAdhocPdpCreate(const char *mac, int port, int bufferSize, u32 f
 								changeBlockingMode(usocket, 1);
 
 								// Success
-								return hleLogDebug(SCENET, i + 1, "success");
+								INFO_LOG(SCENET, "sceNetAdhocPdpCreate - PSP Socket id: %i, Host Socket id: %i", i + 1, usocket);
+								return i + 1;
 							} 
 
 							// Free Memory for Internal Data
@@ -1506,7 +1508,7 @@ static int sceNetAdhocPdpCreate(const char *mac, int port, int bufferSize, u32 f
 					if (iResult == SOCKET_ERROR) {
 						ERROR_LOG(SCENET, "Socket error (%i) when binding port %u", errno, ntohs(addr.sin_port));
 						auto n = GetI18NCategory(I18NCat::NETWORKING);
-						System_NotifyUserMessage(std::string(n->T("Failed to Bind Port")) + " " + std::to_string(port + portOffset) + "\n" + std::string(n->T("Please change your Port Offset")), 3.0, 0x0000ff);
+						g_OSD.Show(OSDType::MESSAGE_ERROR, std::string(n->T("Failed to Bind Port")) + " " + std::to_string(port + portOffset) + "\n" + std::string(n->T("Please change your Port Offset")));
 						
 						return hleLogDebug(SCENET, ERROR_NET_ADHOC_PORT_NOT_AVAIL, "port not available");
 					}
@@ -2539,12 +2541,8 @@ u32 NetAdhocctl_Disconnect() {
 		adhocctlCurrentMode = ADHOCCTL_MODE_NONE;
 		// Notify Event Handlers (even if we weren't connected, not doing this will freeze games like God Eater, which expect this behaviour)
 		// FIXME: When there are no handler the state will immediately became ADHOCCTL_STATE_DISCONNECTED ?
-		if (adhocctlHandlers.empty()) {
-			adhocctlState = ADHOCCTL_STATE_DISCONNECTED;
-		}
-		else {
-			notifyAdhocctlHandlers(ADHOCCTL_EVENT_DISCONNECT, 0);
-		}
+		// Note: Metal Gear Acid [2] never register a handler until it's successfully connected to a group and have a connected socket to other player, thus adhocctlHandlers is always empty here.
+		notifyAdhocctlHandlers(ADHOCCTL_EVENT_DISCONNECT, 0);
 
 		// Return Success, some games might ignore returned value and always treat it as success, otherwise repeatedly calling this function
 		return 0;
@@ -3512,8 +3510,9 @@ static int sceNetAdhocPtpOpen(const char *srcmac, int sport, const char *dstmac,
 								if (g_Config.bForcedFirstConnect && internal->attemptCount == 1)
 									hleDelayResult(i + 1, "delayed ptpopen", rexmt_int);
 
-								// Return PTP Socket Pointer
-								return hleLogDebug(SCENET, i + 1, "success");
+								// Return PTP Socket id
+								INFO_LOG(SCENET, "sceNetAdhocPtpOpen - PSP Socket id: %i, Host Socket id: %i", i + 1, tcpsocket);
+								return i + 1;
 							}
 
 							// Free Memory
@@ -3523,7 +3522,7 @@ static int sceNetAdhocPtpOpen(const char *srcmac, int sport, const char *dstmac,
 					else {
 						ERROR_LOG(SCENET, "Socket error (%i) when binding port %u", errno, ntohs(addr.sin_port));
 						auto n = GetI18NCategory(I18NCat::NETWORKING);
-						System_NotifyUserMessage(std::string(n->T("Failed to Bind Port")) + " " + std::to_string(sport + portOffset) + "\n" + std::string(n->T("Please change your Port Offset")), 3.0, 0x0000ff);
+						g_OSD.Show(OSDType::MESSAGE_ERROR, std::string(n->T("Failed to Bind Port")) + " " + std::to_string(sport + portOffset) + "\n" + std::string(n->T("Please change your Port Offset")));
 					}
 
 					// Close Socket
@@ -3638,7 +3637,7 @@ int AcceptPtpSocket(int ptpId, int newsocket, sockaddr_in& peeraddr, SceNetEther
 					// Switch to non-blocking for futher usage
 					changeBlockingMode(newsocket, 1);
 
-					INFO_LOG(SCENET, "sceNetAdhocPtpAccept[%i->%i:%u]: Established (%s:%u) - state: %d", ptpId, i + 1, internal->data.ptp.lport, ip2str(peeraddr.sin_addr).c_str(), internal->data.ptp.pport, internal->data.ptp.state);
+					INFO_LOG(SCENET, "sceNetAdhocPtpAccept[%i->%i(%i):%u]: Established (%s:%u) - state: %d", ptpId, i + 1, newsocket, internal->data.ptp.lport, ip2str(peeraddr.sin_addr).c_str(), internal->data.ptp.pport, internal->data.ptp.state);
 
 					// Return Socket
 					return i + 1;
@@ -4105,8 +4104,9 @@ static int sceNetAdhocPtpListen(const char *srcmac, int sport, int bufsize, int 
 									// Switch to non-blocking for futher usage
 									changeBlockingMode(tcpsocket, 1);
 
-									// Return PTP Socket Pointer
-									return hleLogDebug(SCENET, i + 1, "success");
+									// Return PTP Socket id
+									INFO_LOG(SCENET, "sceNetAdhocPtpListen - PSP Socket id: %i, Host Socket id: %i", i + 1, tcpsocket);
+									return i + 1;
 								}
 
 								// Free Memory
@@ -4116,7 +4116,7 @@ static int sceNetAdhocPtpListen(const char *srcmac, int sport, int bufsize, int 
 					}
 					else {
 						auto n = GetI18NCategory(I18NCat::NETWORKING);
-						System_NotifyUserMessage(std::string(n->T("Failed to Bind Port")) + " " + std::to_string(sport + portOffset) + "\n" + std::string(n->T("Please change your Port Offset")), 3.0, 0x0000ff);
+						g_OSD.Show(OSDType::MESSAGE_ERROR, std::string(n->T("Failed to Bind Port")) + " " + std::to_string(sport + portOffset) + "\n" + std::string(n->T("Please change your Port Offset")));
 					}
 
 					if (iResult == SOCKET_ERROR) {
@@ -7781,7 +7781,7 @@ int matchingInputThread(int matchingId) // TODO: The MatchingInput thread is usi
 						if (peer != NULL)
 							truncate_cpy(name, sizeof(name), (const char*)peer->nickname.data);
 						WARN_LOG(SCENET, "InputLoop[%d]: Unknown Source Port from [%s][%s:%u -> %u] (Recved=%i, Length=%i)", matchingId, name, mac2str(&sendermac).c_str(), senderport, context->port, recvresult, rxbuflen);
-						System_NotifyUserMessage(std::string(n->T("AM: Data from Unknown Port")) + std::string(" [") + std::string(name) + std::string("]:") + std::to_string(senderport) + std::string(" -> ") + std::to_string(context->port) + std::string(" (") + std::to_string(portOffset) + std::string(")"), 2.0, 0x0080ff);
+						g_OSD.Show(OSDType::MESSAGE_WARNING, std::string(n->T("AM: Data from Unknown Port")) + std::string(" [") + std::string(name) + std::string("]:") + std::to_string(senderport) + std::string(" -> ") + std::to_string(context->port) + std::string(" (") + std::to_string(portOffset) + std::string(")"));
 					}
 					// Keep tracks of re-mapped peer's ports for further communication. 
 					// Note: This will only works if this player were able to receives data on normal port from other players (ie. this player's port wasn't remapped)

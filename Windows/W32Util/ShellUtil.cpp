@@ -1,5 +1,3 @@
-// NOTE: Apologies for the quality of this code, this is really from pre-opensource Dolphin - that is, 2003.
-
 #pragma warning(disable:4091)  // workaround bug in VS2015 headers
 
 #include "Windows/stdafx.h"
@@ -59,9 +57,6 @@ namespace W32Util
 		return result;
 	}
 
-	//---------------------------------------------------------------------------------------------------
-	// function WinBrowseForFileName
-	//---------------------------------------------------------------------------------------------------
 	bool BrowseForFileName(bool _bLoad, HWND _hParent, const wchar_t *_pTitle,
 		const wchar_t *_pInitialFolder, const wchar_t *_pFilter, const wchar_t *_pExtension,
 		std::string &_strFileName) {
@@ -197,6 +192,7 @@ HRESULT CreateLink(LPCWSTR lpszPathObj, LPCWSTR lpszArguments, LPCWSTR lpszPathL
 		psl->SetPath(lpszPathObj);
 		psl->SetArguments(lpszArguments);
 		psl->SetDescription(lpszDesc);
+		// psl->SetIconLocation(..)
 
 		// Query IShellLink for the IPersistFile interface, used for saving the 
 		// shortcut in persistent storage. 
@@ -215,12 +211,8 @@ HRESULT CreateLink(LPCWSTR lpszPathObj, LPCWSTR lpszArguments, LPCWSTR lpszPathL
 }
 
 bool CreateDesktopShortcut(const std::string &argumentPath, std::string gameTitle) {
-	// TODO: not working correctly
-	return false;
-
 	// Get the desktop folder
-	// TODO: Not long path safe.
-	wchar_t *pathbuf = new wchar_t[MAX_PATH + gameTitle.size() + 100];
+	wchar_t *pathbuf = new wchar_t[4096];
 	SHGetFolderPath(0, CSIDL_DESKTOPDIRECTORY, NULL, SHGFP_TYPE_CURRENT, pathbuf);
 
 	// Sanitize the game title for banned characters.
@@ -236,6 +228,7 @@ bool CreateDesktopShortcut(const std::string &argumentPath, std::string gameTitl
 
 	wcscat(pathbuf, L"\\");
 	wcscat(pathbuf, ConvertUTF8ToWString(gameTitle).c_str());
+	wcscat(pathbuf, L".lnk");
 
 	std::wstring moduleFilename;
 	size_t sz;
@@ -246,7 +239,20 @@ bool CreateDesktopShortcut(const std::string &argumentPath, std::string gameTitl
 	} while (sz >= moduleFilename.size());
 	moduleFilename.resize(sz);
 
-	CreateLink(moduleFilename.c_str(), ConvertUTF8ToWString(argumentPath).c_str(), pathbuf, ConvertUTF8ToWString(gameTitle).c_str());
+	// Need to flip the slashes in the filename.
+
+	std::string sanitizedArgument = argumentPath;
+	for (size_t i = 0; i < sanitizedArgument.size(); i++) {
+		if (sanitizedArgument[i] == '/') {
+			sanitizedArgument[i] = '\\';
+		}
+	}
+
+	sanitizedArgument = "\"" + sanitizedArgument + "\"";
+
+	CreateLink(moduleFilename.c_str(), ConvertUTF8ToWString(sanitizedArgument).c_str(), pathbuf, ConvertUTF8ToWString(gameTitle).c_str());
+
+	// TODO: Also extract the game icon and convert to .ico, put it somewhere under Memstick, and set it.
 
 	delete[] pathbuf;
 	return false;

@@ -22,7 +22,7 @@
 #include "Common/Serialize/Serializer.h"
 #include "Common/File/FileUtil.h"
 #include "Common/GraphicsContext.h"
-#include "Common/System/System.h"
+#include "Common/System/OSD.h"
 #include "Common/VR/PPSSPPVR.h"
 
 #include "Core/Config.h"
@@ -49,7 +49,6 @@
 
 GPU_GLES::GPU_GLES(GraphicsContext *gfxCtx, Draw::DrawContext *draw)
 	: GPUCommonHW(gfxCtx, draw), drawEngine_(draw), fragmentTestCache_(draw) {
-	UpdateVsyncInterval(true);
 	gstate_c.SetUseFlags(CheckGPUFeatures());
 
 	shaderManagerGL_ = new ShaderManagerGLES(draw);
@@ -86,8 +85,6 @@ GPU_GLES::GPU_GLES(GraphicsContext *gfxCtx, Draw::DrawContext *draw)
 	UpdateCmdInfo();
 
 	BuildReportingInfo();
-	// Update again after init to be sure of any silly driver problems.
-	UpdateVsyncInterval(true);
 
 	textureCache_->NotifyConfigChanged();
 
@@ -122,7 +119,7 @@ GPU_GLES::GPU_GLES(GraphicsContext *gfxCtx, Draw::DrawContext *draw)
 		if (!drawEngine_.SupportsHWTessellation()) {
 			ERROR_LOG(G3D, "Hardware Tessellation is unsupported, falling back to software tessellation");
 			auto gr = GetI18NCategory(I18NCat::GRAPHICS);
-			System_NotifyUserMessage(gr->T("Turn off Hardware Tessellation - unsupported"), 2.5f, 0xFF3030FF);
+			g_OSD.Show(OSDType::MESSAGE_WARNING, gr->T("Turn off Hardware Tessellation - unsupported"));
 		}
 	}
 }
@@ -180,6 +177,11 @@ u32 GPU_GLES::CheckGPUFeatures() const {
 		features |= GPU_USE_SINGLE_PASS_STEREO;
 	}
 
+	if (!gl_extensions.GLES3) {
+		// Heuristic.
+		features &= ~GPU_USE_FRAGMENT_UBERSHADER;
+	}
+
 	features = CheckGPUFeaturesLate(features);
 
 	if (draw_->GetBugs().Has(Draw::Bugs::ADRENO_RESOURCE_DEADLOCK) && g_Config.bVendorBugChecksEnabled) {
@@ -196,7 +198,6 @@ u32 GPU_GLES::CheckGPUFeatures() const {
 			features |= GPU_ROUND_DEPTH_TO_16BIT;
 		}
 	}
-
 	return features;
 }
 
@@ -247,7 +248,6 @@ void GPU_GLES::DeviceRestore(Draw::DrawContext *draw) {
 	GPUCommonHW::DeviceRestore(draw);
 
 	fragmentTestCache_.DeviceRestore(draw_);
-	UpdateVsyncInterval(true);
 }
 
 void GPU_GLES::BeginHostFrame() {

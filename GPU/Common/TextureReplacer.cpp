@@ -37,7 +37,7 @@
 #include "Common/File/VFS/VFS.h"
 #include "Common/LogReporting.h"
 #include "Common/StringUtils.h"
-#include "Common/System/System.h"
+#include "Common/System/OSD.h"
 #include "Common/Thread/ParallelLoop.h"
 #include "Common/Thread/Waitable.h"
 #include "Common/Thread/ThreadManager.h"
@@ -73,10 +73,6 @@ TextureReplacer::~TextureReplacer() {
 		delete iter.second;
 	}
 	delete vfs_;
-}
-
-void TextureReplacer::Init() {
-	NotifyConfigChanged();
 }
 
 void TextureReplacer::NotifyConfigChanged() {
@@ -140,7 +136,7 @@ bool TextureReplacer::LoadIni() {
 	bool iniLoaded = ini.LoadFromVFS(*dir, INI_FILENAME);
 
 	if (iniLoaded) {
-		if (!LoadIniValues(ini)) {
+		if (!LoadIniValues(ini, dir)) {
 			delete dir;
 			return false;
 		}
@@ -160,7 +156,7 @@ bool TextureReplacer::LoadIni() {
 				}
 
 				INFO_LOG(G3D, "Loading extra texture ini: %s", overrideFilename.c_str());
-				if (!LoadIniValues(overrideIni, true)) {
+				if (!LoadIniValues(overrideIni, nullptr, true)) {
 					delete dir;
 					return false;
 				}
@@ -195,7 +191,7 @@ bool TextureReplacer::LoadIni() {
 	return true;
 }
 
-bool TextureReplacer::LoadIniValues(IniFile &ini, bool isOverride) {
+bool TextureReplacer::LoadIniValues(IniFile &ini, VFSBackend *dir, bool isOverride) {
 	auto options = ini.GetOrCreateSection("options");
 	std::string hash;
 	options->Get("hash", &hash, "");
@@ -230,62 +226,108 @@ bool TextureReplacer::LoadIniValues(IniFile &ini, bool isOverride) {
 		ERROR_LOG(G3D, "Unsupported texture replacement version %d, trying anyway", version);
 	}
 
-	bool filenameWarning = false;
+	int badFileNameCount = 0;
+
+	std::map<ReplacementCacheKey, std::map<int, std::string>> filenameMap;
+	std::string badFilenames;
+
 	if (ini.HasSection("hashes")) {
 		auto hashes = ini.GetOrCreateSection("hashes")->ToMap();
 		// Format: hashname = filename.png
 		bool checkFilenames = g_Config.bSaveNewTextures && !g_Config.bIgnoreTextureFilenames && !vfsIsZip_;
 
-		std::map<ReplacementCacheKey, std::map<int, std::string>> filenameMap;
-
 		for (const auto &item : hashes) {
 			ReplacementCacheKey key(0, 0);
-			int level = 0;  // sscanf might fail to pluck the level, but that's ok, we default to 0. sscanf doesn't write to non-matched outputs.
+			// sscanf might fail to pluck the level if omitted from the line, but that's ok, we default level to 0.
+			// sscanf doesn't write to non-matched outputs.
+			int level = 0;
 			if (sscanf(item.first.c_str(), "%16llx%8x_%d", &key.cachekey, &key.hash, &level) >= 1) {
+				// We allow empty filenames, to mark textures that we don't want to keep saving.
 				filenameMap[key][level] = item.second;
 				if (checkFilenames) {
+					// TODO: We should check for the union of these on all platforms, really.
 #if PPSSPP_PLATFORM(WINDOWS)
+					bool bad = item.second.find_first_of("\\ABCDEFGHIJKLMNOPQRSTUVWXYZ:<>|?*") != std::string::npos;
 					// Uppercase probably means the filenames don't match.
 					// Avoiding an actual check of the filenames to avoid performance impact.
-					filenameWarning = filenameWarning || item.second.find_first_of("\\ABCDEFGHIJKLMNOPQRSTUVWXYZ:<>|?*") != std::string::npos;
 #else
-					filenameWarning = filenameWarning || item.second.find_first_of("\\:<>|?*") != std::string::npos;
+					bool bad = item.second.find_first_of("\\:<>|?*") != std::string::npos;
 #endif
+					if (bad) {
+						badFileNameCount++;
+						if (badFileNameCount == 10) {
+							badFilenames.append("...");
+						} else if (badFileNameCount < 10) {
+							badFilenames.append(item.second);
+							badFilenames.push_back('\n');
+						}
+					}
 				}
+			} else if (item.first.empty()) {
+				INFO_LOG(G3D, "Ignoring [hashes] line with empty key: '= %s'", item.second.c_str());
 			} else {
-				ERROR_LOG(G3D, "Unsupported syntax under [hashes]: %s", item.first.c_str());
+				ERROR_LOG(G3D, "Unsupported syntax under [hashes], ignoring: %s = ", item.first.c_str());
 			}
-		}
-
-		// Now, translate the filenameMap to the final aliasMap.
-		for (auto &pair : filenameMap) {
-			std::string alias;
-			int mipIndex = 0;
-			for (auto &level : pair.second) {
-				if (level.first == mipIndex) {
-					alias += level.second + "|";
-					mipIndex++;
-				} else {
-					WARN_LOG(G3D, "Non-sequential mip index %d, breaking. filenames=%s", level.first, level.second.c_str());
-					break;
-				}
-			}
-			if (alias == "|") {
-				alias = "";  // marker for no replacement
-			}
-			// Replace any '\' with '/', to be safe and consistent. Since these are from the ini file, we do this on all platforms.
-			for (auto &c : alias) {
-				if (c == '\\') {
-					c = '/';
-				}
-			}
-			aliases_[pair.first] = alias;
 		}
 	}
 
-	if (filenameWarning) {
+	// Scan the root of the texture folder/zip and preinitialize the hash map.
+	std::vector<File::FileInfo> filesInRoot;
+	if (dir) {
+		dir->GetFileListing("", &filesInRoot, nullptr);
+		for (auto file : filesInRoot) {
+			if (file.isDirectory)
+				continue;
+			if (file.name.empty() || file.name[0] == '.')
+				continue;
+			Path path(file.name);
+			std::string ext = path.GetFileExtension();
+
+			std::string hash = file.name.substr(0, file.name.size() - ext.size());
+			if (!((hash.size() >= 26 && hash.size() <= 27 && hash[24] == '_') || hash.size() == 24)) {
+				continue;
+			}
+			// OK, it's hash-like enough to try to parse it into the map.
+			if (equalsNoCase(ext, ".ktx2") || equalsNoCase(ext, ".png") || equalsNoCase(ext, ".dds") || equalsNoCase(ext, ".zim")) {
+				ReplacementCacheKey key(0, 0);
+				int level = 0;  // sscanf might fail to pluck the level, but that's ok, we default to 0. sscanf doesn't write to non-matched outputs.
+				if (sscanf(hash.c_str(), "%16llx%8x_%d", &key.cachekey, &key.hash, &level) >= 1) {
+					// INFO_LOG(G3D, "hash-like file in root, adding: %s", file.name.c_str());
+					filenameMap[key][level] = file.name;
+				}
+			}
+		}
+	}
+
+	// Now, translate the filenameMap to the final aliasMap.
+	for (auto &pair : filenameMap) {
+		std::string alias;
+		int mipIndex = 0;
+		for (auto &level : pair.second) {
+			if (level.first == mipIndex) {
+				alias += level.second + "|";
+				mipIndex++;
+			} else {
+				WARN_LOG(G3D, "Non-sequential mip index %d, breaking. filenames=%s", level.first, level.second.c_str());
+				break;
+			}
+		}
+		if (alias == "|") {
+			alias = "";  // marker for no replacement
+		}
+		// Replace any '\' with '/', to be safe and consistent. Since these are from the ini file, we do this on all platforms.
+		for (auto &c : alias) {
+			if (c == '\\') {
+				c = '/';
+			}
+		}
+		aliases_[pair.first] = alias;
+	}
+
+	if (badFileNameCount > 0) {
 		auto err = GetI18NCategory(I18NCat::ERRORS);
-		System_NotifyUserMessage(err->T("textures.ini filenames may not be cross-platform (banned characters)"), 6.0f);
+		g_OSD.Show(OSDType::MESSAGE_WARNING, err->T("textures.ini filenames may not be cross - platform(banned characters)"), badFilenames, 6.0f);
+		WARN_LOG(G3D, "Potentially bad filenames: %s", badFilenames.c_str());
 	}
 
 	if (ini.HasSection("hashranges")) {
@@ -312,6 +354,9 @@ bool TextureReplacer::LoadIniValues(IniFile &ini, bool isOverride) {
 		}
 	}
 
+	auto gr = GetI18NCategory(I18NCat::GRAPHICS);
+
+	g_OSD.Show(OSDType::MESSAGE_SUCCESS, gr->T("Texture replacement pack activated"));
 	return true;
 }
 

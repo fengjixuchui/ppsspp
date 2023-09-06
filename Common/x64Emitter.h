@@ -406,6 +406,10 @@ public:
 	const u8 *AlignCode4();
 	const u8 *AlignCode16();
 	const u8 *AlignCodePage();
+
+	// Nops until the code pointer is 16-byte aligned. Good for loops.
+	const u8 *NopAlignCode16();
+
 	u8 *GetWritableCodePtr();
 
 	void LockFlags() { flags_locked = true; }
@@ -741,6 +745,10 @@ public:
 	void MOVQ_xmm(X64Reg dest, OpArg arg);
 	void MOVD_xmm(const OpArg &arg, X64Reg src);
 	void MOVQ_xmm(OpArg arg, X64Reg src);
+
+	// SSE3: Some additional moves.
+	void MOVSHDUP(X64Reg regOp1, OpArg arg);
+	void MOVSLDUP(X64Reg regOp1, OpArg arg);
 
 	// SSE/SSE2: Generates a mask from the high bits of the components of the packed register in question.
 	void MOVMSKPS(X64Reg dest, OpArg arg);

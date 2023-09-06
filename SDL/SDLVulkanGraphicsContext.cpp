@@ -10,7 +10,11 @@
 #include "Common/Data/Text/Parsers.h"
 
 #include "Core/System.h"
+#if PPSSPP_PLATFORM(MAC)
+#include "SDL2/SDL_vulkan.h"
+#else
 #include "SDL_vulkan.h"
+#endif
 #include "SDLVulkanGraphicsContext.h"
 
 #if defined(VK_USE_PLATFORM_METAL_EXT)
@@ -65,7 +69,15 @@ bool SDLVulkanGraphicsContext::Init(SDL_Window *&window, int x, int y, int w, in
 		vulkan_ = nullptr;
 		return false;
 	}
-	vulkan_->ChooseDevice(vulkan_->GetBestPhysicalDevice());
+
+	int deviceNum = vulkan_->GetPhysicalDeviceByName(g_Config.sVulkanDevice);
+	if (deviceNum < 0) {
+		deviceNum = vulkan_->GetBestPhysicalDevice();
+		if (!g_Config.sVulkanDevice.empty())
+			g_Config.sVulkanDevice = vulkan_->GetPhysicalDeviceProperties(deviceNum).properties.deviceName;
+	}
+
+	vulkan_->ChooseDevice(deviceNum);
 	if (vulkan_->CreateDevice() != VK_SUCCESS) {
 		*error_message = vulkan_->InitError();
 		delete vulkan_;
@@ -132,7 +144,11 @@ bool SDLVulkanGraphicsContext::Init(SDL_Window *&window, int x, int y, int w, in
 		return false;
 	}
 
-	draw_ = Draw::T3DCreateVulkanContext(vulkan_);
+	bool useMultiThreading = g_Config.bRenderMultiThreading;
+	if (g_Config.iInflightFrames == 1) {
+		useMultiThreading = false;
+	}
+	draw_ = Draw::T3DCreateVulkanContext(vulkan_, useMultiThreading);
 	SetGPUBackend(GPUBackend::VULKAN);
 	bool success = draw_->CreatePresets();
 	_assert_(success);
@@ -140,7 +156,6 @@ bool SDLVulkanGraphicsContext::Init(SDL_Window *&window, int x, int y, int w, in
 
 	renderManager_ = (VulkanRenderManager *)draw_->GetNativeObject(Draw::NativeObject::RENDER_MANAGER);
 	renderManager_->SetInflightFrames(g_Config.iInflightFrames);
-
 	return true;
 }
 
