@@ -162,9 +162,8 @@ static void VertexAttribSetup(D3DVERTEXELEMENT9 * VertexElement, u8 fmt, u8 offs
 }
 
 IDirect3DVertexDeclaration9 *DrawEngineDX9::SetupDecFmtForDraw(const DecVtxFormat &decFmt, u32 pspFmt) {
-	IDirect3DVertexDeclaration9 *vertexDeclCached = vertexDeclMap_.Get(pspFmt);
-
-	if (vertexDeclCached) {
+	IDirect3DVertexDeclaration9 *vertexDeclCached;
+	if (vertexDeclMap_.Get(pspFmt, &vertexDeclCached)) {
 		return vertexDeclCached;
 	} else {
 		D3DVERTEXELEMENT9 VertexElements[8];
@@ -347,8 +346,8 @@ void DrawEngineDX9::DoFlush() {
 		if (useCache) {
 			// getUVGenMode can have an effect on which UV decoder we need to use! And hence what the decoded data will look like. See #9263
 			u32 dcid = (u32)XXH3_64bits(&drawCalls_, sizeof(DeferredDrawCall) * numDrawCalls_) ^ gstate.getUVGenMode();
-			VertexArrayInfoDX9 *vai = vai_.Get(dcid);
-			if (!vai) {
+			VertexArrayInfoDX9 *vai;
+			if (!vai_.Get(dcid, &vai)) {
 				vai = new VertexArrayInfoDX9();
 				vai_.Insert(dcid, vai);
 			}
@@ -559,7 +558,7 @@ rotateVBO:
 			prim = GE_PRIM_TRIANGLES;
 		VERBOSE_LOG(G3D, "Flush prim %i SW! %i verts in one go", prim, indexGen.VertexCount());
 
-		u16 *inds = decIndex_;
+		u16 *const inds = decIndex_;
 		SoftwareTransformResult result{};
 		SoftwareTransformParams params{};
 		params.decoded = decoded_;
@@ -608,8 +607,9 @@ rotateVBO:
 
 		ApplyDrawState(prim);
 
+		int indsOffset = 0;
 		if (result.action == SW_NOT_READY)
-			swTransform.BuildDrawingParams(prim, indexGen.VertexCount(), dec_->VertexType(), inds, maxIndex, &result);
+			swTransform.BuildDrawingParams(prim, indexGen.VertexCount(), dec_->VertexType(), inds, indsOffset, DECODED_INDEX_BUFFER_SIZE / sizeof(uint16_t), maxIndex, &result);
 		if (result.setSafeSize)
 			framebufferManager_->SetSafeSize(result.safeWidth, result.safeHeight);
 
@@ -629,8 +629,8 @@ rotateVBO:
 
 			device_->SetVertexDeclaration(transformedVertexDecl_);
 			if (result.drawIndexed) {
-				device_->DrawIndexedPrimitiveUP(d3d_prim[prim], 0, maxIndex, D3DPrimCount(d3d_prim[prim], result.drawNumTrans), inds, D3DFMT_INDEX16, result.drawBuffer, sizeof(TransformedVertex));
-			} else {
+				device_->DrawIndexedPrimitiveUP(d3d_prim[prim], 0, maxIndex, D3DPrimCount(d3d_prim[prim], result.drawNumTrans), inds + indsOffset, D3DFMT_INDEX16, result.drawBuffer, sizeof(TransformedVertex));
+			} else if (result.drawNumTrans > 0) {
 				device_->DrawPrimitiveUP(d3d_prim[prim], D3DPrimCount(d3d_prim[prim], result.drawNumTrans), result.drawBuffer, sizeof(TransformedVertex));
 			}
 		} else if (result.action == SW_CLEAR) {

@@ -80,7 +80,7 @@ namespace MIPSComp {
 		return in;
 	}
 
-	void Jit::CompITypeMemWrite(MIPSOpcode op, u32 bits, const void *safeFunc)
+	void Jit::CompITypeMemWrite(MIPSOpcode op, u32 bits, const void *safeFunc, bool makeRTWritable)
 	{
 		CONDITIONAL_DISABLE(LSU);
 		int offset = _IMM16;
@@ -90,6 +90,9 @@ namespace MIPSComp {
 		gpr.Lock(rt, rs);
 		
 		if (rt == MIPS_REG_ZERO || gpr.R(rt).IsImm()) {
+			if (makeRTWritable) {
+				gpr.MapReg(rt, true, true);
+			}
 			// NOTICE_LOG(JIT, "%d-bit Imm at %08x : %08x", bits, js.blockStart, (u32)gpr.R(rt).GetImmValue());
 		} else {
 			gpr.MapReg(rt, true, false);
@@ -425,10 +428,16 @@ namespace MIPSComp {
 			break;
 
 		case 56: // sc
+			// Map before the jump in case any regs spill.  Unlock happens inside CompITypeMemWrite().
+			// This is not a very common op, but it's in jit so memory breakpoints can trip.
+			gpr.Lock(rt, rs);
+			gpr.MapReg(rt, true, true);
+			gpr.MapReg(rs, true, false);
+
 			CMP(8, MDisp(X64JitConstants::CTXREG, -128 + offsetof(MIPSState, llBit)), Imm8(1));
 			skipStore = J_CC(CC_NE);
 
-			CompITypeMemWrite(op, 32, safeMemFuncs.writeU32);
+			CompITypeMemWrite(op, 32, safeMemFuncs.writeU32, true);
 			MOV(32, gpr.R(rt), Imm32(1));
 			finish = J();
 

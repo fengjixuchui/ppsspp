@@ -29,6 +29,15 @@ PipelineManagerVulkan::PipelineManagerVulkan(VulkanContext *vulkan) : pipelines_
 }
 
 PipelineManagerVulkan::~PipelineManagerVulkan() {
+	// Block on all pipelines to make sure any background compiles are done.
+	// This is very important to do before we start trying to tear down the shaders - otherwise, we might
+	// be deleting shaders before queued pipeline creations that use them are performed.
+	pipelines_.Iterate([&](const VulkanPipelineKey &key, VulkanPipeline *value) {
+		if (value->pipeline) {
+			value->pipeline->BlockUntilCompiled();
+		}
+	});
+
 	Clear();
 	if (pipelineCache_ != VK_NULL_HANDLE)
 		vulkan_->Delete().QueueDeletePipelineCache(pipelineCache_);
@@ -180,13 +189,18 @@ static std::string CutFromMain(std::string str) {
 static VulkanPipeline *CreateVulkanPipeline(VulkanRenderManager *renderManager, VkPipelineCache pipelineCache,
 	VkPipelineLayout layout, PipelineFlags pipelineFlags, VkSampleCountFlagBits sampleCount, const VulkanPipelineRasterStateKey &key,
 	const DecVtxFormat *decFmt, VulkanVertexShader *vs, VulkanFragmentShader *fs, VulkanGeometryShader *gs, bool useHwTransform, u32 variantBitmask, bool cacheLoad) {
+	_assert_(fs && vs);
 
-	if (!fs->GetModule()) {
+	if (!fs || !fs->GetModule()) {
 		ERROR_LOG(G3D, "Fragment shader missing in CreateVulkanPipeline");
 		return nullptr;
 	}
-	if (!vs->GetModule()) {
+	if (!vs || !vs->GetModule()) {
 		ERROR_LOG(G3D, "Vertex shader missing in CreateVulkanPipeline");
+		return nullptr;
+	}
+	if (gs && !gs->GetModule()) {
+		ERROR_LOG(G3D, "Geometry shader missing in CreateVulkanPipeline");
 		return nullptr;
 	}
 
@@ -351,9 +365,10 @@ VulkanPipeline *PipelineManagerVulkan::GetOrCreatePipeline(VulkanRenderManager *
 	key.gShader = gs ? gs->GetModule() : VK_NULL_HANDLE;
 	key.vtxFmtId = useHwTransform ? decFmt->id : 0;
 
-	auto iter = pipelines_.Get(key);
-	if (iter)
-		return iter;
+	VulkanPipeline *pipeline;
+	if (pipelines_.Get(key, &pipeline)) {
+		return pipeline;
+	}
 
 	PipelineFlags pipelineFlags = (PipelineFlags)0;
 	if (fs->Flags() & FragmentShaderFlags::USES_DISCARD) {
@@ -365,7 +380,7 @@ VulkanPipeline *PipelineManagerVulkan::GetOrCreatePipeline(VulkanRenderManager *
 
 	VkSampleCountFlagBits sampleCount = MultiSampleLevelToFlagBits(multiSampleLevel);
 
-	VulkanPipeline *pipeline = CreateVulkanPipeline(
+	pipeline = CreateVulkanPipeline(
 		renderManager, pipelineCache_, layout, pipelineFlags, sampleCount,
 		rasterKey, decFmt, vs, fs, gs, useHwTransform, variantBitmask, cacheLoad);
 
@@ -485,10 +500,11 @@ std::string PipelineManagerVulkan::DebugGetObjectString(std::string id, DebugSha
 	VulkanPipelineKey pipelineKey;
 	pipelineKey.FromString(id);
 
-	VulkanPipeline *pipeline = pipelines_.Get(pipelineKey);
-	if (!pipeline) {
+	VulkanPipeline *pipeline;
+	if (!pipelines_.Get(pipelineKey, &pipeline)) {
 		return "N/A (missing)";
 	}
+	_assert_(pipeline != nullptr);
 	u32 variants = pipeline->GetVariantsBitmask();
 
 	std::string keyDescription = pipelineKey.GetDescription(stringType, shaderManager);
@@ -703,8 +719,6 @@ bool PipelineManagerVulkan::LoadPipelineCache(FILE *file, bool loadRawPipelineCa
 	VulkanRenderManager *rm = (VulkanRenderManager *)drawContext->GetNativeObject(Draw::NativeObject::RENDER_MANAGER);
 	VulkanQueueRunner *queueRunner = rm->GetQueueRunner();
 
-	cancelCache_ = false;
-
 	uint32_t size = 0;
 	if (loadRawPipelineCache) {
 		NOTICE_LOG(G3D, "WARNING: Using the badly tested raw pipeline cache path!!!!");
@@ -763,7 +777,7 @@ bool PipelineManagerVulkan::LoadPipelineCache(FILE *file, bool loadRawPipelineCa
 	int pipelineCreateFailCount = 0;
 	int shaderFailCount = 0;
 	for (uint32_t i = 0; i < size; i++) {
-		if (failed || cancelCache_) {
+		if (failed) {
 			break;
 		}
 		StoredVulkanPipelineKey key;
@@ -807,8 +821,4 @@ bool PipelineManagerVulkan::LoadPipelineCache(FILE *file, bool loadRawPipelineCa
 	NOTICE_LOG(G3D, "Recreated Vulkan pipeline cache (%d pipelines, %d failed).", (int)size, pipelineCreateFailCount);
 	// We just ignore any failures.
 	return true;
-}
-
-void PipelineManagerVulkan::CancelCache() {
-	cancelCache_ = true;
 }

@@ -821,6 +821,7 @@ void VKTexture::UpdateInternal(VkCommandBuffer cmd, VulkanPushPool *pushBuffer, 
 	int bpp = GetBpp(vulkanFormat);
 	int bytesPerPixel = bpp / 8;
 	TextureCopyBatch batch;
+	batch.reserve(numLevels);
 	for (i = 0; i < numLevels; i++) {
 		uint32_t offset;
 		VkBuffer buf;
@@ -873,8 +874,11 @@ VKContext::VKContext(VulkanContext *vulkan, bool useRenderThread)
 	caps_.tesselationShaderSupported = vulkan->GetDeviceFeatures().enabled.standard.tessellationShader != 0;
 	caps_.dualSourceBlend = vulkan->GetDeviceFeatures().enabled.standard.dualSrcBlend != 0;
 	caps_.depthClampSupported = vulkan->GetDeviceFeatures().enabled.standard.depthClamp != 0;
+
+	// Comment out these two to test geometry shader culling on any geometry shader-supporting hardware.
 	caps_.clipDistanceSupported = vulkan->GetDeviceFeatures().enabled.standard.shaderClipDistance != 0;
 	caps_.cullDistanceSupported = vulkan->GetDeviceFeatures().enabled.standard.shaderCullDistance != 0;
+
 	caps_.framebufferBlitSupported = true;
 	caps_.framebufferCopySupported = true;
 	caps_.framebufferDepthBlitSupported = vulkan->GetDeviceInfo().canBlitToPreferredDepthStencilFormat;

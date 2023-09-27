@@ -296,6 +296,17 @@ ARM64Reg Arm64IRRegCache::MapFPR(IRReg mipsReg, MIPSMap mapFlags) {
 	return INVALID_REG;
 }
 
+ARM64Reg Arm64IRRegCache::MapVec2(IRReg first, MIPSMap mapFlags) {
+	_dbg_assert_(IsValidFPR(first));
+	_dbg_assert_((first & 1) == 0);
+	_dbg_assert_(mr[first + 32].loc == MIPSLoc::MEM || mr[first + 32].loc == MIPSLoc::FREG);
+
+	IRNativeReg nreg = MapNativeReg(MIPSLoc::FREG, first + 32, 2, mapFlags);
+	if (nreg != -1)
+		return EncodeRegToDouble(FromNativeReg(nreg));
+	return INVALID_REG;
+}
+
 ARM64Reg Arm64IRRegCache::MapVec4(IRReg first, MIPSMap mapFlags) {
 	_dbg_assert_(IsValidFPR(first));
 	_dbg_assert_((first & 3) == 0);
@@ -336,7 +347,7 @@ void Arm64IRRegCache::AdjustNativeRegAsPtr(IRNativeReg nreg, bool state) {
 	}
 }
 
-bool Arm64IRRegCache::IsNativeRegCompatible(IRNativeReg nreg, MIPSLoc type, MIPSMap flags) {
+bool Arm64IRRegCache::IsNativeRegCompatible(IRNativeReg nreg, MIPSLoc type, MIPSMap flags, int lanes) {
 	// No special flags, skip the check for a little speed.
 	return true;
 }
@@ -426,18 +437,20 @@ void Arm64IRRegCache::FlushAll(bool gprs, bool fprs) {
 	// Note: make sure not to change the registers when flushing:
 	// Branching code may expect the armreg to retain its value.
 
+	auto needsFlush = [&](IRReg i) {
+		if (mr[i].loc != MIPSLoc::MEM || mr[i].isStatic)
+			return false;
+		if (mr[i].nReg == -1 || !nr[mr[i].nReg].isDirty)
+			return false;
+		return true;
+	};
+
 	// Try to flush in pairs when possible.
 	for (int i = 1; i < TOTAL_MAPPABLE_IRREGS - 1; ++i) {
-		if (mr[i].loc == MIPSLoc::MEM || mr[i].loc == MIPSLoc::MEM || mr[i].isStatic || mr[i + 1].isStatic)
+		if (!needsFlush(i) || !needsFlush(i + 1))
 			continue;
 		// Ignore multilane regs.  Could handle with more smartness...
 		if (mr[i].lane != -1 || mr[i + 1].lane != -1)
-			continue;
-		if (mr[i].nReg != -1 && !nr[mr[i].nReg].isDirty)
-			continue;
-		if (mr[i + 1].nReg != -1 && !nr[mr[i + 1].nReg].isDirty)
-			continue;
-		if (mr[i].loc == MIPSLoc::MEM || mr[i + 1].loc == MIPSLoc::MEM)
 			continue;
 
 		int offset = GetMipsRegOffset(i);

@@ -45,6 +45,14 @@
 #include "GPU/Vulkan/StateMappingVulkan.h"
 #include "GPU/Vulkan/VulkanRenderManager.h"
 
+
+// TODO: Move to some appropriate header.
+#ifdef _MSC_VER
+#define NO_INLINE __declspec(noinline)
+#else
+#define NO_INLINE __attribute__((noinline))
+#endif
+
 struct DecVtxFormat;
 struct UVScale;
 
@@ -230,6 +238,8 @@ private:
 	void UpdateUBOs(FrameData *frame);
 	FrameData &GetCurFrame();
 
+	NO_INLINE void ResetAfterDraw();
+
 	VkDescriptorSet GetOrCreateDescriptorSet(VkImageView imageView, VkSampler sampler, VkBuffer base, VkBuffer light, VkBuffer bone, bool tess);
 
 	Draw::DrawContext *draw_;
@@ -251,7 +261,7 @@ private:
 	VkSampler samplerSecondaryLinear_ = VK_NULL_HANDLE;
 	VkSampler samplerSecondaryNearest_ = VK_NULL_HANDLE;
 
-	PrehashMap<VertexArrayInfoVulkan *, nullptr> vai_;
+	PrehashMap<VertexArrayInfoVulkan *> vai_;
 	VulkanPushBuffer *vertexCache_;
 	int descDecimationCounter_ = 0;
 
@@ -273,7 +283,7 @@ private:
 		VulkanDescSetPool descPool;
 
 		// We do rolling allocation and reset instead of caching across frames. That we might do later.
-		DenseHashMap<DescriptorSetKey, VkDescriptorSet, (VkDescriptorSet)VK_NULL_HANDLE> descSets;
+		DenseHashMap<DescriptorSetKey, VkDescriptorSet> descSets;
 
 		void Destroy(VulkanContext *vulkan);
 	};

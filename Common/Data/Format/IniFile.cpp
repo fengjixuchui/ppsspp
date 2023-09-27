@@ -173,7 +173,7 @@ std::string* Section::GetLine(const char* key, std::string* valueOut, std::strin
 		if (!strcasecmp(lineKey.c_str(), key))
 			return &line;
 	}
-	return 0;
+	return nullptr;
 }
 
 const std::string* Section::GetLine(const char* key, std::string* valueOut, std::string* commentOut) const
@@ -186,7 +186,7 @@ const std::string* Section::GetLine(const char* key, std::string* valueOut, std:
 		if (!strcasecmp(lineKey.c_str(), key))
 			return &line;
 	}
-	return 0;
+	return nullptr;
 }
 
 void Section::Set(const char* key, uint32_t newValue) {
@@ -322,7 +322,7 @@ bool Section::Get(const char* key, int* value, int defaultValue) const
 {
 	std::string temp;
 	bool retval = Get(key, &temp, 0);
-	if (retval && TryParse(temp.c_str(), value))
+	if (retval && TryParse(temp, value))
 		return true;
 	*value = defaultValue;
 	return false;
@@ -352,7 +352,7 @@ bool Section::Get(const char* key, bool* value, bool defaultValue) const
 {
 	std::string temp;
 	bool retval = Get(key, &temp, 0);
-	if (retval && TryParse(temp.c_str(), value))
+	if (retval && TryParse(temp, value))
 		return true;
 	*value = defaultValue;
 	return false;
@@ -362,7 +362,7 @@ bool Section::Get(const char* key, float* value, float defaultValue) const
 {
 	std::string temp;
 	bool retval = Get(key, &temp, 0);
-	if (retval && TryParse(temp.c_str(), value))
+	if (retval && TryParse(temp, value))
 		return true;
 	*value = defaultValue;
 	return false;
@@ -372,7 +372,7 @@ bool Section::Get(const char* key, double* value, double defaultValue) const
 {
 	std::string temp;
 	bool retval = Get(key, &temp, 0);
-	if (retval && TryParse(temp.c_str(), value))
+	if (retval && TryParse(temp, value))
 		return true;
 	*value = defaultValue;
 	return false;
@@ -423,14 +423,14 @@ const Section* IniFile::GetSection(const char* sectionName) const {
 	for (const auto &iter : sections)
 		if (!strcasecmp(iter->name().c_str(), sectionName))
 			return iter.get();
-	return nullptr ;
+	return nullptr;
 }
 
 Section* IniFile::GetSection(const char* sectionName) {
 	for (const auto &iter : sections)
 		if (!strcasecmp(iter->name().c_str(), sectionName))
 			return iter.get();
-	return 0;
+	return nullptr;
 }
 
 Section* IniFile::GetOrCreateSection(const char* sectionName) {

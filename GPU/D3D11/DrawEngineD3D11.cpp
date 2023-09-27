@@ -199,8 +199,8 @@ ID3D11InputLayout *DrawEngineD3D11::SetupDecFmtForDraw(D3D11VertexShader *vshade
 	// TODO: Instead of one for each vshader, we can reduce it to one for each type of shader
 	// that reads TEXCOORD or not, etc. Not sure if worth it.
 	const InputLayoutKey key{ vshader, decFmt.id };
-	ID3D11InputLayout *inputLayout = inputLayoutMap_.Get(key);
-	if (inputLayout) {
+	ID3D11InputLayout *inputLayout;
+	if (inputLayoutMap_.Get(key, &inputLayout)) {
 		return inputLayout;
 	} else {
 		D3D11_INPUT_ELEMENT_DESC VertexElements[8];
@@ -368,8 +368,8 @@ void DrawEngineD3D11::DoFlush() {
 			// getUVGenMode can have an effect on which UV decoder we need to use! And hence what the decoded data will look like. See #9263
 			u32 dcid = (u32)XXH3_64bits(&drawCalls_, sizeof(DeferredDrawCall) * numDrawCalls_) ^ gstate.getUVGenMode();
 
-			VertexArrayInfoD3D11 *vai = vai_.Get(dcid);
-			if (!vai) {
+			VertexArrayInfoD3D11 *vai;
+			if (!vai_.Get(dcid, &vai)) {
 				vai = new VertexArrayInfoD3D11();
 				vai_.Insert(dcid, vai);
 			}
@@ -598,7 +598,7 @@ rotateVBO:
 			prim = GE_PRIM_TRIANGLES;
 		VERBOSE_LOG(G3D, "Flush prim %i SW! %i verts in one go", prim, indexGen.VertexCount());
 
-		u16 *inds = decIndex_;
+		u16 *const inds = decIndex_;
 		SoftwareTransformResult result{};
 		SoftwareTransformParams params{};
 		params.decoded = decoded_;
@@ -644,8 +644,9 @@ rotateVBO:
 		// Need to ApplyDrawState after ApplyTexture because depal can launch a render pass and that wrecks the state.
 		ApplyDrawState(prim);
 
+		int indsOffset = 0;
 		if (result.action == SW_NOT_READY)
-			swTransform.BuildDrawingParams(prim, indexGen.VertexCount(), dec_->VertexType(), inds, maxIndex, &result);
+			swTransform.BuildDrawingParams(prim, indexGen.VertexCount(), dec_->VertexType(), inds, indsOffset, DECODED_INDEX_BUFFER_SIZE / sizeof(uint16_t), maxIndex, &result);
 		if (result.setSafeSize)
 			framebufferManager_->SetSafeSize(result.safeWidth, result.safeHeight);
 
@@ -663,8 +664,8 @@ rotateVBO:
 			// We really do need a vertex layout for each vertex shader (or at least check its ID bits for what inputs it uses)!
 			// Some vertex shaders ignore one of the inputs, and then the layout created from it will lack it, which will be a problem for others.
 			InputLayoutKey key{ vshader, 0xFFFFFFFF };  // Let's use 0xFFFFFFFF to signify TransformedVertex
-			ID3D11InputLayout *layout = inputLayoutMap_.Get(key);
-			if (!layout) {
+			ID3D11InputLayout *layout;
+			if (!inputLayoutMap_.Get(key, &layout)) {
 				ASSERT_SUCCESS(device_->CreateInputLayout(TransformedVertexElements, ARRAY_SIZE(TransformedVertexElements), vshader->bytecode().data(), vshader->bytecode().size(), &layout));
 				inputLayoutMap_.Insert(key, layout);
 			}
@@ -683,11 +684,11 @@ rotateVBO:
 				UINT iOffset;
 				int iSize = sizeof(uint16_t) * result.drawNumTrans;
 				uint8_t *iptr = pushInds_->BeginPush(context_, &iOffset, iSize);
-				memcpy(iptr, inds, iSize);
+				memcpy(iptr, inds + indsOffset, iSize);
 				pushInds_->EndPush(context_);
 				context_->IASetIndexBuffer(pushInds_->Buf(), DXGI_FORMAT_R16_UINT, iOffset);
 				context_->DrawIndexed(result.drawNumTrans, 0, 0);
-			} else {
+			} else if (result.drawNumTrans > 0) {
 				context_->Draw(result.drawNumTrans, 0);
 			}
 		} else if (result.action == SW_CLEAR) {

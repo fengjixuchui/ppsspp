@@ -25,6 +25,7 @@
 #include "Common/GraphicsContext.h"
 #include "Common/Serialize/Serializer.h"
 #include "Common/TimeUtil.h"
+#include "Common/Thread/ThreadUtil.h"
 
 #include "Core/Config.h"
 #include "Core/Debugger/Breakpoints.h"
@@ -92,24 +93,8 @@ GPU_Vulkan::GPU_Vulkan(GraphicsContext *gfxCtx, Draw::DrawContext *draw)
 	if (discID.size()) {
 		File::CreateFullPath(GetSysDirectory(DIRECTORY_APP_CACHE));
 		shaderCachePath_ = GetSysDirectory(DIRECTORY_APP_CACHE) / (discID + ".vkshadercache");
-		shaderCacheLoaded_ = false;
-
-		std::thread th([&] {
-			LoadCache(shaderCachePath_);
-			shaderCacheLoaded_ = true;
-		});
-		th.detach();
-	} else {
-		shaderCacheLoaded_ = true;
+		LoadCache(shaderCachePath_);
 	}
-}
-
-bool GPU_Vulkan::IsReady() {
-	return shaderCacheLoaded_;
-}
-
-void GPU_Vulkan::CancelReady() {
-	pipelineManager_->CancelCache();
 }
 
 void GPU_Vulkan::LoadCache(const Path &filename) {
@@ -182,17 +167,25 @@ void GPU_Vulkan::SaveCache(const Path &filename) {
 GPU_Vulkan::~GPU_Vulkan() {
 	if (draw_) {
 		VulkanRenderManager *rm = (VulkanRenderManager *)draw_->GetNativeObject(Draw::NativeObject::RENDER_MANAGER);
-		rm->DrainCompileQueue();
+		rm->DrainAndBlockCompileQueue();
 	}
 
 	SaveCache(shaderCachePath_);
+
+	// Super important to delete pipeline manager FIRST, before clearing shaders, so we wait for all pending pipelines to finish compiling.
+	delete pipelineManager_;
+	pipelineManager_ = nullptr;
+
 	// Note: We save the cache in DeviceLost
 	DestroyDeviceObjects();
 	drawEngine_.DeviceLost();
 	shaderManager_->ClearShaders();
 
-	delete pipelineManager_;
 	// other managers are deleted in ~GPUCommonHW.
+	if (draw_) {
+		VulkanRenderManager *rm = (VulkanRenderManager *)draw_->GetNativeObject(Draw::NativeObject::RENDER_MANAGER);
+		rm->ReleaseCompileQueue();
+	}
 }
 
 u32 GPU_Vulkan::CheckGPUFeatures() const {
@@ -290,6 +283,7 @@ u32 GPU_Vulkan::CheckGPUFeatures() const {
 		features &= ~GPU_USE_LIGHT_UBERSHADER;
 	}
 
+	features |= GPU_USE_FRAMEBUFFER_ARRAYS;
 	return CheckGPUFeaturesLate(features);
 }
 
@@ -304,7 +298,7 @@ void GPU_Vulkan::BeginHostFrame() {
 
 	framebufferManager_->BeginFrame();
 
-	shaderManagerVulkan_->DirtyShader();
+	shaderManagerVulkan_->DirtyLastShader();
 	gstate_c.Dirty(DIRTY_ALL);
 
 	if (gstate_c.useFlagsChanged) {
@@ -432,6 +426,13 @@ void GPU_Vulkan::DeviceLost() {
 	while (!IsReady()) {
 		sleep_ms(10);
 	}
+	// draw_ is normally actually still valid here in Vulkan. But we null it out in GPUCommonHW::DeviceLost so we don't try to use it again.
+	Draw::DrawContext *draw = draw_;
+	if (draw) {
+		VulkanRenderManager *rm = (VulkanRenderManager *)draw->GetNativeObject(Draw::NativeObject::RENDER_MANAGER);
+		rm->DrainAndBlockCompileQueue();
+	}
+
 	if (shaderCachePath_.Valid()) {
 		SaveCache(shaderCachePath_);
 	}
@@ -439,6 +440,11 @@ void GPU_Vulkan::DeviceLost() {
 	pipelineManager_->DeviceLost();
 
 	GPUCommonHW::DeviceLost();
+
+	if (draw) {
+		VulkanRenderManager *rm = (VulkanRenderManager *)draw->GetNativeObject(Draw::NativeObject::RENDER_MANAGER);
+		rm->ReleaseCompileQueue();
+	}
 }
 
 void GPU_Vulkan::DeviceRestore(Draw::DrawContext *draw) {

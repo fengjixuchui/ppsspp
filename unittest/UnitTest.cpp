@@ -58,6 +58,7 @@
 #include "Common/Render/DrawBuffer.h"
 #include "Common/System/NativeApp.h"
 #include "Common/System/System.h"
+#include "Common/Thread/ThreadUtil.h"
 
 #include "Common/ArmEmitter.h"
 #include "Common/BitScan.h"
@@ -104,7 +105,7 @@ void System_AudioClear() {}
 void System_AudioPushSamples(const s32 *audio, int numSamples) {}
 
 // TODO: To avoid having to define these here, these should probably be turned into system "requests".
-void NativeSaveSecret(const char *nameOfSecret, const std::string &data) {}
+bool NativeSaveSecret(const char *nameOfSecret, const std::string &data) { return false; }
 std::string NativeLoadSecret(const char *nameOfSecret) {
 	return "";
 }
@@ -1038,6 +1039,8 @@ TestItem availableTests[] = {
 };
 
 int main(int argc, const char *argv[]) {
+	SetCurrentThreadName("UnitTest");
+
 	cpu_info.bNEON = true;
 	cpu_info.bVFP = true;
 	cpu_info.bVFPv3 = true;

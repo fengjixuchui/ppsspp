@@ -1179,7 +1179,7 @@ static bool __IoWrite(int &result, int id, u32 data_addr, int size, int &us) {
 	if (id == PSP_STDOUT || id == PSP_STDERR) {
 		const char *str = (const char *) data_ptr;
 		const int str_size = size <= 0 ? 0 : (str[validSize - 1] == '\n' ? validSize - 1 : validSize);
-		INFO_LOG(SCEIO, "%s: %.*s", id == 1 ? "stdout" : "stderr", str_size, str);
+		INFO_LOG(PRINTF, "%s: %.*s", id == 1 ? "stdout" : "stderr", str_size, str);
 		result = validSize;
 		return true;
 	}
@@ -1205,7 +1205,7 @@ static bool __IoWrite(int &result, int id, u32 data_addr, int size, int &us) {
 		if (f->isTTY) {
 			const char *str = (const char *)data_ptr;
 			const int str_size = size <= 0 ? 0 : (str[validSize - 1] == '\n' ? validSize - 1 : validSize);
-			INFO_LOG(SCEIO, "%s: %.*s", "tty", str_size, str);
+			INFO_LOG(PRINTF, "%s: %.*s", "tty", str_size, str);
 			result = validSize;
 			return true;
 		}
@@ -1486,6 +1486,12 @@ static u32 sceIoLseek32Async(int id, int offset, int whence) {
 }
 
 static FileNode *__IoOpen(int &error, const char *filename, int flags, int mode) {
+	if (!filename) {
+		// To prevent crashes. Not sure about the correct value.
+		error = SCE_KERNEL_ERROR_ERRNO_FILE_NOT_FOUND;
+		return nullptr;
+	}
+
 	int access = FILEACCESS_NONE;
 	if (flags & PSP_O_RDONLY)
 		access |= FILEACCESS_READ;

@@ -1,4 +1,6 @@
 #include <cstring>
+#include <algorithm>
+// for std::min
 
 #include "Common/System/OSD.h"
 #include "Common/TimeUtil.h"
@@ -56,6 +58,9 @@ void OnScreenDisplay::Show(OSDType type, const std::string &text, const std::str
 			break;
 		case OSDType::MESSAGE_FILE_LINK:
 			duration_s = 5.0f;
+			break;
+		case OSDType::MESSAGE_INFO:
+			duration_s = 3.0f;
 			break;
 		case OSDType::MESSAGE_SUCCESS:
 			duration_s = 2.0f;
@@ -216,7 +221,7 @@ void OnScreenDisplay::ShowLeaderboardStartEnd(const std::string &title, const st
 }
 
 void OnScreenDisplay::ShowLeaderboardSubmitted(const std::string &title, const std::string &value) {
-	g_OSD.Show(OSDType::MESSAGE_SUCCESS, title, value, 3.0f);
+	g_OSD.Show(OSDType::LEADERBOARD_SUBMITTED, title, value, 3.0f);
 }
 
 void OnScreenDisplay::SetProgressBar(std::string id, std::string &&message, float minValue, float maxValue, float progress, float delay) {

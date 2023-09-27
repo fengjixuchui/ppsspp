@@ -42,6 +42,11 @@ struct WavData {
 		free(raw_data);
 		raw_data = nullptr;
 	}
+
+	bool IsSimpleWAV() const {
+		bool isBad = raw_bytes_per_frame > sizeof(int16_t) * num_channels;
+		return !isBad && num_channels > 0 && sample_rate >= 8000 && codec == 0;
+	}
 };
 
 void WavData::Read(RIFFReader &file_) {
@@ -143,6 +148,7 @@ void WavData::Read(RIFFReader &file_) {
 
 			raw_data = (uint8_t *)malloc(numBytes);
 			raw_data_size = numBytes;
+
 			if (num_channels == 1 || num_channels == 2) {
 				file_.ReadData(raw_data, numBytes);
 			} else {
@@ -256,6 +262,7 @@ BackgroundAudio::BackgroundAudio() {
 }
 
 BackgroundAudio::~BackgroundAudio() {
+	delete at3Reader_;
 	delete[] buffer;
 }
 
@@ -389,7 +396,7 @@ Sample *Sample::Load(const std::string &path) {
 
 	delete[] data;
 
-	if (wave.num_channels > 2 || wave.raw_bytes_per_frame > sizeof(int16_t) * wave.num_channels) {
+	if (!wave.IsSimpleWAV()) {
 		ERROR_LOG(AUDIO, "Wave format not supported for mixer playback. Must be 8-bit or 16-bit raw mono or stereo. '%s'", path.c_str());
 		return nullptr;
 	}
@@ -404,7 +411,11 @@ Sample *Sample::Load(const std::string &path) {
 			samples[i] = ConvertU8ToI16(wave.raw_data[i]);
 		}
 	}
-	return new Sample(samples, wave.num_channels, wave.numFrames, wave.sample_rate);
+
+	// Protect against bad metadata.
+	int actualFrames = std::min(wave.numFrames, wave.raw_data_size / wave.raw_bytes_per_frame);
+
+	return new Sample(samples, wave.num_channels, actualFrames, wave.sample_rate);
 }
 
 static inline int16_t Clamp16(int32_t sample) {

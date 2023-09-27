@@ -30,6 +30,7 @@
 #include "Common/Net/URL.h"
 
 #include "Common/File/FileDescriptor.h"
+#include "Common/SysError.h"
 #include "Common/Thread/ThreadUtil.h"
 #include "Common/Data/Encoding/Compression.h"
 #include "Common/Net/NetBuffer.h"
@@ -93,6 +94,18 @@ bool Connection::Resolve(const char *host, int port, DNSType type) {
 	return true;
 }
 
+static void FormatAddr(char *addrbuf, size_t bufsize, const addrinfo *info) {
+	switch (info->ai_family) {
+	case AF_INET:
+	case AF_INET6:
+		inet_ntop(info->ai_family, &((sockaddr_in *)info->ai_addr)->sin_addr, addrbuf, bufsize);
+		break;
+	default:
+		snprintf(addrbuf, bufsize, "(Unknown AF %d)", info->ai_family);
+		break;
+	}
+}
+
 bool Connection::Connect(int maxTries, double timeout, bool *cancelConnect) {
 	if (port_ <= 0) {
 		ERROR_LOG(IO, "Bad port");
@@ -117,7 +130,31 @@ bool Connection::Connect(int maxTries, double timeout, bool *cancelConnect) {
 			fd_util::SetNonBlocking(sock, true);
 
 			// Start trying to connect (async with timeout.)
-			connect(sock, possible->ai_addr, (int)possible->ai_addrlen);
+			errno = 0;
+			if (connect(sock, possible->ai_addr, (int)possible->ai_addrlen) < 0) {
+#if PPSSPP_PLATFORM(WINDOWS)
+				int errorCode = WSAGetLastError();
+				std::string errorString = GetStringErrorMsg(errorCode);
+				bool unreachable = errorCode == WSAENETUNREACH;
+				bool inProgress = errorCode == WSAEINPROGRESS || errorCode == WSAEWOULDBLOCK;
+#else
+				int errorCode = errno;
+				std::string errorString = strerror(errno);
+				bool unreachable = errorCode == ENETUNREACH;
+				bool inProgress = errorCode == EINPROGRESS || errorCode == EWOULDBLOCK;
+#endif
+				if (!inProgress) {
+					char addrStr[128]{};
+					FormatAddr(addrStr, sizeof(addrStr), possible);
+					if (!unreachable) {
+						ERROR_LOG(HTTP, "connect(%d) call to %s failed (%d: %s)", sock, addrStr, errorCode, errorString.c_str());
+					} else {
+						INFO_LOG(HTTP, "connect(%d): Ignoring unreachable resolved address %s", sock, addrStr);
+					}
+					closesocket(sock);
+					continue;
+				}
+			}
 			sockets.push_back(sock);
 			FD_SET(sock, &fds);
 			if (maxfd < sock + 1) {
@@ -182,9 +219,9 @@ namespace http {
 
 // TODO: do something sane here
 constexpr const char *DEFAULT_USERAGENT = "PPSSPP";
+constexpr const char *HTTP_VERSION = "1.1";
 
 Client::Client() {
-	httpVersion_ = "1.1";
 	userAgent_ = DEFAULT_USERAGENT;
 }
 
@@ -316,7 +353,7 @@ int Client::SendRequestWithData(const char *method, const RequestParams &req, co
 		"\r\n";
 
 	buffer.Printf(tpl,
-		method, req.resource.c_str(), httpVersion_,
+		method, req.resource.c_str(), HTTP_VERSION,
 		host_.c_str(),
 		userAgent_.c_str(),
 		req.acceptMime,

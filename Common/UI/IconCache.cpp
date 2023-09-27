@@ -80,7 +80,9 @@ bool IconCache::LoadFromFile(FILE *file) {
 			break;
 		}
 
-		fread(&key[0], 1, entryHeader.keyLen, file);
+		if (fread(&key[0], 1, entryHeader.keyLen, file) != entryHeader.keyLen) {
+			break;
+		}
 
 		// Check if we already have the entry somehow.
 		if (cache_.find(key) != cache_.end()) {
@@ -226,14 +228,12 @@ bool IconCache::MarkPending(const std::string &key) {
 	return true;
 }
 
-void IconCache::Cancel(const std::string &key) {
+void IconCache::CancelPending(const std::string &key) {
 	std::unique_lock<std::mutex> lock(lock_);
 	pending_.erase(key);
 }
 
 bool IconCache::InsertIcon(const std::string &key, IconFormat format, std::string &&data) {
-	std::unique_lock<std::mutex> lock(lock_);
-
 	if (key.empty()) {
 		return false;
 	}
@@ -244,6 +244,7 @@ bool IconCache::InsertIcon(const std::string &key, IconFormat format, std::strin
 		return false;
 	}
 
+	std::unique_lock<std::mutex> lock(lock_);
 	if (cache_.find(key) != cache_.end()) {
 		// Already have this entry.
 		return false;
@@ -261,6 +262,11 @@ bool IconCache::InsertIcon(const std::string &key, IconFormat format, std::strin
 }
 
 Draw::Texture *IconCache::BindIconTexture(UIContext *context, const std::string &key) {
+	if (key.empty()) {
+		return nullptr;
+	}
+
+	// TODO: Cut down on how long we're holding this lock here.
 	std::unique_lock<std::mutex> lock(lock_);
 	auto iter = cache_.find(key);
 	if (iter == cache_.end()) {

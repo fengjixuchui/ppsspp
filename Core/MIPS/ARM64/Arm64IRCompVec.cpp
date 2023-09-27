@@ -40,6 +40,10 @@ namespace MIPSComp {
 using namespace Arm64Gen;
 using namespace Arm64IRJitConstants;
 
+static bool Overlap(IRReg r1, int l1, IRReg r2, int l2) {
+	return r1 < r2 + l2 && r1 + l1 > r2;
+}
+
 void Arm64JitBackend::CompIR_VecArith(IRInst inst) {
 	CONDITIONAL_DISABLE;
 
@@ -65,7 +69,17 @@ void Arm64JitBackend::CompIR_VecArith(IRInst inst) {
 		break;
 
 	case IROp::Vec4Scale:
-		CompIR_Generic(inst);
+		if (Overlap(inst.dest, 4, inst.src2, 1) || Overlap(inst.src1, 4, inst.src2, 1)) {
+			// ARM64 can handle this, but we have to map specially.
+			regs_.SpillLockFPR(inst.dest, inst.src1);
+			regs_.MapVec4(inst.src1);
+			regs_.MapVec4(inst.src2 & ~3);
+			regs_.MapVec4(inst.dest, MIPSMap::NOINIT);
+			fp_.FMUL(32, regs_.FQ(inst.dest), regs_.FQ(inst.src1), regs_.FQ(inst.src2 & ~3), inst.src2 & 3);
+		} else {
+			regs_.Map(inst);
+			fp_.FMUL(32, regs_.FQ(inst.dest), regs_.FQ(inst.src1), regs_.FQ(inst.src2), 0);
+		}
 		break;
 
 	case IROp::Vec4Neg:
@@ -370,7 +384,30 @@ void Arm64JitBackend::CompIR_VecAssign(IRInst inst) {
 
 	switch (inst.op) {
 	case IROp::Vec4Init:
-		CompIR_Generic(inst);
+		regs_.Map(inst);
+		switch (Vec4Init(inst.src1)) {
+		case Vec4Init::AllZERO:
+			fp_.MOVI(32, regs_.FQ(inst.dest), 0);
+			break;
+
+		case Vec4Init::AllONE:
+		case Vec4Init::AllMinusONE:
+			fp_.MOVI2FDUP(regs_.FQ(inst.dest), 1.0f, INVALID_REG, Vec4Init(inst.src1) == Vec4Init::AllMinusONE);
+			break;
+
+		case Vec4Init::Set_1000:
+		case Vec4Init::Set_0100:
+		case Vec4Init::Set_0010:
+		case Vec4Init::Set_0001:
+			fp_.MOVI(32, regs_.FQ(inst.dest), 0);
+			fp_.MOVI2FDUP(EncodeRegToQuad(SCRATCHF1), 1.0f);
+			fp_.INS(32, regs_.FQ(inst.dest), inst.src1 - (int)Vec4Init::Set_1000, EncodeRegToQuad(SCRATCHF1), inst.src1 - (int)Vec4Init::Set_1000);
+			break;
+
+		default:
+			_assert_msg_(false, "Unexpected Vec4Init value %d", inst.src1);
+			DISABLE;
+		}
 		break;
 
 	case IROp::Vec4Shuffle:
@@ -392,7 +429,138 @@ void Arm64JitBackend::CompIR_VecAssign(IRInst inst) {
 		break;
 
 	case IROp::Vec4Blend:
-		CompIR_Generic(inst);
+		regs_.Map(inst);
+		if (inst.src1 == inst.src2) {
+			// Shouldn't really happen, just making sure the below doesn't have to think about it.
+			if (inst.dest != inst.src1)
+				fp_.MOV(regs_.FQ(inst.dest), regs_.FQ(inst.src1));
+			break;
+		}
+
+		// To reduce overlap cases to consider, let's inverse src1/src2 if dest == src2.
+		// Thus, dest could be src1, but no other overlap is possible.
+		if (inst.dest == inst.src2) {
+			std::swap(inst.src1, inst.src2);
+			inst.constant ^= 0xF;
+		}
+
+		switch (inst.constant & 0xF) {
+		case 0b0000:
+			if (inst.dest != inst.src1)
+				fp_.MOV(regs_.FQ(inst.dest), regs_.FQ(inst.src1));
+			break;
+
+		case 0b0001:
+			if (inst.dest != inst.src1)
+				fp_.MOV(regs_.FQ(inst.dest), regs_.FQ(inst.src1));
+			fp_.INS(32, regs_.FQ(inst.dest), 0, regs_.FQ(inst.src2), 0);
+			break;
+
+		case 0b0010:
+			if (inst.dest != inst.src1)
+				fp_.MOV(regs_.FQ(inst.dest), regs_.FQ(inst.src1));
+			fp_.INS(32, regs_.FQ(inst.dest), 1, regs_.FQ(inst.src2), 1);
+			break;
+
+		case 0b0011:
+			if (inst.dest != inst.src1)
+				fp_.MOV(regs_.FQ(inst.dest), regs_.FQ(inst.src1));
+			fp_.INS(64, regs_.FQ(inst.dest), 0, regs_.FQ(inst.src2), 0);
+			break;
+
+		case 0b0100:
+			if (inst.dest != inst.src1)
+				fp_.MOV(regs_.FQ(inst.dest), regs_.FQ(inst.src1));
+			fp_.INS(32, regs_.FQ(inst.dest), 2, regs_.FQ(inst.src2), 2);
+			break;
+
+		case 0b0101:
+			// To get AbCd: REV64 to BADC, then TRN2 xAxC, xbxd.
+			fp_.REV64(32, EncodeRegToQuad(SCRATCHF1), regs_.FQ(inst.src2));
+			fp_.TRN2(32, regs_.FQ(inst.dest), EncodeRegToQuad(SCRATCHF1), regs_.FQ(inst.src1));
+			break;
+
+		case 0b0110:
+			if (inst.dest != inst.src1)
+				fp_.MOV(regs_.FQ(inst.dest), regs_.FQ(inst.src1));
+			fp_.INS(32, regs_.FQ(inst.dest), 1, regs_.FQ(inst.src2), 1);
+			fp_.INS(32, regs_.FQ(inst.dest), 2, regs_.FQ(inst.src2), 2);
+			break;
+
+		case 0b0111:
+			if (inst.dest != inst.src1) {
+				fp_.MOV(regs_.FQ(inst.dest), regs_.FQ(inst.src2));
+				fp_.INS(32, regs_.FQ(inst.dest), 3, regs_.FQ(inst.src1), 3);
+			} else {
+				fp_.MOV(EncodeRegToQuad(SCRATCHF1), regs_.FQ(inst.src1));
+				fp_.MOV(regs_.FQ(inst.dest), regs_.FQ(inst.src2));
+				fp_.INS(32, regs_.FQ(inst.dest), 3, EncodeRegToQuad(SCRATCHF1), 3);
+			}
+			break;
+
+		case 0b1000:
+			if (inst.dest != inst.src1)
+				fp_.MOV(regs_.FQ(inst.dest), regs_.FQ(inst.src1));
+			fp_.INS(32, regs_.FQ(inst.dest), 3, regs_.FQ(inst.src2), 3);
+			break;
+
+		case 0b1001:
+			if (inst.dest != inst.src1)
+				fp_.MOV(regs_.FQ(inst.dest), regs_.FQ(inst.src1));
+			fp_.INS(32, regs_.FQ(inst.dest), 0, regs_.FQ(inst.src2), 0);
+			fp_.INS(32, regs_.FQ(inst.dest), 3, regs_.FQ(inst.src2), 3);
+			break;
+
+		case 0b1010:
+			// To get aBcD: REV64 to badc, then TRN2 xaxc, xBxD.
+			fp_.REV64(32, regs_.FQ(inst.dest), regs_.FQ(inst.src1));
+			fp_.TRN2(32, regs_.FQ(inst.dest), regs_.FQ(inst.dest), regs_.FQ(inst.src2));
+			break;
+
+		case 0b1011:
+			if (inst.dest != inst.src1) {
+				fp_.MOV(regs_.FQ(inst.dest), regs_.FQ(inst.src2));
+				fp_.INS(32, regs_.FQ(inst.dest), 2, regs_.FQ(inst.src1), 2);
+			} else {
+				fp_.MOV(EncodeRegToQuad(SCRATCHF1), regs_.FQ(inst.src1));
+				fp_.MOV(regs_.FQ(inst.dest), regs_.FQ(inst.src2));
+				fp_.INS(32, regs_.FQ(inst.dest), 2, EncodeRegToQuad(SCRATCHF1), 2);
+			}
+			break;
+
+		case 0b1100:
+			if (inst.dest != inst.src1)
+				fp_.MOV(regs_.FQ(inst.dest), regs_.FQ(inst.src1));
+			fp_.INS(64, regs_.FQ(inst.dest), 1, regs_.FQ(inst.src2), 1);
+			break;
+
+		case 0b1101:
+			if (inst.dest != inst.src1) {
+				fp_.MOV(regs_.FQ(inst.dest), regs_.FQ(inst.src2));
+				fp_.INS(32, regs_.FQ(inst.dest), 1, regs_.FQ(inst.src1), 1);
+			} else {
+				fp_.MOV(EncodeRegToQuad(SCRATCHF1), regs_.FQ(inst.src1));
+				fp_.MOV(regs_.FQ(inst.dest), regs_.FQ(inst.src2));
+				fp_.INS(32, regs_.FQ(inst.dest), 1, EncodeRegToQuad(SCRATCHF1), 1);
+			}
+			break;
+
+		case 0b1110:
+			if (inst.dest != inst.src1) {
+				fp_.MOV(regs_.FQ(inst.dest), regs_.FQ(inst.src2));
+				fp_.INS(32, regs_.FQ(inst.dest), 0, regs_.FQ(inst.src1), 0);
+			} else {
+				fp_.MOV(EncodeRegToQuad(SCRATCHF1), regs_.FQ(inst.src1));
+				fp_.MOV(regs_.FQ(inst.dest), regs_.FQ(inst.src2));
+				fp_.INS(32, regs_.FQ(inst.dest), 0, EncodeRegToQuad(SCRATCHF1), 0);
+			}
+			break;
+
+		case 0b1111:
+			if (inst.dest != inst.src2)
+				fp_.MOV(regs_.FQ(inst.dest), regs_.FQ(inst.src2));
+			break;
+		}
 		break;
 
 	case IROp::Vec4Mov:
@@ -413,8 +581,15 @@ void Arm64JitBackend::CompIR_VecClamp(IRInst inst) {
 
 	switch (inst.op) {
 	case IROp::Vec4ClampToZero:
+		regs_.Map(inst);
+		fp_.MOVI(32, EncodeRegToQuad(SCRATCHF1), 0);
+		fp_.SMAX(32, regs_.FQ(inst.dest), regs_.FQ(inst.src1), EncodeRegToQuad(SCRATCHF1));
+		break;
+
 	case IROp::Vec2ClampToZero:
-		CompIR_Generic(inst);
+		regs_.Map(inst);
+		fp_.MOVI(32, EncodeRegToDouble(SCRATCHF1), 0);
+		fp_.SMAX(32, regs_.FD(inst.dest), regs_.FD(inst.src1), EncodeRegToDouble(SCRATCHF1));
 		break;
 
 	default:
@@ -428,7 +603,22 @@ void Arm64JitBackend::CompIR_VecHoriz(IRInst inst) {
 
 	switch (inst.op) {
 	case IROp::Vec4Dot:
-		CompIR_Generic(inst);
+		if (Overlap(inst.dest, 1, inst.src1, 4) || Overlap(inst.dest, 1, inst.src2, 4)) {
+			// To avoid overlap problems, map a little carefully.
+			regs_.SpillLockFPR(inst.src1, inst.src2);
+			regs_.MapVec4(inst.src1);
+			regs_.MapVec4(inst.src2);
+			regs_.MapVec4(inst.dest, MIPSMap::DIRTY);
+			fp_.FMUL(32, EncodeRegToQuad(SCRATCHF1), regs_.FQ(inst.src1), regs_.FQ(inst.src2));
+			fp_.FADDP(32, EncodeRegToQuad(SCRATCHF1), EncodeRegToQuad(SCRATCHF1), EncodeRegToQuad(SCRATCHF1));
+			fp_.FADDP(32, EncodeRegToQuad(SCRATCHF1), EncodeRegToQuad(SCRATCHF1), EncodeRegToQuad(SCRATCHF1));
+			fp_.INS(32, regs_.FQ(inst.dest & ~3), inst.dest & 3, EncodeRegToQuad(SCRATCHF1), 0);
+		} else {
+			regs_.Map(inst);
+			fp_.FMUL(32, regs_.FQ(inst.dest), regs_.FQ(inst.src1), regs_.FQ(inst.src2));
+			fp_.FADDP(32, regs_.FQ(inst.dest), regs_.FQ(inst.dest), regs_.FQ(inst.dest));
+			fp_.FADDP(32, regs_.FQ(inst.dest), regs_.FQ(inst.dest), regs_.FQ(inst.dest));
+		}
 		break;
 
 	default:
@@ -441,15 +631,134 @@ void Arm64JitBackend::CompIR_VecPack(IRInst inst) {
 	CONDITIONAL_DISABLE;
 
 	switch (inst.op) {
-	case IROp::Vec2Unpack16To31:
-	case IROp::Vec4Pack32To8:
-	case IROp::Vec2Pack31To16:
-	case IROp::Vec4Unpack8To32:
-	case IROp::Vec2Unpack16To32:
 	case IROp::Vec4DuplicateUpperBitsAndShift1:
-	case IROp::Vec4Pack31To8:
+		// This operation swizzles the high 8 bits and converts to a signed int.
+		// It's always after Vec4Unpack8To32.
+		// 000A000B000C000D -> AAAABBBBCCCCDDDD and then shift right one (to match INT_MAX.)
+		regs_.Map(inst);
+		// First, USHR+ORR to get 0A0A0B0B0C0C0D0D.
+		fp_.USHR(32, EncodeRegToQuad(SCRATCHF1), regs_.FQ(inst.src1), 16);
+		fp_.ORR(EncodeRegToQuad(SCRATCHF1), EncodeRegToQuad(SCRATCHF1), regs_.FQ(inst.src1));
+		// Now again, but by 8.
+		fp_.USHR(32, regs_.FQ(inst.dest), EncodeRegToQuad(SCRATCHF1), 8);
+		fp_.ORR(regs_.FQ(inst.dest), regs_.FQ(inst.dest), EncodeRegToQuad(SCRATCHF1));
+		// Finally, shift away the sign.  The goal is to saturate 0xFF -> 0x7FFFFFFF.
+		fp_.USHR(32, regs_.FQ(inst.dest), regs_.FQ(inst.dest), 1);
+		break;
+
+	case IROp::Vec2Pack31To16:
+		// Same as Vec2Pack32To16, but we shift left 1 first to nuke the sign bit.
+		if (Overlap(inst.dest, 1, inst.src1, 2)) {
+			regs_.MapVec2(inst.src1, MIPSMap::DIRTY);
+			fp_.SHL(32, EncodeRegToDouble(SCRATCHF1), regs_.FD(inst.src1), 1);
+			fp_.UZP2(16, EncodeRegToDouble(SCRATCHF1), EncodeRegToDouble(SCRATCHF1), EncodeRegToDouble(SCRATCHF1));
+			fp_.INS(32, regs_.FD(inst.dest & ~1), inst.dest & 1, EncodeRegToDouble(SCRATCHF1), 0);
+		} else {
+			regs_.Map(inst);
+			fp_.SHL(32, regs_.FD(inst.dest), regs_.FD(inst.src1), 1);
+			fp_.UZP2(16, regs_.FD(inst.dest), regs_.FD(inst.dest), regs_.FD(inst.dest));
+		}
+		break;
+
 	case IROp::Vec2Pack32To16:
-		CompIR_Generic(inst);
+		// Viewed as 16 bit lanes: xAxB -> AB00... that's UZP2.
+		if (Overlap(inst.dest, 1, inst.src1, 2)) {
+			regs_.MapVec2(inst.src1, MIPSMap::DIRTY);
+			fp_.UZP2(16, EncodeRegToDouble(SCRATCHF1), regs_.FD(inst.src1), regs_.FD(inst.src1));
+			fp_.INS(32, regs_.FD(inst.dest & ~1), inst.dest & 1, EncodeRegToDouble(SCRATCHF1), 0);
+		} else {
+			regs_.Map(inst);
+			fp_.UZP2(16, regs_.FD(inst.dest), regs_.FD(inst.src1), regs_.FD(inst.src1));
+		}
+		break;
+
+	case IROp::Vec4Pack31To8:
+		if (Overlap(inst.dest, 1, inst.src1, 4)) {
+			regs_.MapVec4(inst.src1, MIPSMap::DIRTY);
+		} else {
+			regs_.Map(inst);
+		}
+
+		// Viewed as 8-bit lanes, after a shift by 23: AxxxBxxxCxxxDxxx.
+		// So: UZP1 -> AxBxCxDx -> UZP1 again -> ABCD
+		fp_.USHR(32, EncodeRegToQuad(SCRATCHF1), regs_.FQ(inst.src1), 23);
+		fp_.UZP1(8, EncodeRegToQuad(SCRATCHF1), EncodeRegToQuad(SCRATCHF1), EncodeRegToQuad(SCRATCHF1));
+		// Second one directly to dest, if we can.
+		if (Overlap(inst.dest, 1, inst.src1, 4)) {
+			fp_.UZP1(8, EncodeRegToQuad(SCRATCHF1), EncodeRegToQuad(SCRATCHF1), EncodeRegToQuad(SCRATCHF1));
+			fp_.INS(32, regs_.FQ(inst.dest & ~3), inst.dest & 3, EncodeRegToQuad(SCRATCHF1), 0);
+		} else {
+			fp_.UZP1(8, regs_.FQ(inst.dest), EncodeRegToQuad(SCRATCHF1), EncodeRegToQuad(SCRATCHF1));
+		}
+		break;
+
+	case IROp::Vec4Pack32To8:
+		if (Overlap(inst.dest, 1, inst.src1, 4)) {
+			regs_.MapVec4(inst.src1, MIPSMap::DIRTY);
+		} else {
+			regs_.Map(inst);
+		}
+
+		// Viewed as 8-bit lanes, after a shift by 24: AxxxBxxxCxxxDxxx.
+		// Same as Vec4Pack31To8, just a different shift.
+		fp_.USHR(32, EncodeRegToQuad(SCRATCHF1), regs_.FQ(inst.src1), 24);
+		fp_.UZP1(8, EncodeRegToQuad(SCRATCHF1), EncodeRegToQuad(SCRATCHF1), EncodeRegToQuad(SCRATCHF1));
+		// Second one directly to dest, if we can.
+		if (Overlap(inst.dest, 1, inst.src1, 4)) {
+			fp_.UZP1(8, EncodeRegToQuad(SCRATCHF1), EncodeRegToQuad(SCRATCHF1), EncodeRegToQuad(SCRATCHF1));
+			fp_.INS(32, regs_.FQ(inst.dest & ~3), inst.dest & 3, EncodeRegToQuad(SCRATCHF1), 0);
+		} else {
+			fp_.UZP1(8, regs_.FQ(inst.dest), EncodeRegToQuad(SCRATCHF1), EncodeRegToQuad(SCRATCHF1));
+		}
+		break;
+
+	case IROp::Vec2Unpack16To31:
+		// Viewed as 16-bit: ABxx -> 0A0B, then shift a zero into the sign place.
+		if (Overlap(inst.dest, 2, inst.src1, 1)) {
+			regs_.MapVec2(inst.dest, MIPSMap::DIRTY);
+		} else {
+			regs_.Map(inst);
+		}
+		if (inst.src1 == inst.dest + 1) {
+			fp_.USHLL2(16, regs_.FQ(inst.dest), regs_.FD(inst.src1), 15);
+		} else {
+			fp_.USHLL(16, regs_.FQ(inst.dest), regs_.FD(inst.src1), 15);
+		}
+		break;
+
+	case IROp::Vec2Unpack16To32:
+		// Just Vec2Unpack16To31, without the shift.
+		if (Overlap(inst.dest, 2, inst.src1, 1)) {
+			regs_.MapVec2(inst.dest, MIPSMap::DIRTY);
+		} else {
+			regs_.Map(inst);
+		}
+		if (inst.src1 == inst.dest + 1) {
+			fp_.SHLL2(16, regs_.FQ(inst.dest), regs_.FD(inst.src1));
+		} else {
+			fp_.SHLL(16, regs_.FQ(inst.dest), regs_.FD(inst.src1));
+		}
+		break;
+
+	case IROp::Vec4Unpack8To32:
+		// Viewed as 8-bit: ABCD -> 000A000B000C000D.
+		if (Overlap(inst.dest, 4, inst.src1, 1)) {
+			regs_.MapVec4(inst.dest, MIPSMap::DIRTY);
+			if (inst.dest == inst.src1 + 2) {
+				fp_.SHLL2(8, regs_.FQ(inst.dest), regs_.FD(inst.src1 & ~3));
+			} else if (inst.dest != inst.src1) {
+				fp_.DUP(32, regs_.FQ(inst.dest), regs_.FQ(inst.src1), inst.src1 & 3);
+				fp_.SHLL(8, regs_.FQ(inst.dest), regs_.FD(inst.dest));
+			} else {
+				fp_.SHLL(8, regs_.FQ(inst.dest), regs_.FD(inst.src1));
+			}
+			fp_.SHLL(16, regs_.FQ(inst.dest), regs_.FD(inst.dest));
+		} else {
+			regs_.Map(inst);
+			// Two steps: ABCD -> 0A0B0C0D, then to 000A000B000C000D.
+			fp_.SHLL(8, regs_.FQ(inst.dest), regs_.FD(inst.src1));
+			fp_.SHLL(16, regs_.FQ(inst.dest), regs_.FD(inst.dest));
+		}
 		break;
 
 	default:

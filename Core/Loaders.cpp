@@ -18,6 +18,7 @@
 #include <algorithm>
 #include <cstdio>
 
+#include "Common/File/AndroidContentURI.h"
 #include "Common/File/FileUtil.h"
 #include "Common/File/Path.h"
 #include "Common/StringUtils.h"
@@ -259,15 +260,13 @@ Path ResolvePBPFile(const Path &filename) {
 
 bool LoadFile(FileLoader **fileLoaderPtr, std::string *error_string) {
 	FileLoader *&fileLoader = *fileLoaderPtr;
-	// Note that this can modify filename!
 	IdentifiedFileType type = Identify_File(fileLoader, error_string);
 	switch (type) {
 	case IdentifiedFileType::PSP_PBP_DIRECTORY:
 		{
-			// TODO: Perhaps we should/can never get here now?
 			fileLoader = ResolveFileLoaderTarget(fileLoader);
 			if (fileLoader->Exists()) {
-				INFO_LOG(LOADER, "File is a PBP in a directory!");
+				INFO_LOG(LOADER, "File is a PBP in a directory: %s", fileLoader->GetPath().c_str());
 				IdentifiedFileType ebootType = Identify_File(fileLoader, error_string);
 				if (ebootType == IdentifiedFileType::PSP_ISO_NP) {
 					InitMemoryForGameISO(fileLoader);
@@ -285,6 +284,9 @@ bool LoadFile(FileLoader **fileLoaderPtr, std::string *error_string) {
 				}
 
 				std::string dir = fileLoader->GetPath().GetDirectory();
+				if (fileLoader->GetPath().Type() == PathType::CONTENT_URI) {
+					dir = AndroidContentURI(dir).FilePath();
+				}
 				size_t pos = dir.find("PSP/GAME/");
 				if (pos != std::string::npos) {
 					dir = ResolvePBPDirectory(Path(dir)).ToString();
@@ -383,7 +385,7 @@ bool LoadFile(FileLoader **fileLoaderPtr, std::string *error_string) {
 	return false;
 }
 
-bool UmdReplace(const Path &filepath, std::string &error) {
+bool UmdReplace(const Path &filepath, FileLoader **fileLoader, std::string &error) {
 	IFileSystem *currentUMD = pspFileSystem.GetSystem("disc0:");
 
 	if (!currentUMD) {
@@ -402,6 +404,7 @@ bool UmdReplace(const Path &filepath, std::string &error) {
 
 	loadedFile = ResolveFileLoaderTarget(loadedFile);
 
+	*fileLoader = loadedFile;
 
 	std::string errorString;
 	IdentifiedFileType type = Identify_File(loadedFile, &errorString);
@@ -414,7 +417,6 @@ bool UmdReplace(const Path &filepath, std::string &error) {
 			error = "reinit memory failed";
 			return false;
 		}
-
 		break;
 	default:
 		error = "Unsupported file type: " + std::to_string((int)type) + " " + errorString;

@@ -844,19 +844,25 @@ bool EmuScreen::UnsyncKey(const KeyInput &key) {
 	System_Notify(SystemNotification::ACTIVITY);
 
 	if (UI::IsFocusMovementEnabled()) {
-		if (UIScreen::UnsyncKey(key)) {
-			return true;
-		} else if ((key.flags & KEY_DOWN) != 0 && UI::IsEscapeKey(key)) {
-			if (chatMenu_)
-				chatMenu_->Close();
-			if (chatButton_)
-				chatButton_->SetVisibility(UI::V_VISIBLE);
-			UI::EnableFocusMovement(false);
-			return true;
-		}
+		return UIScreen::UnsyncKey(key);
 	}
 
 	return controlMapper_.Key(key, &pauseTrigger_);
+}
+
+bool EmuScreen::key(const KeyInput &key) {
+	bool retval = UIScreen::key(key);
+
+	if (!retval && (key.flags & KEY_DOWN) != 0 && UI::IsEscapeKey(key)) {
+		if (chatMenu_)
+			chatMenu_->Close();
+		if (chatButton_)
+			chatButton_->SetVisibility(UI::V_VISIBLE);
+		UI::EnableFocusMovement(false);
+		return true;
+	}
+
+	return retval;
 }
 
 void EmuScreen::UnsyncAxis(const AxisInput &axis) {

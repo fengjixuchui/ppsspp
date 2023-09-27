@@ -76,6 +76,7 @@ LinkedShader::LinkedShader(GLRenderManager *render, VShaderID VSID, Shader *vs, 
 		: render_(render), useHWTransform_(useHWTransform) {
 	PROFILE_THIS_SCOPE("shaderlink");
 
+	_assert_(render);
 	_assert_(vs);
 	_assert_(fs);
 
@@ -715,7 +716,7 @@ void ShaderManagerGLES::Clear() {
 	linkedShaderCache_.clear();
 	fsCache_.Clear();
 	vsCache_.Clear();
-	DirtyShader();
+	DirtyLastShader();
 }
 
 void ShaderManagerGLES::ClearShaders() {
@@ -734,26 +735,24 @@ void ShaderManagerGLES::DeviceRestore(Draw::DrawContext *draw) {
 	draw_ = draw;
 }
 
-void ShaderManagerGLES::DirtyShader() {
+void ShaderManagerGLES::DirtyLastShader() {
 	// Forget the last shader ID
 	lastFSID_.set_invalid();
 	lastVSID_.set_invalid();
-	DirtyLastShader();
 	gstate_c.Dirty(DIRTY_ALL_UNIFORMS | DIRTY_VERTEXSHADER_STATE | DIRTY_FRAGMENTSHADER_STATE);
 	shaderSwitchDirtyUniforms_ = 0;
-}
-
-void ShaderManagerGLES::DirtyLastShader() {
 	lastShader_ = nullptr;
 	lastVShaderSame_ = false;
 }
 
+// Can only fail by failing to generate the code (bad FSID).
+// Any actual failures driver-side happens later in the render manager.
 Shader *ShaderManagerGLES::CompileFragmentShader(FShaderID FSID) {
 	uint64_t uniformMask;
 	std::string errorString;
 	FragmentShaderFlags flags;
 	if (!GenerateFragmentShader(FSID, codeBuffer_, draw_->GetShaderLanguageDesc(), draw_->GetBugs(), &uniformMask, &flags, &errorString)) {
-		ERROR_LOG(G3D, "Shader gen error: %s", errorString.c_str());
+		ERROR_LOG_REPORT(G3D, "FS shader gen error: %s (%s: %08x:%08x)", errorString.c_str(), "GLES", FSID.d[0], FSID.d[1]);
 		return nullptr;
 	}
 	_assert_msg_(strlen(codeBuffer_) < CODE_BUFFER_SIZE, "FS length error: %d", (int)strlen(codeBuffer_));
@@ -762,6 +761,8 @@ Shader *ShaderManagerGLES::CompileFragmentShader(FShaderID FSID) {
 	return new Shader(render_, codeBuffer_, desc, params);
 }
 
+// Can only fail by failing to generate the code (bad VSID).
+// Any actual failures driver-side happens later in the render manager.
 Shader *ShaderManagerGLES::CompileVertexShader(VShaderID VSID) {
 	bool useHWTransform = VSID.Bit(VS_BIT_USE_HW_TRANSFORM);
 	uint32_t attrMask;
@@ -769,7 +770,7 @@ Shader *ShaderManagerGLES::CompileVertexShader(VShaderID VSID) {
 	std::string errorString;
 	VertexShaderFlags flags;
 	if (!GenerateVertexShader(VSID, codeBuffer_, draw_->GetShaderLanguageDesc(), draw_->GetBugs(), &attrMask, &uniformMask, &flags, &errorString)) {
-		ERROR_LOG(G3D, "Shader gen error: %s", errorString.c_str());
+		ERROR_LOG_REPORT(G3D, "VS shader gen error: %s (%s: %08x:%08x)", errorString.c_str(), "GLES", VSID.d[0], VSID.d[1]);
 		return nullptr;
 	}
 	_assert_msg_(strlen(codeBuffer_) < CODE_BUFFER_SIZE, "VS length error: %d", (int)strlen(codeBuffer_));
@@ -795,31 +796,32 @@ Shader *ShaderManagerGLES::ApplyVertexShader(bool useHWTransform, bool useHWTess
 	}
 	lastVSID_ = *VSID;
 
-	Shader *vs = vsCache_.Get(*VSID);
-	if (!vs)	{
-		// Vertex shader not in cache. Let's compile it.
-		vs = CompileVertexShader(*VSID);
-		if (!vs || vs->Failed()) {
-			auto gr = GetI18NCategory(I18NCat::GRAPHICS);
-			ERROR_LOG(G3D, "Vertex shader generation failed, falling back to software transform");
-			if (!g_Config.bHideSlowWarnings) {
-				g_OSD.Show(OSDType::MESSAGE_ERROR, gr->T("hardware transform error - falling back to software"), 2.5f);
-			}
-			delete vs;
+	Shader *vs;
+	if (vsCache_.Get(*VSID, &vs)) {
+		return vs;
+	}
 
-			// TODO: Look for existing shader with the appropriate ID, use that instead of generating a new one - however, need to make sure
-			// that that shader ID is not used when computing the linked shader ID below, because then IDs won't match
-			// next time and we'll do this over and over...
-
-			// Can still work with software transform.
-			VShaderID vsidTemp;
-			ComputeVertexShaderID(&vsidTemp, decoder, false, false, weightsAsFloat, true);
-			vs = CompileVertexShader(vsidTemp);
+	// Vertex shader not in cache. Let's compile it.
+	vs = CompileVertexShader(*VSID);
+	if (!vs) {
+		auto gr = GetI18NCategory(I18NCat::GRAPHICS);
+		ERROR_LOG(G3D, "Vertex shader generation failed, falling back to software transform");
+		if (!g_Config.bHideSlowWarnings) {
+			g_OSD.Show(OSDType::MESSAGE_ERROR, gr->T("hardware transform error - falling back to software"), 2.5f);
 		}
 
-		vsCache_.Insert(*VSID, vs);
-		diskCacheDirty_ = true;
+		// TODO: Look for existing shader with the appropriate ID, use that instead of generating a new one - however, need to make sure
+		// that that shader ID is not used when computing the linked shader ID below, because then IDs won't match
+		// next time and we'll do this over and over...
+
+		// Can still work with software transform.
+		VShaderID vsidTemp;
+		ComputeVertexShaderID(&vsidTemp, decoder, false, false, weightsAsFloat, true);
+		vs = CompileVertexShader(vsidTemp);
 	}
+
+	vsCache_.Insert(*VSID, vs);
+	diskCacheDirty_ = true;
 	return vs;
 }
 
@@ -847,12 +849,16 @@ LinkedShader *ShaderManagerGLES::ApplyFragmentShader(VShaderID VSID, Shader *vs,
 
 	lastFSID_ = FSID;
 
-	Shader *fs = fsCache_.Get(FSID);
-	if (!fs)	{
+	Shader *fs;
+	if (!fsCache_.Get(FSID, &fs)) {
 		// Fragment shader not in cache. Let's compile it.
 		// Can't really tell if we succeeded since the compile is on the GPU thread later.
 		// Could fail to generate, in which case we're kinda screwed.
 		fs = CompileFragmentShader(FSID);
+		if (!fs) {
+			ERROR_LOG(G3D, "Failed to generate fragment shader with ID %08x:%08x", FSID.d[0], FSID.d[1]);
+			// Still insert it so we don't end up spamming generation.
+		}
 		fsCache_.Insert(FSID, fs);
 		diskCacheDirty_ = true;
 	}
@@ -876,7 +882,7 @@ LinkedShader *ShaderManagerGLES::ApplyFragmentShader(VShaderID VSID, Shader *vs,
 		_dbg_assert_(FSID.Bit(FS_BIT_FLATSHADE) == VSID.Bit(VS_BIT_FLATSHADE));
 
 		if (vs == nullptr || fs == nullptr) {
-			// Can't draw. This shouldn't really happen.
+			// Can't draw. This shouldn't really happen (but can happen if fragment shader generation fails)
 			return nullptr;
 		}
 
@@ -939,14 +945,22 @@ std::string ShaderManagerGLES::DebugGetShaderString(std::string id, DebugShaderT
 	switch (type) {
 	case SHADER_TYPE_VERTEX:
 	{
-		Shader *vs = vsCache_.Get(VShaderID(shaderId));
-		return vs ? vs->GetShaderString(stringType, shaderId) : "";
+		Shader *vs;
+		if (vsCache_.Get(VShaderID(shaderId), &vs) && vs) {
+			return vs->GetShaderString(stringType, shaderId);
+		} else {
+			return "";
+		}
 	}
 
 	case SHADER_TYPE_FRAGMENT:
 	{
-		Shader *fs = fsCache_.Get(FShaderID(shaderId));
-		return fs->GetShaderString(stringType, shaderId);
+		Shader *fs;
+		if (fsCache_.Get(FShaderID(shaderId), &fs) && fs) {
+			return fs->GetShaderString(stringType, shaderId);
+		} else {
+			return "";
+		}
 	}
 	default:
 		return "N/A";
@@ -969,7 +983,7 @@ enum class CacheDetectFlags {
 };
 
 #define CACHE_HEADER_MAGIC 0x83277592
-#define CACHE_VERSION 31
+#define CACHE_VERSION 32
 
 struct CacheHeader {
 	uint32_t magic;
@@ -1076,7 +1090,7 @@ bool ShaderManagerGLES::ContinuePrecompile(float sliceTime) {
 		}
 
 		const VShaderID &id = pending.vert[i];
-		if (!vsCache_.Get(id)) {
+		if (!vsCache_.ContainsKey(id)) {
 			if (id.Bit(VS_BIT_IS_THROUGH) && id.Bit(VS_BIT_USE_HW_TRANSFORM)) {
 				// Clearly corrupt, bailing.
 				ERROR_LOG_REPORT(G3D, "Corrupt shader cache: Both IS_THROUGH and USE_HW_TRANSFORM set.");
@@ -1085,7 +1099,7 @@ bool ShaderManagerGLES::ContinuePrecompile(float sliceTime) {
 			}
 
 			Shader *vs = CompileVertexShader(id);
-			if (vs->Failed()) {
+			if (!vs) {
 				// Give up on using the cache, just bail. We can't safely create the fallback shaders here
 				// without trying to deduce the vertType from the VSID.
 				ERROR_LOG(G3D, "Failed to compile a vertex shader loading from cache. Skipping rest of shader cache.");
@@ -1106,8 +1120,17 @@ bool ShaderManagerGLES::ContinuePrecompile(float sliceTime) {
 		}
 
 		const FShaderID &id = pending.frag[i];
-		if (!fsCache_.Get(id)) {
-			fsCache_.Insert(id, CompileFragmentShader(id));
+		if (!fsCache_.ContainsKey(id)) {
+			Shader *fs = CompileFragmentShader(id);
+			if (!fs) {
+				// Give up on using the cache - something went wrong.
+				// We'll still keep the shaders we generated so far around.
+				ERROR_LOG(G3D, "Failed to compile a fragment shader loading from cache. Skipping rest of shader cache.");
+				delete fs;
+				pending.Clear();
+				return false;
+			}
+			fsCache_.Insert(id, fs);
 		} else {
 			WARN_LOG(G3D, "Duplicate fragment shader found in GL shader cache, ignoring");
 		}
@@ -1121,8 +1144,10 @@ bool ShaderManagerGLES::ContinuePrecompile(float sliceTime) {
 
 		const VShaderID &vsid = pending.link[i].first;
 		const FShaderID &fsid = pending.link[i].second;
-		Shader *vs = vsCache_.Get(vsid);
-		Shader *fs = fsCache_.Get(fsid);
+		Shader *vs = nullptr;
+		Shader *fs = nullptr;
+		vsCache_.Get(vsid, &vs);
+		fsCache_.Get(fsid, &fs);
 		if (vs && fs) {
 			LinkedShader *ls = new LinkedShader(render_, vsid, vs, fsid, fs, vs->UseHWTransform(), true);
 			LinkedShaderCacheEntry entry(vs, fs, ls);

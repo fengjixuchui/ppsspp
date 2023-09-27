@@ -12,6 +12,7 @@
 #include "Common/GPU/Vulkan/VulkanContext.h"
 #include "Common/GPU/Vulkan/VulkanRenderManager.h"
 
+#include "Common/LogReporting.h"
 #include "Common/Thread/ThreadUtil.h"
 #include "Common/VR/PPSSPPVR.h"
 
@@ -29,6 +30,10 @@ using namespace PPSSPP_VK;
 
 // renderPass is an example of the "compatibility class" or RenderPassType type.
 bool VKRGraphicsPipeline::Create(VulkanContext *vulkan, VkRenderPass compatibleRenderPass, RenderPassType rpType, VkSampleCountFlagBits sampleCount, double scheduleTime, int countToCompile) {
+	// Good torture test to test the shutdown-while-precompiling-shaders issue on PC where it's normally
+	// hard to catch because shaders compile so fast.
+	// sleep_ms(200);
+
 	bool multisample = RenderPassTypeHasMultisample(rpType);
 	if (multisample) {
 		if (sampleCount_ != VK_SAMPLE_COUNT_FLAG_BITS_MAX_ENUM) {
@@ -195,6 +200,14 @@ VKRGraphicsPipeline::~VKRGraphicsPipeline() {
 		desc->Release();
 }
 
+void VKRGraphicsPipeline::BlockUntilCompiled() {
+	for (size_t i = 0; i < (size_t)RenderPassType::TYPE_COUNT; i++) {
+		if (pipeline[i]) {
+			pipeline[i]->BlockUntilReady();
+		}
+	}
+}
+
 void VKRGraphicsPipeline::QueueForDeletion(VulkanContext *vulkan) {
 	// Can't destroy variants here, the pipeline still lives for a while.
 	vulkan->Delete().QueueCallback([](VulkanContext *vulkan, void *p) {
@@ -275,7 +288,6 @@ bool VulkanRenderManager::CreateBackbuffers() {
 		return false;
 	}
 
-
 	VkCommandBuffer cmdInit = GetInitCmd();
 
 	if (!queueRunner_.CreateSwapchain(cmdInit)) {
@@ -296,6 +308,11 @@ bool VulkanRenderManager::CreateBackbuffers() {
 	}
 
 	outOfDateFrames_ = 0;
+
+	for (int i = 0; i < vulkan_->GetInflightFrames(); i++) {
+		auto &frameData = frameData_[i];
+		frameData.readyForFence = true;  // Just in case.
+	}
 
 	// Start the thread(s).
 	if (HasBackbuffers()) {
@@ -500,12 +517,18 @@ void VulkanRenderManager::CompileThreadFunc() {
 	}
 }
 
-void VulkanRenderManager::DrainCompileQueue() {
+void VulkanRenderManager::DrainAndBlockCompileQueue() {
 	std::unique_lock<std::mutex> lock(compileMutex_);
+	compileBlocked_ = true;
 	compileCond_.notify_all();
 	while (!compileQueue_.empty()) {
 		queueRunner_.WaitForCompileNotification();
 	}
+}
+
+void VulkanRenderManager::ReleaseCompileQueue() {
+	std::unique_lock<std::mutex> lock(compileMutex_);
+	compileBlocked_ = false;
 }
 
 void VulkanRenderManager::ThreadFunc() {
@@ -708,14 +731,28 @@ VkCommandBuffer VulkanRenderManager::GetInitCmd() {
 	return frameData_[curFrame].GetInitCmd(vulkan_);
 }
 
-VKRGraphicsPipeline *VulkanRenderManager::CreateGraphicsPipeline(VKRGraphicsPipelineDesc *desc, PipelineFlags pipelineFlags, uint32_t variantBitmask, VkSampleCountFlagBits sampleCount, bool cacheLoad, const char *tag) {
-	VKRGraphicsPipeline *pipeline = new VKRGraphicsPipeline(pipelineFlags, tag);
+void VulkanRenderManager::ReportBadStateForDraw() {
+	const char *cause1 = "";
+	char cause2[256];
+	cause2[0] = '\0';
+	if (!curRenderStep_) {
+		cause1 = "No current render step";
+	}
+	if (curRenderStep_ && curRenderStep_->stepType != VKRStepType::RENDER) {
+		cause1 = "Not a render step: ";
+		std::string str = VulkanQueueRunner::StepToString(vulkan_, *curRenderStep_);
+		truncate_cpy(cause2, str.c_str());
+	}
+	ERROR_LOG_REPORT_ONCE(baddraw, G3D, "Can't draw: %s%s. Step count: %d", cause1, cause2, (int)steps_.size());
+}
 
+VKRGraphicsPipeline *VulkanRenderManager::CreateGraphicsPipeline(VKRGraphicsPipelineDesc *desc, PipelineFlags pipelineFlags, uint32_t variantBitmask, VkSampleCountFlagBits sampleCount, bool cacheLoad, const char *tag) {
 	if (!desc->vertexShader || !desc->fragmentShader) {
 		ERROR_LOG(G3D, "Can't create graphics pipeline with missing vs/ps: %p %p", desc->vertexShader, desc->fragmentShader);
 		return nullptr;
 	}
 
+	VKRGraphicsPipeline *pipeline = new VKRGraphicsPipeline(pipelineFlags, tag);
 	pipeline->desc = desc;
 	pipeline->desc->AddRef();
 	if (curRenderStep_ && !cacheLoad) {
@@ -732,7 +769,11 @@ VKRGraphicsPipeline *VulkanRenderManager::CreateGraphicsPipeline(VKRGraphicsPipe
 			VKRRenderPassStoreAction::STORE, VKRRenderPassStoreAction::DONT_CARE, VKRRenderPassStoreAction::DONT_CARE,
 		};
 		VKRRenderPass *compatibleRenderPass = queueRunner_.GetRenderPass(key);
-		compileMutex_.lock();
+		std::lock_guard<std::mutex> lock(compileMutex_);
+		if (compileBlocked_) {
+			delete pipeline;
+			return nullptr;
+		}
 		bool needsCompile = false;
 		for (size_t i = 0; i < (size_t)RenderPassType::TYPE_COUNT; i++) {
 			if (!(variantBitmask & (1 << i)))
@@ -756,18 +797,19 @@ VKRGraphicsPipeline *VulkanRenderManager::CreateGraphicsPipeline(VKRGraphicsPipe
 		}
 		if (needsCompile)
 			compileCond_.notify_one();
-		compileMutex_.unlock();
 	}
 	return pipeline;
 }
 
 VKRComputePipeline *VulkanRenderManager::CreateComputePipeline(VKRComputePipelineDesc *desc) {
+	std::lock_guard<std::mutex> lock(compileMutex_);
+	if (compileBlocked_) {
+		return nullptr;
+	}
 	VKRComputePipeline *pipeline = new VKRComputePipeline();
 	pipeline->desc = desc;
-	compileMutex_.lock();
 	compileQueue_.push_back(CompileQueueEntry(pipeline));
 	compileCond_.notify_one();
-	compileMutex_.unlock();
 	return pipeline;
 }
 
@@ -813,7 +855,7 @@ void VulkanRenderManager::EndCurRenderStep() {
 	compileMutex_.lock();
 	bool needsCompile = false;
 	for (VKRGraphicsPipeline *pipeline : pipelinesToCheck_) {
-		if (!pipeline) {
+		if (!pipeline || compileBlocked_) {
 			// Not good, but let's try not to crash.
 			continue;
 		}

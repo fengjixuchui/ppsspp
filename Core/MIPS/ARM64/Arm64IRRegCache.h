@@ -59,6 +59,7 @@ public:
 	Arm64Gen::ARM64Reg MapGPR2(IRReg reg, MIPSMap mapFlags = MIPSMap::INIT);
 	Arm64Gen::ARM64Reg MapGPRAsPointer(IRReg reg);
 	Arm64Gen::ARM64Reg MapFPR(IRReg reg, MIPSMap mapFlags = MIPSMap::INIT);
+	Arm64Gen::ARM64Reg MapVec2(IRReg first, MIPSMap mapFlags = MIPSMap::INIT);
 	Arm64Gen::ARM64Reg MapVec4(IRReg first, MIPSMap mapFlags = MIPSMap::INIT);
 
 	Arm64Gen::ARM64Reg MapWithFPRTemp(const IRInst &inst);
@@ -85,7 +86,7 @@ protected:
 	const int *GetAllocationOrder(MIPSLoc type, MIPSMap flags, int &count, int &base) const override;
 	void AdjustNativeRegAsPtr(IRNativeReg nreg, bool state) override;
 
-	bool IsNativeRegCompatible(IRNativeReg nreg, MIPSLoc type, MIPSMap flags) override;
+	bool IsNativeRegCompatible(IRNativeReg nreg, MIPSLoc type, MIPSMap flags, int lanes) override;
 	void LoadNativeReg(IRNativeReg nreg, IRReg first, int lanes) override;
 	void StoreNativeReg(IRNativeReg nreg, IRReg first, int lanes) override;
 	void SetNativeRegValue(IRNativeReg nreg, uint32_t imm) override;

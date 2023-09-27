@@ -99,8 +99,8 @@ void DrawEngineVulkan::InitDeviceObjects() {
 	bindings[3].descriptorCount = 1;
 	bindings[3].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
 	bindings[3].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-	if (gstate_c.Use(GPU_USE_GS_CULLING))
-		bindings[3].stageFlags |= VK_SHADER_STAGE_GEOMETRY_BIT;
+	if (draw_->GetDeviceCaps().geometryShaderSupported)
+		bindings[3].stageFlags |= VK_SHADER_STAGE_GEOMETRY_BIT;  // unlikely to have a penalty. if we check GPU_USE_GS_CULLING, we have problems on runtime toggle.
 	bindings[3].binding = DRAW_BINDING_DYNUBO_BASE;
 	bindings[4].descriptorCount = 1;
 	bindings[4].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
@@ -383,9 +383,10 @@ VkDescriptorSet DrawEngineVulkan::GetOrCreateDescriptorSet(VkImageView imageView
 	FrameData &frame = GetCurFrame();
 	// See if we already have this descriptor set cached.
 	if (!tess) { // Don't cache descriptors for HW tessellation.
-		VkDescriptorSet d = frame.descSets.Get(key);
-		if (d != VK_NULL_HANDLE)
+		VkDescriptorSet d;
+		if (frame.descSets.Get(key, &d)) {
 			return d;
+		}
 	}
 
 	// Didn't find one in the frame descriptor set cache, let's make a new one.
@@ -550,8 +551,8 @@ bool DrawEngineVulkan::VertexCacheLookup(int &vertexCount, GEPrimitiveType &prim
 	u32 dcid = ComputeDrawcallsHash() ^ gstate.getUVGenMode();
 
 	PROFILE_THIS_SCOPE("vcache");
-	VertexArrayInfoVulkan *vai = vai_.Get(dcid);
-	if (!vai) {
+	VertexArrayInfoVulkan *vai;
+	if (!vai_.Get(dcid, &vai)) {
 		vai = new VertexArrayInfoVulkan();
 		vai_.Insert(dcid, vai);
 	}
@@ -790,20 +791,20 @@ void DrawEngineVulkan::DoFlush() {
 			VulkanGeometryShader *gshader = nullptr;
 
 			shaderManager_->GetShaders(prim, dec_, &vshader, &fshader, &gshader, pipelineState_, true, useHWTessellation_, decOptions_.expandAllWeightsToFloat, decOptions_.applySkinInDecode);
-			if (!vshader) {
-				// We're screwed.
-				return;
-			}
 			_dbg_assert_msg_(vshader->UseHWTransform(), "Bad vshader");
-
 			VulkanPipeline *pipeline = pipelineManager_->GetOrCreatePipeline(renderManager, pipelineLayout_, pipelineKey_, &dec_->decFmt, vshader, fshader, gshader, true, 0, framebufferManager_->GetMSAALevel(), false);
 			if (!pipeline || !pipeline->pipeline) {
 				// Already logged, let's bail out.
+				ResetAfterDraw();
 				return;
 			}
 			BindShaderBlendTex();  // This might cause copies so important to do before BindPipeline.
 
-			renderManager->BindPipeline(pipeline->pipeline, pipeline->pipelineFlags, pipelineLayout_);
+			if (!renderManager->BindPipeline(pipeline->pipeline, pipeline->pipelineFlags, pipelineLayout_)) {
+				renderManager->ReportBadStateForDraw();
+				ResetAfterDraw();
+				return;
+			}
 			if (pipeline != lastPipeline_) {
 				if (lastPipeline_ && !(lastPipeline_->UsesBlendConstant() && pipeline->UsesBlendConstant())) {
 					gstate_c.Dirty(DIRTY_BLEND_STATE);
@@ -857,7 +858,7 @@ void DrawEngineVulkan::DoFlush() {
 		if (prim == GE_PRIM_TRIANGLE_STRIP)
 			prim = GE_PRIM_TRIANGLES;
 
-		u16 *inds = decIndex_;
+		u16 *const inds = decIndex_;
 		SoftwareTransformResult result{};
 		SoftwareTransformParams params{};
 		params.decoded = decoded_;
@@ -897,9 +898,10 @@ void DrawEngineVulkan::DoFlush() {
 		// Games sometimes expect exact matches (see #12626, for example) for equal comparisons.
 		if (result.action == SW_CLEAR && everUsedEqualDepth_ && gstate.isClearModeDepthMask() && result.depth > 0.0f && result.depth < 1.0f)
 			result.action = SW_NOT_READY;
+		int indsOffset = 0;
 		if (result.action == SW_NOT_READY) {
 			swTransform.DetectOffsetTexture(maxIndex);
-			swTransform.BuildDrawingParams(prim, indexGen.VertexCount(), dec_->VertexType(), inds, maxIndex, &result);
+			swTransform.BuildDrawingParams(prim, indexGen.VertexCount(), dec_->VertexType(), inds, indsOffset, DECODED_INDEX_BUFFER_SIZE / sizeof(uint16_t), maxIndex, &result);
 		}
 
 		if (result.setSafeSize)
@@ -930,15 +932,16 @@ void DrawEngineVulkan::DoFlush() {
 				VulkanPipeline *pipeline = pipelineManager_->GetOrCreatePipeline(renderManager, pipelineLayout_, pipelineKey_, &dec_->decFmt, vshader, fshader, gshader, false, 0, framebufferManager_->GetMSAALevel(), false);
 				if (!pipeline || !pipeline->pipeline) {
 					// Already logged, let's bail out.
-					decodedVerts_ = 0;
-					numDrawCalls_ = 0;
-					decodeCounter_ = 0;
-					decOptions_.applySkinInDecode = g_Config.bSoftwareSkinning;
+					ResetAfterDraw();
 					return;
 				}
 				BindShaderBlendTex();  // This might cause copies so super important to do before BindPipeline.
 
-				renderManager->BindPipeline(pipeline->pipeline, pipeline->pipelineFlags, pipelineLayout_);
+				if (!renderManager->BindPipeline(pipeline->pipeline, pipeline->pipelineFlags, pipelineLayout_)) {
+					renderManager->ReportBadStateForDraw();
+					ResetAfterDraw();
+					return;
+				}
 				if (pipeline != lastPipeline_) {
 					if (lastPipeline_ && !lastPipeline_->UsesBlendConstant() && pipeline->UsesBlendConstant()) {
 						gstate_c.Dirty(DIRTY_BLEND_STATE);
@@ -969,9 +972,9 @@ void DrawEngineVulkan::DoFlush() {
 			if (result.drawIndexed) {
 				VkBuffer vbuf, ibuf;
 				vbOffset = (uint32_t)pushVertex_->Push(result.drawBuffer, maxIndex * sizeof(TransformedVertex), 4, &vbuf);
-				ibOffset = (uint32_t)pushIndex_->Push(inds, sizeof(short) * result.drawNumTrans, 4, &ibuf);
+				ibOffset = (uint32_t)pushIndex_->Push(inds + indsOffset, sizeof(short) * result.drawNumTrans, 4, &ibuf);
 				renderManager->DrawIndexed(ds, ARRAY_SIZE(dynamicUBOOffsets), dynamicUBOOffsets, vbuf, vbOffset, ibuf, ibOffset, result.drawNumTrans, 1);
-			} else {
+			} else if (result.drawNumTrans > 0) {
 				VkBuffer vbuf;
 				vbOffset = (uint32_t)pushVertex_->Push(result.drawBuffer, result.drawNumTrans * sizeof(TransformedVertex), 4, &vbuf);
 				renderManager->Draw(ds, ARRAY_SIZE(dynamicUBOOffsets), dynamicUBOOffsets, vbuf, vbOffset, result.drawNumTrans);
@@ -1023,6 +1026,15 @@ void DrawEngineVulkan::DoFlush() {
 	gstate_c.vertBounds.maxV = 0;
 
 	GPUDebug::NotifyDraw();
+}
+
+void DrawEngineVulkan::ResetAfterDraw() {
+	indexGen.Reset();
+	decodedVerts_ = 0;
+	numDrawCalls_ = 0;
+	decodeCounter_ = 0;
+	decOptions_.applySkinInDecode = g_Config.bSoftwareSkinning;
+	gstate_c.vertexFullAlpha = true;
 }
 
 void DrawEngineVulkan::UpdateUBOs(FrameData *frame) {

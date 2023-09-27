@@ -121,9 +121,10 @@ SamplerCache::~SamplerCache() {
 }
 
 VkSampler SamplerCache::GetOrCreateSampler(const SamplerCacheKey &key) {
-	VkSampler sampler = cache_.Get(key);
-	if (sampler != VK_NULL_HANDLE)
+	VkSampler sampler;
+	if (cache_.Get(key, &sampler)) {
 		return sampler;
+	}
 
 	VkSamplerCreateInfo samp = { VK_STRUCTURE_TYPE_SAMPLER_CREATE_INFO };
 	samp.addressModeU = key.sClamp ? VK_SAMPLER_ADDRESS_MODE_CLAMP_TO_EDGE : VK_SAMPLER_ADDRESS_MODE_REPEAT;
@@ -442,6 +443,8 @@ void TextureCacheVulkan::BuildTexture(TexCacheEntry *const entry) {
 		dstFmt = VULKAN_CLUT8_FORMAT;
 	}
 
+	_dbg_assert_(plan.levelsToLoad <= plan.maxPossibleLevels);
+
 	// We don't generate mipmaps for 512x512 textures because they're almost exclusively used for menu backgrounds
 	// and similar, which don't really need it.
 	// Also, if using replacements, check that we really can generate mips for this format - that's not possible for compressed ones.
@@ -471,19 +474,6 @@ void TextureCacheVulkan::BuildTexture(TexCacheEntry *const entry) {
 
 	delete entry->vkTex;
 
-	char texName[64]{};
-	snprintf(texName, sizeof(texName), "tex_%08x_%s", entry->addr, GeTextureFormatToString((GETextureFormat)entry->format, gstate.getClutPaletteFormat()));
-	entry->vkTex = new VulkanTexture(vulkan, texName);
-	VulkanTexture *image = entry->vkTex;
-
-	const VkComponentMapping *mapping;
-	switch (actualFmt) {
-	case VULKAN_4444_FORMAT: mapping = &VULKAN_4444_SWIZZLE; break;
-	case VULKAN_1555_FORMAT: mapping = &VULKAN_1555_SWIZZLE; break;
-	case VULKAN_565_FORMAT:  mapping = &VULKAN_565_SWIZZLE;  break;
-	default:                 mapping = &VULKAN_8888_SWIZZLE; break;  // no swizzle
-	}
-
 	VkImageLayout imageLayout = VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL;
 	VkImageUsageFlags usage = VK_IMAGE_USAGE_TRANSFER_SRC_BIT | VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT;
 
@@ -504,6 +494,18 @@ void TextureCacheVulkan::BuildTexture(TexCacheEntry *const entry) {
 		actualFmt = VULKAN_8888_FORMAT;
 	}
 
+	const VkComponentMapping *mapping;
+	switch (actualFmt) {
+	case VULKAN_4444_FORMAT: mapping = &VULKAN_4444_SWIZZLE; break;
+	case VULKAN_1555_FORMAT: mapping = &VULKAN_1555_SWIZZLE; break;
+	case VULKAN_565_FORMAT:  mapping = &VULKAN_565_SWIZZLE;  break;
+	default:                 mapping = &VULKAN_8888_SWIZZLE; break;  // no swizzle
+	}
+
+	char texName[64]{};
+	snprintf(texName, sizeof(texName), "tex_%08x_%s", entry->addr, GeTextureFormatToString((GETextureFormat)entry->format, gstate.getClutPaletteFormat()));
+	entry->vkTex = new VulkanTexture(vulkan, texName);
+	VulkanTexture *image = entry->vkTex;
 	bool allocSuccess = image->CreateDirect(cmdInit, plan.createW, plan.createH, plan.depth, plan.levelsToCreate, actualFmt, imageLayout, usage, mapping);
 	if (!allocSuccess && !lowMemoryMode_) {
 		WARN_LOG_REPORT(G3D, "Texture cache ran out of GPU memory; switching to low memory mode");

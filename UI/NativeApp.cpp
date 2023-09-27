@@ -828,7 +828,7 @@ bool CreateGlobalPipelines();
 bool NativeInitGraphics(GraphicsContext *graphicsContext) {
 	INFO_LOG(SYSTEM, "NativeInitGraphics");
 
-	_assert_(g_screenManager);
+	_assert_msg_(g_screenManager, "No screenmanager, bad init order. Backend = %d", g_Config.iGPUBackend);
 
 	// We set this now so any resize during init is processed later.
 	resized = false;
@@ -1336,22 +1336,12 @@ static void ProcessOneAxisEvent(const AxisInput &axis) {
 }
 
 void NativeAxis(const AxisInput *axes, size_t count) {
-	// figure out what the current tilt orientation is by checking the axis event
-	// This is static, since we need to remember where we last were (in terms of orientation)
-	static float tiltX;
-	static float tiltY;
-	static float tiltZ;
-
 	for (size_t i = 0; i < count; i++) {
 		ProcessOneAxisEvent(axes[i]);
-		switch (axes[i].axisId) {
-		case JOYSTICK_AXIS_ACCELEROMETER_X: tiltX = axes[i].value; break;
-		case JOYSTICK_AXIS_ACCELEROMETER_Y: tiltY = axes[i].value; break;
-		case JOYSTICK_AXIS_ACCELEROMETER_Z: tiltZ = axes[i].value; break;
-		default: break;
-		}
 	}
+}
 
+void NativeAccelerometer(float tiltX, float tiltY, float tiltZ) {
 	if (g_Config.iTiltInputType == TILT_NULL) {
 		// if tilt events are disabled, don't do anything special.
 		return;
@@ -1377,6 +1367,10 @@ void NativeAxis(const AxisInput *axes, size_t count) {
 	TiltEventProcessor::ProcessTilt(landscape, tiltBaseAngleY, tiltX, tiltY, tiltZ,
 		g_Config.bInvertTiltX, g_Config.bInvertTiltY,
 		xSensitivity, ySensitivity);
+
+	HLEPlugins::PluginDataAxis[JOYSTICK_AXIS_ACCELEROMETER_X] = tiltX;
+	HLEPlugins::PluginDataAxis[JOYSTICK_AXIS_ACCELEROMETER_Y] = tiltY;
+	HLEPlugins::PluginDataAxis[JOYSTICK_AXIS_ACCELEROMETER_Z] = tiltZ;
 }
 
 void System_PostUIMessage(const std::string &message, const std::string &value) {
@@ -1465,18 +1459,21 @@ static Path GetSecretPath(const char *nameOfSecret) {
 }
 
 // name should be simple alphanumerics to avoid problems on Windows.
-void NativeSaveSecret(const char *nameOfSecret, const std::string &data) {
+bool NativeSaveSecret(const char *nameOfSecret, const std::string &data) {
 	Path path = GetSecretPath(nameOfSecret);
 	if (!File::WriteDataToFile(false, data.data(), (unsigned int)data.size(), path)) {
 		WARN_LOG(SYSTEM, "Failed to write secret '%s' to path '%s'", nameOfSecret, path.c_str());
+		return false;
 	}
+	return true;
 }
 
+// On failure, returns an empty string. Good enough since any real secret is non-empty.
 std::string NativeLoadSecret(const char *nameOfSecret) {
 	Path path = GetSecretPath(nameOfSecret);
 	std::string data;
 	if (!File::ReadFileToString(false, path, data)) {
-		WARN_LOG(SYSTEM, "Failed to read secret '%s' from path '%s'", nameOfSecret, path.c_str());
+		data.clear();  // just to be sure.
 	}
 	return data;
 }

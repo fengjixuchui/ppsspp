@@ -315,6 +315,7 @@ void Jit::Compile(u32 em_address) {
 	int block_num = blocks.AllocateBlock(em_address);
 	JitBlock *b = blocks.GetBlock(block_num);
 	DoJit(em_address, b);
+	_assert_msg_(b->originalAddress == em_address, "original %08x != em_address %08x (block %d)", b->originalAddress, em_address, b->blockNum);
 	blocks.FinalizeBlock(block_num, jo.enableBlocklink);
 
 	EndWrite();
@@ -360,7 +361,8 @@ MIPSOpcode Jit::GetOffsetInstruction(int offset) {
 
 const u8 *Jit::DoJit(u32 em_address, JitBlock *b) {
 	js.cancel = false;
-	js.blockStart = js.compilerPC = mips_->pc;
+	js.blockStart = em_address;
+	js.compilerPC = em_address;
 	js.lastContinuedPC = 0;
 	js.initialBlockSize = 0;
 	js.nextExit = 0;
@@ -603,7 +605,7 @@ void Jit::Comp_ReplacementFunc(MIPSOpcode op) {
 
 	const ReplacementTableEntry *entry = GetReplacementFunc(index);
 	if (!entry) {
-		ERROR_LOG(HLE, "Invalid replacement op %08x", op.encoding);
+		ERROR_LOG_REPORT_ONCE(replFunc, HLE, "Invalid replacement op %08x at %08x", op.encoding, js.compilerPC);
 		return;
 	}
 
@@ -706,7 +708,7 @@ static void HitInvalidBranch(uint32_t dest) {
 }
 
 void Jit::WriteExit(u32 destination, int exit_num) {
-	_dbg_assert_msg_(exit_num < MAX_JIT_BLOCK_EXITS, "Expected a valid exit_num");
+	_assert_msg_(exit_num < MAX_JIT_BLOCK_EXITS, "Expected a valid exit_num. dest=%08x", destination);
 
 	if (!Memory::IsValidAddress(destination) || (destination & 3) != 0) {
 		ERROR_LOG_REPORT(JIT, "Trying to write block exit to illegal destination %08x: pc = %08x", destination, currentMIPS->pc);
