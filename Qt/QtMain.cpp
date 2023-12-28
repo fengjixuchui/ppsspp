@@ -304,7 +304,7 @@ bool MainUI::HandleCustomEvent(QEvent *e) {
 		const char *filter = "All files (*.*)";
 		switch (fileType) {
 		case BrowseFileType::BOOTABLE:
-			filter = "PSP ROMs (*.iso *.cso *.pbp *.elf *.zip *.ppdmp)";
+			filter = "PSP ROMs (*.iso *.cso *.chd *.pbp *.elf *.zip *.ppdmp)";
 			break;
 		case BrowseFileType::IMAGE:
 			filter = "Pictures (*.jpg *.png)";
@@ -542,7 +542,7 @@ QString MainUI::InputBoxGetQString(QString title, QString defaultValue) {
 
 void MainUI::resizeGL(int w, int h) {
 	if (UpdateScreenScale(w, h)) {
-		System_PostUIMessage("gpu_displayResized", "");
+		System_PostUIMessage(UIMessage::GPU_RENDER_RESIZED);
 	}
 	xscale = w / this->width();
 	yscale = h / this->height();

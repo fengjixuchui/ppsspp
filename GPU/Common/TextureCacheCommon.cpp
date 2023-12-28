@@ -29,6 +29,7 @@
 #include "Common/TimeUtil.h"
 #include "Common/Math/math_util.h"
 #include "Common/GPU/thin3d.h"
+#include "Core/HDRemaster.h"
 #include "Core/Config.h"
 #include "Core/Debugger/MemBlockInfo.h"
 #include "Core/System.h"
@@ -147,7 +148,7 @@ void TextureCacheCommon::StartFrame() {
 		Clear(true);
 		clearCacheNextFrame_ = false;
 	} else {
-		Decimate(false);
+		Decimate(nullptr, false);
 	}
 }
 
@@ -238,9 +239,9 @@ SamplerCacheKey TextureCacheCommon::GetSamplingParams(int maxLevel, const TexCac
 	// Filtering overrides from replacements or settings.
 	TextureFiltering forceFiltering = TEX_FILTER_AUTO;
 	bool useReplacerFiltering = false;
-	if (entry && replacer_.Enabled() && entry->replacedTexture && entry->replacedTexture->State() == ReplacementState::ACTIVE) {
+	if (entry && replacer_.Enabled() && entry->replacedTexture) {
 		// If replacement textures have multiple mip levels, enforce mip filtering.
-		if (entry->replacedTexture->NumLevels() > 1) {
+		if (entry->replacedTexture->State() == ReplacementState::ACTIVE && entry->replacedTexture->NumLevels() > 1) {
 			key.mipEnable = true;
 			key.mipFilt = 1;
 			key.maxLevel = 9 * 256;
@@ -493,6 +494,7 @@ TexCacheEntry *TextureCacheCommon::SetTexture() {
 					// Exponential backoff up to 512 frames.  Textures are often reused.
 					if (entry->numFrames > 32) {
 						// Also, try to add some "randomness" to avoid rehashing several textures the same frame.
+						// textureName is unioned with texturePtr and vkTex so will work for the other backends.
 						entry->framesUntilNextFullHash = std::min(512, entry->numFrames) + (((intptr_t)(entry->textureName) >> 12) & 15);
 					} else {
 						entry->framesUntilNextFullHash = entry->numFrames;
@@ -756,7 +758,7 @@ bool TextureCacheCommon::GetBestFramebufferCandidate(const TextureDefinition &en
 		}
 		cands += "\n";
 
-		WARN_LOG(G3D, "GetFramebufferCandidates: Multiple (%d) candidate framebuffers. texaddr: %08x offset: %d (%dx%d stride %d, %s):\n%s",
+		WARN_LOG(G3D, "GetFramebufferCandidates(tex): Multiple (%d) candidate framebuffers. texaddr: %08x offset: %d (%dx%d stride %d, %s):\n%s",
 			(int)candidates.size(),
 			entry.addr, texAddrOffset, dimWidth(entry.dim), dimHeight(entry.dim), entry.bufw, GeTextureFormatToString(entry.format),
 			cands.c_str()
@@ -776,7 +778,7 @@ bool TextureCacheCommon::GetBestFramebufferCandidate(const TextureDefinition &en
 }
 
 // Removes old textures.
-void TextureCacheCommon::Decimate(bool forcePressure) {
+void TextureCacheCommon::Decimate(TexCacheEntry *exceptThisOne, bool forcePressure) {
 	if (--decimationCounter_ <= 0) {
 		decimationCounter_ = TEXCACHE_DECIMATION_INTERVAL;
 	} else {
@@ -789,6 +791,10 @@ void TextureCacheCommon::Decimate(bool forcePressure) {
 		ForgetLastTexture();
 		int killAgeBase = lowMemoryMode_ ? TEXTURE_KILL_AGE_LOWMEM : TEXTURE_KILL_AGE;
 		for (TexCache::iterator iter = cache_.begin(); iter != cache_.end(); ) {
+			if (iter->second.get() == exceptThisOne) {
+				++iter;
+				continue;
+			}
 			bool hasClut = (iter->second->status & TexCacheEntry::STATUS_CLUT_VARIANTS) != 0;
 			int killAge = hasClut ? TEXTURE_KILL_AGE_CLUT : killAgeBase;
 			if (iter->second->lastFrame + killAge < gpuStats.numFlips) {
@@ -806,6 +812,10 @@ void TextureCacheCommon::Decimate(bool forcePressure) {
 		const u32 had = secondCacheSizeEstimate_;
 
 		for (TexCache::iterator iter = secondCache_.begin(); iter != secondCache_.end(); ) {
+			if (iter->second.get() == exceptThisOne) {
+				++iter;
+				continue;
+			}
 			// In low memory mode, we kill them all since secondary cache is disabled.
 			if (lowMemoryMode_ || iter->second->lastFrame + TEXTURE_SECOND_KILL_AGE < gpuStats.numFlips) {
 				ReleaseTexture(iter->second.get(), true);
@@ -1106,7 +1116,6 @@ bool TextureCacheCommon::MatchFramebuffer(
 
 void TextureCacheCommon::SetTextureFramebuffer(const AttachCandidate &candidate) {
 	VirtualFramebuffer *framebuffer = candidate.fb;
-	FramebufferMatchInfo fbInfo = candidate.match;
 	RasterChannel channel = candidate.channel;
 
 	if (candidate.match.reinterpret) {
@@ -1122,6 +1131,7 @@ void TextureCacheCommon::SetTextureFramebuffer(const AttachCandidate &candidate)
 	nextFramebufferTextureChannel_ = RASTER_COLOR;
 
 	if (framebufferManager_->UseBufferedRendering()) {
+		FramebufferMatchInfo fbInfo = candidate.match;
 		// Detect when we need to apply the horizontal texture swizzle.
 		u64 depthUpperBits = (channel == RASTER_DEPTH && framebuffer->fb_format == GE_FORMAT_8888) ? ((gstate.getTextureAddress(0) & 0x600000) >> 20) : 0;
 		bool needsDepthXSwizzle = depthUpperBits == 2;
@@ -2105,7 +2115,8 @@ void TextureCacheCommon::ApplyTexture() {
 			// Update the hash on the texture.
 			int w = gstate.getTextureWidth(0);
 			int h = gstate.getTextureHeight(0);
-			entry->fullhash = QuickTexHash(replacer_, entry->addr, entry->bufw, w, h, GETextureFormat(entry->format), entry);
+			bool swizzled = gstate.isTextureSwizzled();
+			entry->fullhash = QuickTexHash(replacer_, entry->addr, entry->bufw, w, h, swizzled, GETextureFormat(entry->format), entry);
 
 			// TODO: Here we could check the secondary cache; maybe the texture is in there?
 			// We would need to abort the build if so.
@@ -2194,26 +2205,28 @@ static bool CanDepalettize(GETextureFormat texFormat, GEBufferFormat bufferForma
 // If the palette is detected as a smooth ramp, we can interpolate for higher color precision.
 // But we only do it if the mask/shift exactly matches a color channel, else something different might be going
 // on and we definitely don't want to interpolate.
-// Great enhancement for Test Drive.
-static bool CanUseSmoothDepal(const GPUgstate &gstate, GEBufferFormat framebufferFormat, int rampLength) {
-	if (gstate.getClutIndexStartPos() == 0 &&
-		gstate.getClutIndexMask() < rampLength) {
-		switch (framebufferFormat) {
-		case GE_FORMAT_565:
-			if (gstate.getClutIndexShift() == 0 || gstate.getClutIndexShift() == 11) {
-				return gstate.getClutIndexMask() == 0x1F;
-			} else if (gstate.getClutIndexShift() == 5) {
-				return gstate.getClutIndexMask() == 0x3F;
+// Great enhancement for Test Drive and Manhunt 2.
+static bool CanUseSmoothDepal(const GPUgstate &gstate, GEBufferFormat framebufferFormat, const ClutTexture &clutTexture) {
+	for (int i = 0; i < ClutTexture::MAX_RAMPS; i++) {
+		if (gstate.getClutIndexStartPos() == clutTexture.rampStarts[i] &&
+			gstate.getClutIndexMask() < clutTexture.rampLengths[i]) {
+			switch (framebufferFormat) {
+			case GE_FORMAT_565:
+				if (gstate.getClutIndexShift() == 0 || gstate.getClutIndexShift() == 11) {
+					return gstate.getClutIndexMask() == 0x1F;
+				} else if (gstate.getClutIndexShift() == 5) {
+					return gstate.getClutIndexMask() == 0x3F;
+				}
+				break;
+			case GE_FORMAT_5551:
+				if (gstate.getClutIndexShift() == 0 || gstate.getClutIndexShift() == 5 || gstate.getClutIndexShift() == 10) {
+					return gstate.getClutIndexMask() == 0x1F;
+				}
+				break;
+			default:
+				// No uses for the other formats yet, add if needed.
+				break;
 			}
-			break;
-		case GE_FORMAT_5551:
-			if (gstate.getClutIndexShift() == 0 || gstate.getClutIndexShift() == 5 || gstate.getClutIndexShift() == 10) {
-				return gstate.getClutIndexMask() == 0x1F;
-			}
-			break;
-		default:
-			// No uses for the other formats yet, add if needed.
-			break;
 		}
 	}
 	return false;
@@ -2253,7 +2266,7 @@ void TextureCacheCommon::ApplyTextureFramebuffer(VirtualFramebuffer *framebuffer
 	if (need_depalettize) {
 		if (clutRenderAddress_ == 0xFFFFFFFF) {
 			clutTexture = textureShaderCache_->GetClutTexture(clutFormat, clutHash_, clutBufRaw_);
-			smoothedDepal = CanUseSmoothDepal(gstate, framebuffer->fb_format, clutTexture.rampLength);
+			smoothedDepal = CanUseSmoothDepal(gstate, framebuffer->fb_format, clutTexture);
 		} else {
 			// The CLUT texture is dynamic, it's the framebuffer pointed to by clutRenderAddress.
 			// Instead of texturing directly from that, we copy to a temporary CLUT texture.
@@ -2524,6 +2537,7 @@ bool TextureCacheCommon::CheckFullHash(TexCacheEntry *entry, bool &doDelete) {
 	int w = gstate.getTextureWidth(0);
 	int h = gstate.getTextureHeight(0);
 	bool isVideo = IsVideo(entry->addr);
+	bool swizzled = gstate.isTextureSwizzled();
 
 	// Don't even check the texture, just assume it has changed.
 	if (isVideo && g_Config.bTextureBackoffCache) {
@@ -2535,7 +2549,7 @@ bool TextureCacheCommon::CheckFullHash(TexCacheEntry *entry, bool &doDelete) {
 	u32 fullhash;
 	{
 		PROFILE_THIS_SCOPE("texhash");
-		fullhash = QuickTexHash(replacer_, entry->addr, entry->bufw, w, h, GETextureFormat(entry->format), entry);
+		fullhash = QuickTexHash(replacer_, entry->addr, entry->bufw, w, h, swizzled, GETextureFormat(entry->format), entry);
 	}
 
 	if (fullhash == entry->fullhash) {
@@ -2806,6 +2820,12 @@ bool TextureCacheCommon::PrepareBuildTexture(BuildTexturePlan &plan, TexCacheEnt
 	// Don't scale the PPGe texture.
 	if (isPPGETexture) {
 		plan.scaleFactor = 1;
+	} else if (!g_DoubleTextureCoordinates) {
+		// Refuse to load invalid-ly sized textures, which can happen through display list corruption.
+		if (plan.w > 1024 || plan.h > 1024) {
+			ERROR_LOG(G3D, "Bad texture dimensions: %dx%d", plan.w, plan.h);
+			return false;
+		}
 	}
 
 	if (PSP_CoreParameter().compat.flags().ForceLowerResolutionForEffectsOn && gstate.FrameBufStride() < 0x1E0) {

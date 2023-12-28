@@ -4,11 +4,45 @@ SRC := ../..
 include $(CLEAR_VARS)
 include $(LOCAL_PATH)/Locals.mk
 
+LOCAL_CFLAGS += -D_7ZIP_ST -D__SWITCH__
+
+LZMA_FILES := \
+	$(SRC)/ext/libchdr/deps/lzma-22.01/src/Alloc.c \
+	$(SRC)/ext/libchdr/deps/lzma-22.01/src/Bcj2.c \
+	$(SRC)/ext/libchdr/deps/lzma-22.01/src/Bcj2Enc.c \
+	$(SRC)/ext/libchdr/deps/lzma-22.01/src/Bra.c \
+	$(SRC)/ext/libchdr/deps/lzma-22.01/src/Bra86.c \
+	$(SRC)/ext/libchdr/deps/lzma-22.01/src/CpuArch.c \
+	$(SRC)/ext/libchdr/deps/lzma-22.01/src/Delta.c \
+	$(SRC)/ext/libchdr/deps/lzma-22.01/src/LzFind.c \
+	$(SRC)/ext/libchdr/deps/lzma-22.01/src/LzFindOpt.c \
+	$(SRC)/ext/libchdr/deps/lzma-22.01/src/LzmaDec.c \
+	$(SRC)/ext/libchdr/deps/lzma-22.01/src/LzmaEnc.c \
+	$(SRC)/ext/libchdr/deps/lzma-22.01/src/Lzma86Dec.c \
+	$(SRC)/ext/libchdr/deps/lzma-22.01/src/Lzma86Enc.c \
+	$(SRC)/ext/libchdr/deps/lzma-22.01/src/LzmaLib.c \
+	$(SRC)/ext/libchdr/deps/lzma-22.01/src/Sort.c
+
+CHDR_FILES := \
+	${LZMA_FILES} \
+	$(SRC)/ext/libchdr/src/libchdr_bitstream.c \
+	$(SRC)/ext/libchdr/src/libchdr_cdrom.c \
+	$(SRC)/ext/libchdr/src/libchdr_chd.c \
+	$(SRC)/ext/libchdr/src/libchdr_flac.c \
+	$(SRC)/ext/libchdr/src/libchdr_huffman.c
+
+LOCAL_MODULE := libchdr
+LOCAL_SRC_FILES := $(CHDR_FILES)
+include $(BUILD_STATIC_LIBRARY)
+
+include $(CLEAR_VARS)
+include $(LOCAL_PATH)/Locals.mk
+
 LOCAL_C_INCLUDES += \
   $(LOCAL_PATH)/../../ext/cpu_features/include \
   $(LOCAL_PATH)/../../ext/rcheevos/include
 
-LOCAL_CFLAGS += -DSTACK_LINE_READER_BUFFER_SIZE=1024 -DHAVE_DLFCN_H -DRC_DISABLE_LUA
+LOCAL_CFLAGS += -DSTACK_LINE_READER_BUFFER_SIZE=1024 -DHAVE_DLFCN_H -DRC_DISABLE_LUA -D_7ZIP_ST
 
 # http://software.intel.com/en-us/articles/getting-started-on-optimizing-ndk-project-for-multiple-cpu-architectures
 
@@ -61,6 +95,7 @@ VULKAN_FILES := \
   $(SRC)/Common/GPU/Vulkan/VulkanImage.cpp \
   $(SRC)/Common/GPU/Vulkan/VulkanFramebuffer.cpp \
   $(SRC)/Common/GPU/Vulkan/VulkanMemory.cpp \
+  $(SRC)/Common/GPU/Vulkan/VulkanDescSet.cpp \
   $(SRC)/Common/GPU/Vulkan/VulkanProfiler.cpp \
   $(SRC)/Common/GPU/Vulkan/VulkanBarrier.cpp
 
@@ -85,7 +120,6 @@ RCHEEVOS_FILES := \
   ${SRC}/ext/rcheevos/src/rapi/rc_api_runtime.c \
   ${SRC}/ext/rcheevos/src/rapi/rc_api_user.c \
   ${SRC}/ext/rcheevos/src/rcheevos/alloc.c \
-  ${SRC}/ext/rcheevos/src/rcheevos/compat.c \
   ${SRC}/ext/rcheevos/src/rcheevos/condition.c \
   ${SRC}/ext/rcheevos/src/rcheevos/condset.c \
   ${SRC}/ext/rcheevos/src/rcheevos/consoleinfo.c \
@@ -93,7 +127,9 @@ RCHEEVOS_FILES := \
   ${SRC}/ext/rcheevos/src/rcheevos/lboard.c \
   ${SRC}/ext/rcheevos/src/rcheevos/memref.c \
   ${SRC}/ext/rcheevos/src/rcheevos/operand.c \
-  ${SRC}/ext/rcheevos/src/rcheevos/rc_client.c \
+  ${SRC}/ext/rcheevos/src/rc_client.c \
+  ${SRC}/ext/rcheevos/src/rc_util.c \
+  ${SRC}/ext/rcheevos/src/rc_compat.c \
   ${SRC}/ext/rcheevos/src/rcheevos/rc_validate.c \
   ${SRC}/ext/rcheevos/src/rcheevos/richpresence.c \
   ${SRC}/ext/rcheevos/src/rcheevos/runtime.c \
@@ -103,6 +139,17 @@ RCHEEVOS_FILES := \
   ${SRC}/ext/rcheevos/src/rhash/cdreader.c \
   ${SRC}/ext/rcheevos/src/rhash/hash.c \
   ${SRC}/ext/rcheevos/src/rhash/md5.c
+
+ifeq ($(TARGET_ARCH_ABI),arm64-v8a)
+	ADRENOTOOLS_FILES := \
+	  ${SRC}/ext/libadrenotools/src/driver.cpp \
+	  ${SRC}/ext/libadrenotools/src/hook/hook_impl.cpp \
+	  ${SRC}/ext/libadrenotools/src/hook/file_redirect_hook.c \
+	  ${SRC}/ext/libadrenotools/src/hook/gsl_alloc_hook.c \
+	  ${SRC}/ext/libadrenotools/src/hook/main_hook.c \
+	  ${SRC}/ext/libadrenotools/lib/linkernsbypass/android_linker_ns.cpp \
+	  ${SRC}/ext/libadrenotools/lib/linkernsbypass/elf_soname_patcher.cpp
+endif
 
 VR_FILES := \
   $(SRC)/Common/VR/OpenXRLoader.cpp \
@@ -281,6 +328,10 @@ EXEC_AND_LIB_FILES := \
   $(SRC)/Common/SysError.cpp \
   $(SRC)/Common/TimeUtil.cpp
 
+ifeq ($(TARGET_ARCH_ABI),arm64-v8a)
+    EXEC_AND_LIB_FILES += $(ADRENOTOOLS_FILES)
+endif
+
 LOCAL_MODULE := ppsspp_common
 LOCAL_SRC_FILES := $(EXEC_AND_LIB_FILES)
 include $(BUILD_STATIC_LIBRARY)
@@ -288,7 +339,7 @@ include $(BUILD_STATIC_LIBRARY)
 # Next up, Core, GPU, and other core parts shared by headless.
 include $(CLEAR_VARS)
 include $(LOCAL_PATH)/Locals.mk
-LOCAL_WHOLE_STATIC_LIBRARIES += ppsspp_common
+LOCAL_WHOLE_STATIC_LIBRARIES += ppsspp_common libchdr
 
 ifeq ($(TARGET_ARCH_ABI),x86_64)
 ARCH_FILES := \
@@ -357,7 +408,7 @@ ARCH_FILES := \
   Arm64EmitterTest.cpp
 endif
 
-VULKAN_FILES := \
+GPU_VULKAN_FILES := \
   $(SRC)/GPU/Vulkan/DrawEngineVulkan.cpp \
   $(SRC)/GPU/Vulkan/FramebufferManagerVulkan.cpp \
   $(SRC)/GPU/Vulkan/GPU_Vulkan.cpp \
@@ -370,7 +421,7 @@ VULKAN_FILES := \
 
 EXEC_AND_LIB_FILES := \
   $(ARCH_FILES) \
-  $(VULKAN_FILES) \
+  $(GPU_VULKAN_FILES) \
   $(SRC)/ext/xxhash.c \
   TestRunner.cpp \
   $(SRC)/Core/MIPS/MIPS.cpp.arm \
@@ -628,6 +679,7 @@ EXEC_AND_LIB_FILES := \
   $(SRC)/Core/MIPS/JitCommon/JitState.cpp \
   $(SRC)/Core/Util/AudioFormat.cpp \
   $(SRC)/Core/Util/PortManager.cpp \
+  $(SRC)/Core/Util/GameDB.cpp \
   $(SRC)/Core/Util/GameManager.cpp \
   $(SRC)/Core/Util/BlockAllocator.cpp \
   $(SRC)/Core/Util/PPGeDraw.cpp \

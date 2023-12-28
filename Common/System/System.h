@@ -130,6 +130,7 @@ enum SystemProperty {
 	SYSPROP_HAS_IMAGE_BROWSER,
 	SYSPROP_HAS_BACK_BUTTON,
 	SYSPROP_HAS_KEYBOARD,
+	SYSPROP_HAS_ACCELEROMETER,  // Used to enable/disable tilt input settings
 	SYSPROP_HAS_OPEN_DIRECTORY,
 	SYSPROP_HAS_LOGIN_DIALOG,
 	SYSPROP_HAS_TEXT_INPUT_DIALOG,  // Indicates that System_InputBoxGetString is available.
@@ -138,6 +139,8 @@ enum SystemProperty {
 	SYSPROP_CAN_SHOW_FILE,
 
 	SYSPROP_SUPPORTS_HTTPS,
+
+	SYSPROP_DEBUGGER_PRESENT,
 
 	// Available as Int:
 	SYSPROP_SYSTEMVERSION,
@@ -185,6 +188,8 @@ enum SystemProperty {
 	SYSPROP_SKIP_UI,
 
 	SYSPROP_USER_DOCUMENTS_DIR,
+
+	SYSPROP_OK_BUTTON_LEFT,
 };
 
 enum class SystemNotification {
@@ -207,6 +212,41 @@ enum class SystemNotification {
 	ACTIVITY,
 };
 
+// I guess it's not super great architecturally to centralize this, since it's not general - but same with a lot of
+// the other stuff, and this is only used by PPSSPP, so... better this than ugly strings.
+enum class UIMessage {
+	PERMISSION_GRANTED,
+	POWER_SAVING,
+	RECREATE_VIEWS,
+	CONFIG_LOADED,
+	REQUEST_GAME_BOOT,
+	REQUEST_GAME_RUN, // or continue?
+	REQUEST_GAME_PAUSE,
+	REQUEST_GAME_RESET,
+	REQUEST_GAME_STOP,
+	GAME_SELECTED,
+	SHOW_CONTROL_MAPPING,
+	SHOW_CHAT_SCREEN,
+	SHOW_DISPLAY_LAYOUT_EDITOR,
+	SHOW_SETTINGS,
+	SHOW_LANGUAGE_SCREEN,
+	REQUEST_GPU_DUMP_NEXT_FRAME,
+	REQUEST_CLEAR_JIT,
+	APP_RESUMED,
+	REQUEST_PLAY_SOUND,
+	WINDOW_MINIMIZED,
+	LOST_FOCUS,
+	GOT_FOCUS,
+	GPU_CONFIG_CHANGED,
+	GPU_RENDER_RESIZED,
+	GPU_DISPLAY_RESIZED,
+	POSTSHADER_UPDATED,
+	ACHIEVEMENT_LOGIN_STATE_CHANGE,
+	SAVESTATE_DISPLAY_SLOT,
+	GAMESETTINGS_SEARCH,
+	SAVEDATA_SEARCH,
+};
+
 std::string System_GetProperty(SystemProperty prop);
 std::vector<std::string> System_GetPropertyStringVec(SystemProperty prop);
 int System_GetPropertyInt(SystemProperty prop);
@@ -221,7 +261,7 @@ bool System_AudioRecordingIsAvailable();
 bool System_AudioRecordingState();
 
 // This will be changed to take an enum. Replacement for the old NativeMessageReceived.
-void System_PostUIMessage(const std::string &message, const std::string &param);
+void System_PostUIMessage(UIMessage message, const std::string &param = "");
 
 // For these functions, most platforms will use the implementation provided in UI/AudioCommon.cpp,
 // no need to implement separately.

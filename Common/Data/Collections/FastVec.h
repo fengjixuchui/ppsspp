@@ -69,6 +69,8 @@ public:
 	void clear() { size_ = 0; }
 	bool empty() const { return size_ == 0; }
 
+	const T *data() const { return data_; }
+
 	T *begin() { return data_; }
 	T *end() { return data_ + size_; }
 	const T *begin() const { return data_; }
@@ -115,6 +117,29 @@ public:
 
 	void reserve(size_t newCapacity) {
 		IncreaseCapacityTo(newCapacity);
+	}
+
+	void extend(const T *newData, size_t count) {
+		IncreaseCapacityTo(size_ + count);
+		memcpy(data_ + size_, newData, count * sizeof(T));
+		size_ += count;
+	}
+
+	T *extend_uninitialized(size_t count) {
+		size_t sz = size_;
+		if (size_ + count <= capacity_) {
+			size_ += count;
+			return &data_[sz];
+		} else {
+			size_t newCapacity = size_ + count * 2;  // Leave some extra room when growing in all cases
+			if (newCapacity < capacity_ * 2) {
+				// Standard amortized O(1).
+				newCapacity = capacity_ * 2;
+			}
+			IncreaseCapacityTo(newCapacity);
+			size_ += count;
+			return &data_[sz];
+		}
 	}
 
 	void LockCapacity() {

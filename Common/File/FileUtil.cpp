@@ -592,7 +592,7 @@ bool CreateFullPath(const Path &path) {
 		return false;
 	}
 
-	std::vector<std::string> parts;
+	std::vector<std::string_view> parts;
 	SplitString(diff, '/', parts);
 
 	// Probably not necessary sanity check, ported from the old code.
@@ -602,7 +602,7 @@ bool CreateFullPath(const Path &path) {
 	}
 
 	Path curPath = root;
-	for (auto &part : parts) {
+	for (auto part : parts) {
 		curPath /= part;
 		if (!File::Exists(curPath)) {
 			File::CreateDir(curPath);
@@ -1181,6 +1181,7 @@ uint8_t *ReadLocalFile(const Path &filename, size_t *size) {
 		return nullptr;
 	}
 	fseek(file, 0, SEEK_SET);
+	// NOTE: If you find ~10 memory leaks from here, with very varying sizes, it might be the VFPU LUTs.
 	uint8_t *contents = new uint8_t[f_size + 1];
 	if (fread(contents, 1, f_size, file) != f_size) {
 		delete[] contents;
@@ -1208,12 +1209,11 @@ bool WriteStringToFile(bool text_file, const std::string &str, const Path &filen
 	return true;
 }
 
-bool WriteDataToFile(bool text_file, const void* data, const unsigned int size, const Path &filename) {
+bool WriteDataToFile(bool text_file, const void* data, size_t size, const Path &filename) {
 	FILE *f = File::OpenCFile(filename, text_file ? "w" : "wb");
 	if (!f)
 		return false;
-	size_t len = size;
-	if (len != fwrite(data, 1, len, f))
+	if (size != fwrite(data, 1, size, f))
 	{
 		fclose(f);
 		return false;

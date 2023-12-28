@@ -18,9 +18,11 @@
 #pragma once
 
 #include "ppsspp_config.h"
+
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <map>
 #include <vector>
 
 #include "Common/CommonFuncs.h"
@@ -101,7 +103,7 @@ public:
 	bool Enabled() const { return enabled_; }
 	bool AllowVideo() const { return allowVideo_; }
 
-	u32 ComputeHash(u32 addr, int bufw, int w, int h, GETextureFormat fmt, u16 maxSeenV);
+	u32 ComputeHash(u32 addr, int bufw, int w, int h, bool swizzled, GETextureFormat fmt, u16 maxSeenV);
 
 	// Returns nullptr if not found.
 	ReplacedTexture *FindReplacement(u64 cachekey, u32 hash, int w, int h);
@@ -134,6 +136,9 @@ protected:
 	bool LookupHashRange(u32 addr, int w, int h, int *newW, int *newH);
 	float LookupReduceHashRange(int w, int h);
 	std::string LookupHashFile(u64 cachekey, u32 hash, bool *foundAlias, bool *ignored);
+
+	void ScanForHashNamedFiles(VFSBackend *dir, std::map<ReplacementCacheKey, std::map<int, std::string>> &filenameMap);
+	void ComputeAliasMap(const std::map<ReplacementCacheKey, std::map<int, std::string>> &filenameMap);
 
 	bool enabled_ = false;
 	bool allowVideo_ = false;

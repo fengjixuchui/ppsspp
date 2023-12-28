@@ -11,6 +11,7 @@
 #include "Common/Render/Text/draw_text.h"
 #include "Common/Render/ManagedTexture.h"
 #include "Common/Log.h"
+#include "Common/TimeUtil.h"
 #include "Common/LogReporting.h"
 
 UIContext::UIContext() {
@@ -22,16 +23,19 @@ UIContext::~UIContext() {
 	sampler_->Release();
 	delete fontStyle_;
 	delete textDrawer_;
+	if (uitexture_)
+		uitexture_->Release();
+	if (fontTexture_)
+		fontTexture_->Release();
 }
 
-void UIContext::Init(Draw::DrawContext *thin3d, Draw::Pipeline *uipipe, Draw::Pipeline *uipipenotex, DrawBuffer *uidrawbuffer, DrawBuffer *uidrawbufferTop) {
+void UIContext::Init(Draw::DrawContext *thin3d, Draw::Pipeline *uipipe, Draw::Pipeline *uipipenotex, DrawBuffer *uidrawbuffer) {
 	using namespace Draw;
 	draw_ = thin3d;
 	sampler_ = draw_->CreateSamplerState({ TextureFilter::LINEAR, TextureFilter::LINEAR, TextureFilter::LINEAR, 0.0, TextureAddressMode::CLAMP_TO_EDGE, TextureAddressMode::CLAMP_TO_EDGE, TextureAddressMode::CLAMP_TO_EDGE, });
 	ui_pipeline_ = uipipe;
 	ui_pipeline_notex_ = uipipenotex;
 	uidrawbuffer_ = uidrawbuffer;
-	uidrawbufferTop_ = uidrawbufferTop;
 	textDrawer_ = TextDrawer::Create(thin3d);  // May return nullptr if no implementation is available for this platform.
 }
 
@@ -41,6 +45,7 @@ void UIContext::setUIAtlas(const std::string &name) {
 }
 
 void UIContext::BeginFrame() {
+	frameStartTime_ = time_now_d();
 	if (!uitexture_ || UIAtlas_ != lastUIAtlas_) {
 		uitexture_ = CreateTextureFromFile(draw_, UIAtlas_.c_str(), ImageFileType::ZIM, false);
 		lastUIAtlas_ = UIAtlas_;
@@ -59,14 +64,12 @@ void UIContext::BeginFrame() {
 			}
 		}
 	}
-	uidrawbufferTop_->SetCurZ(0.0f);
 	uidrawbuffer_->SetCurZ(0.0f);
 	ActivateTopScissor();
 }
 
 void UIContext::SetTintSaturation(float tint, float sat) {
 	uidrawbuffer_->SetTintSaturation(tint, sat);
-	uidrawbufferTop_->SetTintSaturation(tint, sat);
 }
 
 void UIContext::Begin() {
@@ -91,29 +94,25 @@ void UIContext::BeginPipeline(Draw::Pipeline *pipeline, Draw::SamplerState *samp
 
 void UIContext::RebindTexture() const {
 	if (uitexture_)
-		draw_->BindTexture(0, uitexture_->GetTexture());
+		draw_->BindTexture(0, uitexture_);
 }
 
 void UIContext::BindFontTexture() const {
 	// Fall back to the UI texture, in case they have an old atlas.
 	if (fontTexture_)
-		draw_->BindTexture(0, fontTexture_->GetTexture());
+		draw_->BindTexture(0, fontTexture_);
 	else if (uitexture_)
-		draw_->BindTexture(0, uitexture_->GetTexture());
+		draw_->BindTexture(0, uitexture_);
 }
 
 void UIContext::Flush() {
 	if (uidrawbuffer_) {
 		uidrawbuffer_->Flush();
 	}
-	if (uidrawbufferTop_) {
-		uidrawbufferTop_->Flush();
-	}
 }
 
 void UIContext::SetCurZ(float curZ) {
 	ui_draw2d.SetCurZ(curZ);
-	ui_draw2d_front.SetCurZ(curZ);
 }
 
 // TODO: Support transformed bounds using stencil instead.
@@ -171,8 +170,7 @@ void UIContext::ActivateTopScissor() {
 		int w = std::max(0.0f, ceilf(scale_x * bounds.w));
 		int h = std::max(0.0f, ceilf(scale_y * bounds.h));
 		if (x < 0 || y < 0 || x + w > g_display.pixel_xres || y + h > g_display.pixel_yres) {
-			// This won't actually report outside a game, but we can try.
-			DEBUG_LOG(G3D, "UI scissor out of bounds in %sScreen: %d,%d-%d,%d / %d,%d", screenTag_ ? screenTag_ : "N/A", x, y, w, h, g_display.pixel_xres, g_display.pixel_yres);
+			DEBUG_LOG(G3D, "UI scissor out of bounds: %d,%d-%d,%d / %d,%d", x, y, w, h, g_display.pixel_xres, g_display.pixel_yres);
 			if (x < 0) { w += x; x = 0; }
 			if (y < 0) { h += y; y = 0; }
 			if (x >= g_display.pixel_xres) { x = g_display.pixel_xres - 1; }

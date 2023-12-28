@@ -283,22 +283,28 @@ static int ScreenDPI() {
 #endif
 
 static int ScreenRefreshRateHz() {
-	DEVMODE lpDevMode;
-	memset(&lpDevMode, 0, sizeof(DEVMODE));
-	lpDevMode.dmSize = sizeof(DEVMODE);
-	lpDevMode.dmDriverExtra = 0;
+	static int rate = 0;
+	static double lastCheck = 0.0;
+	double now = time_now_d();
+	if (!rate || lastCheck < now - 10.0) {
+		lastCheck = now;
+		DEVMODE lpDevMode{};
+		lpDevMode.dmSize = sizeof(DEVMODE);
+		lpDevMode.dmDriverExtra = 0;
 
-	// TODO: Use QueryDisplayConfig instead (Win7+) so we can get fractional refresh rates correctly.
+		// TODO: Use QueryDisplayConfig instead (Win7+) so we can get fractional refresh rates correctly.
 
-	if (EnumDisplaySettings(NULL, ENUM_CURRENT_SETTINGS, &lpDevMode) == 0) {
-		return 60;  // default value
-	} else {
-		if (lpDevMode.dmFields & DM_DISPLAYFREQUENCY) {
-			return lpDevMode.dmDisplayFrequency > 60 ? lpDevMode.dmDisplayFrequency : 60;
+		if (EnumDisplaySettings(NULL, ENUM_CURRENT_SETTINGS, &lpDevMode) == 0) {
+			rate = 60;  // default value
 		} else {
-			return 60;
+			if (lpDevMode.dmFields & DM_DISPLAYFREQUENCY) {
+				rate = lpDevMode.dmDisplayFrequency > 60 ? lpDevMode.dmDisplayFrequency : 60;
+			} else {
+				rate = 60;
+			}
 		}
 	}
+	return rate;
 }
 
 int System_GetPropertyInt(SystemProperty prop) {
@@ -375,6 +381,10 @@ bool System_GetPropertyBool(SystemProperty prop) {
 		return true;  // FileUtil.cpp: OpenFileInEditor
 	case SYSPROP_SUPPORTS_HTTPS:
 		return !g_Config.bDisableHTTPS;
+	case SYSPROP_DEBUGGER_PRESENT:
+		return IsDebuggerPresent();
+	case SYSPROP_OK_BUTTON_LEFT:
+		return true;
 	default:
 		return false;
 	}
@@ -488,7 +498,7 @@ bool System_MakeRequest(SystemRequestType type, int requestId, const std::string
 		restartArgs = param1;
 		if (!restartArgs.empty())
 			AddDebugRestartArgs();
-		if (IsDebuggerPresent()) {
+		if (System_GetPropertyBool(SYSPROP_DEBUGGER_PRESENT)) {
 			PostMessage(MainWindow::GetHWND(), MainWindow::WM_USER_RESTART_EMUTHREAD, 0, 0);
 		} else {
 			g_Config.bRestartRequired = true;
@@ -554,7 +564,7 @@ bool System_MakeRequest(SystemRequestType type, int requestId, const std::string
 		std::wstring filter;
 		switch (type) {
 		case BrowseFileType::BOOTABLE:
-			filter = MakeFilter(L"All supported file types (*.iso *.cso *.pbp *.elf *.prx *.zip *.ppdmp)|*.pbp;*.elf;*.iso;*.cso;*.prx;*.zip;*.ppdmp|PSP ROMs (*.iso *.cso *.pbp *.elf *.prx)|*.pbp;*.elf;*.iso;*.cso;*.prx|Homebrew/Demos installers (*.zip)|*.zip|All files (*.*)|*.*||");
+			filter = MakeFilter(L"All supported file types (*.iso *.cso *.chd *.pbp *.elf *.prx *.zip *.ppdmp)|*.pbp;*.elf;*.iso;*.cso;*.chd;*.prx;*.zip;*.ppdmp|PSP ROMs (*.iso *.cso *.chd *.pbp *.elf *.prx)|*.pbp;*.elf;*.iso;*.cso;*.chd;*.prx|Homebrew/Demos installers (*.zip)|*.zip|All files (*.*)|*.*||");
 			break;
 		case BrowseFileType::INI:
 			filter = MakeFilter(L"Ini files (*.ini)|*.ini|All files (*.*)|*.*||");
@@ -688,28 +698,13 @@ static bool DetectVulkanInExternalProcess() {
 
 	const wchar_t *cmdline = L"--vulkan-available-check";
 
-	SHELLEXECUTEINFO info{ sizeof(SHELLEXECUTEINFO) };
-	info.fMask = SEE_MASK_NOCLOSEPROCESS;
-	info.lpFile = moduleFilename.c_str();
-	info.lpParameters = cmdline;
-	info.lpDirectory = workingDirectory.c_str();
-	info.nShow = SW_HIDE;
-	if (ShellExecuteEx(&info) != TRUE) {
-		return false;
-	}
-	if (info.hProcess == nullptr) {
-		return false;
-	}
-
-	DWORD result = WaitForSingleObject(info.hProcess, 10000);
 	DWORD exitCode = 0;
-	if (result == WAIT_FAILED || GetExitCodeProcess(info.hProcess, &exitCode) == 0) {
-		CloseHandle(info.hProcess);
+	if (W32Util::ExecuteAndGetReturnCode(moduleFilename.c_str(), cmdline, workingDirectory.c_str(), &exitCode)) {
+		return exitCode == EXIT_CODE_VULKAN_WORKS;
+	} else {
+		ERROR_LOG(G3D, "Failed to detect Vulkan in external process somehow");
 		return false;
 	}
-	CloseHandle(info.hProcess);
-
-	return exitCode == EXIT_CODE_VULKAN_WORKS;
 }
 #endif
 
@@ -834,6 +829,24 @@ static void WinMainCleanup() {
 }
 
 int WINAPI WinMain(HINSTANCE _hInstance, HINSTANCE hPrevInstance, LPSTR szCmdLine, int iCmdShow) {
+	std::vector<std::wstring> wideArgs = GetWideCmdLine();
+
+	// Check for the Vulkan workaround before any serious init.
+	for (size_t i = 1; i < wideArgs.size(); ++i) {
+		if (wideArgs[i][0] == L'-') {
+			// This should only be called by DetectVulkanInExternalProcess().
+			if (wideArgs[i] == L"--vulkan-available-check") {
+				// Just call it, this way it will crash here if it doesn't work.
+				// (this is an external process.)
+				bool result = VulkanMayBeAvailable();
+
+				LogManager::Shutdown();
+				WinMainCleanup();
+				return result ? EXIT_CODE_VULKAN_WORKS : EXIT_FAILURE;
+			}
+		}
+	}
+
 	SetCurrentThreadName("Main");
 
 	WinMainInit();
@@ -857,7 +870,6 @@ int WINAPI WinMain(HINSTANCE _hInstance, HINSTANCE hPrevInstance, LPSTR szCmdLin
 	std::string controlsConfigFilename = "";
 	const std::wstring controlsOption = L"--controlconfig=";
 
-	std::vector<std::wstring> wideArgs = GetWideCmdLine();
 
 	for (size_t i = 1; i < wideArgs.size(); ++i) {
 		if (wideArgs[i][0] == L'\0')
@@ -882,22 +894,6 @@ int WINAPI WinMain(HINSTANCE _hInstance, HINSTANCE hPrevInstance, LPSTR szCmdLin
 	g_Config.internalDataDirectory = Path(W32Util::UserDocumentsPath());
 	InitMemstickDirectory();
 	CreateSysDirectories();
-
-	// Check for the Vulkan workaround before any serious init.
-	for (size_t i = 1; i < wideArgs.size(); ++i) {
-		if (wideArgs[i][0] == L'-') {
-			// This should only be called by DetectVulkanInExternalProcess().
-			if (wideArgs[i] == L"--vulkan-available-check") {
-				// Just call it, this way it will crash here if it doesn't work.
-				// (this is an external process.)
-				bool result = VulkanMayBeAvailable();
-
-				LogManager::Shutdown();
-				WinMainCleanup();
-				return result ? EXIT_CODE_VULKAN_WORKS : EXIT_FAILURE;
-			}
-		}
-	}
 
 
 	// Load config up here, because those changes below would be overwritten

@@ -61,6 +61,7 @@
 #include "Core/HLE/sceKernelMemory.h"
 #include "Core/HLE/sceMpeg.h"
 #include "Core/HLE/scePsmf.h"
+#include "Core/HLE/sceAtrac.h"
 #include "Core/HLE/sceIo.h"
 #include "Core/HLE/KernelWaitHelpers.h"
 #include "Core/ELF/ParamSFO.h"
@@ -353,7 +354,7 @@ public:
 				bool foundBroken = false;
 				auto importedFuncsState = importedFuncs;
 				importedFuncs.clear();
-				for (auto func : importedFuncsState) {
+				for (const auto &func : importedFuncsState) {
 					if (func.moduleName[KERNELOBJECT_MAX_NAME_LENGTH] != '\0' || !Memory::IsValidAddress(func.stubAddr)) {
 						foundBroken = true;
 					} else {
@@ -1185,9 +1186,13 @@ static PSPModule *__KernelLoadELFFromPtr(const u8 *ptr, size_t elfSize, u32 load
 			if (!strcmp(head->modname, "sceMpeg_library")) {
 				__MpegLoadModule(ver, module->crc);
 			}
-			if (!strcmp(head->modname, "scePsmfP_library") || !strcmp(head->modname, "scePsmfPlayer")) {
-				__PsmfPlayerLoadModule(head->devkitversion, module->crc);
+			if (!strcmp(head->modname, "scePsmfP_library") || !strcmp(head->modname, "scePsmfPlayer") || !strcmp(head->modname, "libpsmfplayer") || !strcmp(head->modname, "psmf_jk") || !strcmp(head->modname, "jkPsmfP_library")) {
+				__PsmfPlayerLoadModule(devkitVersion, module->crc);
 			}
+			if (!strcmp(head->modname, "sceATRAC3plus_Library")) {
+				__AtracLoadModule(ver, module->crc);
+			}
+
 		}
 
 		const u8 *in = ptr;
@@ -1400,10 +1405,6 @@ static PSPModule *__KernelLoadELFFromPtr(const u8 *ptr, size_t elfSize, u32 load
 
 	if (!module->isFake) {
 		bool scan = true;
-#if defined(MOBILE_DEVICE)
-		scan = g_Config.bFuncReplacements;
-#endif
-
 		// If the ELF has debug symbols, don't add entries to the symbol table.
 		bool insertSymbols = scan && !reader.LoadSymbols();
 		std::vector<SectionID> codeSections = reader.GetCodeSections();
@@ -1631,9 +1632,13 @@ static PSPModule *__KernelLoadELFFromPtr(const u8 *ptr, size_t elfSize, u32 load
 		if (!strcmp(modinfo->name, "sceMpeg_library")) {
 			__MpegLoadModule(modinfo->moduleVersion, module->crc);
 		}
-		if (!strcmp(modinfo->name, "scePsmfP_library") || !strcmp(modinfo->name, "scePsmfPlayer")) {
+		if (!strcmp(modinfo->name, "scePsmfP_library") || !strcmp(modinfo->name, "scePsmfPlayer") || !strcmp(modinfo->name, "libpsmfplayer") || !strcmp(modinfo->name, "psmf_jk") || !strcmp(modinfo->name, "jkPsmfP_library")){
 			__PsmfPlayerLoadModule(devkitVersion, module->crc);
 		}
+		if (!strcmp(modinfo->name, "sceATRAC3plus_Library")) {
+			__AtracLoadModule(modinfo->moduleVersion, module->crc);
+		}
+
 	}
 
 	System_Notify(SystemNotification::SYMBOL_MAP_UPDATED);
@@ -1907,7 +1912,7 @@ bool __KernelLoadGEDump(const std::string &base_filename, std::string *error_str
 	};
 
 	for (size_t i = 0; i < ARRAY_SIZE(runDumpCode); ++i) {
-		Memory::WriteUnchecked_U32(runDumpCode[i], mipsr4k.pc + (int)i * sizeof(u32_le));
+		Memory::WriteUnchecked_U32(runDumpCode[i], mipsr4k.pc + (u32)i * sizeof(u32_le));
 	}
 
 	PSPModule *module = new PSPModule();
@@ -2159,7 +2164,6 @@ int KernelStartModule(SceUID moduleId, u32 argsize, u32 argAddr, u32 returnValue
 
 static void sceKernelStartModule(u32 moduleId, u32 argsize, u32 argAddr, u32 returnValueAddr, u32 optionAddr)
 {
-	auto smoption = PSPPointer<SceKernelSMOption>::Create(optionAddr);
 	u32 error;
 	PSPModule *module = kernelObjects.Get<PSPModule>(moduleId, error);
 	if (!module) {
@@ -2185,6 +2189,7 @@ static void sceKernelStartModule(u32 moduleId, u32 argsize, u32 argAddr, u32 ret
 		moduleId,argsize,argAddr,returnValueAddr,optionAddr);
 
 		bool needsWait;
+		auto smoption = PSPPointer<SceKernelSMOption>::Create(optionAddr);
 		int ret = KernelStartModule(moduleId, argsize, argAddr, returnValueAddr, smoption.PtrOrNull(), &needsWait);
 
 		if (needsWait) {

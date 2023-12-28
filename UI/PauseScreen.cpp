@@ -32,6 +32,7 @@
 #include "Common/VR/PPSSPPVR.h"
 #include "Common/UI/AsyncImageFileView.h"
 
+#include "Core/KeyMap.h"
 #include "Core/Reporting.h"
 #include "Core/SaveState.h"
 #include "Core/System.h"
@@ -200,8 +201,10 @@ SaveSlotView::SaveSlotView(const Path &gameFilename, int slot, bool vertical, UI
 	fv->OnClick.Handle(this, &SaveSlotView::OnScreenshotClick);
 
 	if (SaveState::HasSaveInSlot(gamePath_, slot)) {
-		loadStateButton_ = buttons->Add(new Button(pa->T("Load State"), new LinearLayoutParams(0.0, G_VCENTER)));
-		loadStateButton_->OnClick.Handle(this, &SaveSlotView::OnLoadState);
+		if (!Achievements::HardcoreModeActive()) {
+			loadStateButton_ = buttons->Add(new Button(pa->T("Load State"), new LinearLayoutParams(0.0, G_VCENTER)));
+			loadStateButton_->OnClick.Handle(this, &SaveSlotView::OnLoadState);
+		}
 
 		std::string dateStr = SaveState::GetSlotDateAsString(gamePath_, slot_);
 		if (!dateStr.empty()) {
@@ -269,6 +272,24 @@ GamePauseScreen::~GamePauseScreen() {
 	__DisplaySetWasPaused();
 }
 
+bool GamePauseScreen::key(const KeyInput &key) {
+	if (!UIScreen::key(key) && (key.flags & KEY_DOWN)) {
+		// Special case to be able to unpause with a bound pause key.
+		// Normally we can't bind keys used in the UI.
+		InputMapping mapping(key.deviceId, key.keyCode);
+		std::vector<int> pspButtons;
+		KeyMap::InputMappingToPspButton(mapping, &pspButtons);
+		for (auto button : pspButtons) {
+			if (button == VIRTKEY_PAUSE) {
+				TriggerFinish(DR_CANCEL);
+				return true;
+			}
+		}
+		return false;
+	}
+	return false;
+}
+
 void GamePauseScreen::CreateSavestateControls(UI::LinearLayout *leftColumnItems, bool vertical) {
 	auto pa = GetI18NCategory(I18NCat::PAUSE);
 
@@ -286,7 +307,7 @@ void GamePauseScreen::CreateSavestateControls(UI::LinearLayout *leftColumnItems,
 	leftColumnItems->Add(new Spacer(0.0));
 
 	LinearLayout *buttonRow = leftColumnItems->Add(new LinearLayout(ORIENT_HORIZONTAL));
-	if (g_Config.bEnableStateUndo) {
+	if (g_Config.bEnableStateUndo && !Achievements::HardcoreModeActive()) {
 		UI::Choice *loadUndoButton = buttonRow->Add(new Choice(pa->T("Undo last load")));
 		loadUndoButton->SetEnabled(SaveState::HasUndoLoad(gamePath_));
 		loadUndoButton->OnClick.Handle(this, &GamePauseScreen::OnLoadUndo);
@@ -296,7 +317,7 @@ void GamePauseScreen::CreateSavestateControls(UI::LinearLayout *leftColumnItems,
 		saveUndoButton->OnClick.Handle(this, &GamePauseScreen::OnLastSaveUndo);
 	}
 
-	if (g_Config.iRewindSnapshotInterval > 0) {
+	if (g_Config.iRewindSnapshotInterval > 0 && !Achievements::HardcoreModeActive()) {
 		UI::Choice *rewindButton = buttonRow->Add(new Choice(pa->T("Rewind")));
 		rewindButton->SetEnabled(SaveState::CanRewind());
 		rewindButton->OnClick.Handle(this, &GamePauseScreen::OnRewind);
@@ -322,13 +343,19 @@ void GamePauseScreen::CreateViews() {
 	LinearLayout *leftColumnItems = new LinearLayoutList(ORIENT_VERTICAL, new LayoutParams(FILL_PARENT, WRAP_CONTENT));
 	leftColumn->Add(leftColumnItems);
 
-	leftColumnItems->Add(new Spacer(0.0));
+	leftColumnItems->SetSpacing(5.0f);
+	leftColumnItems->Add(new Spacer(0.0f));
 	if (Achievements::IsActive()) {
 		leftColumnItems->Add(new GameAchievementSummaryView());
-		leftColumnItems->Add(new Spacer(5.0));
+
+		char buf[512];
+		size_t sz = Achievements::GetRichPresenceMessage(buf, sizeof(buf));
+		if (sz != (size_t)-1) {
+			leftColumnItems->Add(new TextView(std::string_view(buf, sz), new UI::LinearLayoutParams(Margins(5, 5))))->SetSmall(true);
+		}
 	}
 
-	if (!Achievements::ChallengeModeActive()) {
+	if (!Achievements::HardcoreModeActive() || g_Config.bAchievementsSaveStateInHardcoreMode) {
 		CreateSavestateControls(leftColumnItems, vertical);
 	} else {
 		// Let's show the active challenges.
@@ -342,10 +369,18 @@ void GamePauseScreen::CreateViews() {
 				leftColumnItems->Add(new AchievementView(achievement));
 			}
 		}
+
+		// And tack on an explanation for why savestate options are not available.
+		const char *notAvailable = ac->T("Save states not available in Hardcore Mode");
+		leftColumnItems->Add(new NoticeView(NoticeLevel::INFO, notAvailable, ""));
 	}
 
-	ViewGroup *rightColumn = new ScrollView(ORIENT_VERTICAL, new LinearLayoutParams(vertical ? 200 : 300, FILL_PARENT, actionMenuMargins));
-	root_->Add(rightColumn);
+	ViewGroup *rightColumnHolder = new LinearLayout(ORIENT_VERTICAL, new LinearLayoutParams(vertical ? 200 : 300, FILL_PARENT, actionMenuMargins));
+
+	ViewGroup *rightColumn = new ScrollView(ORIENT_VERTICAL, new LinearLayoutParams(1.0f));
+	rightColumnHolder->Add(rightColumn);
+
+	root_->Add(rightColumnHolder);
 
 	LinearLayout *rightColumnItems = new LinearLayout(ORIENT_VERTICAL);
 	rightColumn->Add(rightColumnItems);
@@ -402,6 +437,17 @@ void GamePauseScreen::CreateViews() {
 	} else {
 		rightColumnItems->Add(new Choice(pa->T("Exit to menu")))->OnClick.Handle(this, &GamePauseScreen::OnExitToMenu);
 	}
+
+	ViewGroup *playControls = rightColumnHolder->Add(new LinearLayout(ORIENT_HORIZONTAL, new LinearLayoutParams(FILL_PARENT, WRAP_CONTENT)));
+	playControls->SetTag("debug");
+	playControls->Add(new Spacer(new LinearLayoutParams(1.0f)));
+	playButton_ = playControls->Add(new Button("", g_Config.bRunBehindPauseMenu ? ImageID("I_PAUSE") : ImageID("I_PLAY"), new LinearLayoutParams(0.0f, G_RIGHT)));
+	playButton_->OnClick.Add([=](UI::EventParams &e) {
+		g_Config.bRunBehindPauseMenu = !g_Config.bRunBehindPauseMenu;
+		playButton_->SetImageID(g_Config.bRunBehindPauseMenu ? ImageID("I_PAUSE") : ImageID("I_PLAY"));
+		return UI::EVENT_DONE;
+	});
+	rightColumnHolder->Add(new Spacer(10.0f));
 }
 
 UI::EventReturn GamePauseScreen::OnGameSettings(UI::EventParams &e) {

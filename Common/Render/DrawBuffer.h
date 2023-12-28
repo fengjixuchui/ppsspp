@@ -14,11 +14,6 @@
 struct Atlas;
 
 enum {
-	// Enough?
-	MAX_VERTS = 65536,
-};
-
-enum {
 	ALIGN_LEFT = 0,
 	ALIGN_RIGHT = 16,
 	ALIGN_TOP = 0,
@@ -83,9 +78,10 @@ public:
 
 	void RectOutline(float x, float y, float w, float h, uint32_t color, int align = ALIGN_TOPLEFT);
 
-	void RectVGradient(float x, float y, float w, float h, uint32_t colorTop, uint32_t colorBottom);
+	// NOTE: This one takes x2/y2 instead of w/h, better for gap-free graphics.
+	void RectVGradient(float x1, float y1, float x2, float y2, uint32_t colorTop, uint32_t colorBottom);
 	void RectVDarkFaded(float x, float y, float w, float h, uint32_t colorTop) {
-		RectVGradient(x, y, w, h, colorTop, darkenColor(colorTop));
+		RectVGradient(x, y, x + w, y + h, colorTop, darkenColor(colorTop));
 	}
 
 	void MultiVGradient(float x, float y, float w, float h, const GradientStop *stops, int numStops);
@@ -184,6 +180,11 @@ public:
 		tint_ = tint;
 		saturation_ = saturation;
 	}
+
+	enum {
+		// TODO: Can probably shrink this. Currently consumes 1.5MB.
+		MAX_VERTS = 65536,
+	};
 
 private:
 	struct Vertex {

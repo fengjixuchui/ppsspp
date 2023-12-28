@@ -27,9 +27,9 @@
 #include "Common/File/VFS/VFS.h"
 #include "Common/File/FileUtil.h"
 #include "Common/File/Path.h"
+#include "Common/Render/ManagedTexture.h"
 #include "Common/StringUtils.h"
 #include "Common/TimeUtil.h"
-#include "Common/Render/ManagedTexture.h"
 #include "Core/FileSystems/ISOFileSystem.h"
 #include "Core/FileSystems/DirectoryFileSystem.h"
 #include "Core/FileSystems/VirtualDiscFileSystem.h"
@@ -42,6 +42,17 @@
 #include "UI/GameInfoCache.h"
 
 GameInfoCache *g_gameInfoCache;
+
+void GameInfoTex::Clear() {
+	if (!data.empty()) {
+		data.clear();
+		dataLoaded = false;
+	}
+	if (texture) {
+		texture->Release();
+		texture = nullptr;
+	}
+}
 
 GameInfo::GameInfo() : fileType(IdentifiedFileType::UNKNOWN) {
 	pending = true;
@@ -111,7 +122,7 @@ bool GameInfo::Delete() {
 	}
 }
 
-u64 GameInfo::GetGameSizeInBytes() {
+u64 GameInfo::GetGameSizeOnDiskInBytes() {
 	switch (fileType) {
 	case IdentifiedFileType::PSP_PBP_DIRECTORY:
 	case IdentifiedFileType::PSP_SAVEDATA_DIRECTORY:
@@ -119,6 +130,26 @@ u64 GameInfo::GetGameSizeInBytes() {
 
 	default:
 		return GetFileLoader()->FileSize();
+	}
+}
+
+u64 GameInfo::GetGameSizeUncompressedInBytes() {
+	switch (fileType) {
+	case IdentifiedFileType::PSP_PBP_DIRECTORY:
+	case IdentifiedFileType::PSP_SAVEDATA_DIRECTORY:
+		return File::ComputeRecursiveDirectorySize(ResolvePBPDirectory(filePath_));
+
+	default:
+	{
+		BlockDevice *blockDevice = constructBlockDevice(GetFileLoader().get());
+		if (blockDevice) {
+			u64 size = blockDevice->GetUncompressedSize();
+			delete blockDevice;
+			return size;
+		} else {
+			return GetFileLoader()->FileSize();
+		}
+	}
 	}
 }
 
@@ -659,9 +690,12 @@ handleELF:
 
 		if (info_->wantFlags & GAMEINFO_WANTSIZE) {
 			std::lock_guard<std::mutex> lock(info_->lock);
-			info_->gameSize = info_->GetGameSizeInBytes();
+			info_->gameSizeOnDisk = info_->GetGameSizeOnDiskInBytes();
 			info_->saveDataSize = info_->GetSaveDataSizeInBytes();
 			info_->installDataSize = info_->GetInstallDataSizeInBytes();
+		}
+		if (info_->wantFlags & GAMEINFO_WANTUNCOMPRESSEDSIZE) {
+			info_->gameSizeUncompressed = info_->GetGameSizeUncompressedInBytes();
 		}
 
 		// INFO_LOG(SYSTEM, "Completed writing info for %s", info_->GetTitle().c_str());
@@ -737,11 +771,11 @@ void GameInfoCache::WaitUntilDone(std::shared_ptr<GameInfo> &info) {
 }
 
 // Runs on the main thread. Only call from render() and similar, not update()!
-// Can also be called from the audio thread for menu background music.
+// Can also be called from the audio thread for menu background music, but that cannot request images!
 std::shared_ptr<GameInfo> GameInfoCache::GetInfo(Draw::DrawContext *draw, const Path &gamePath, int wantFlags) {
 	std::shared_ptr<GameInfo> info;
 
-	std::string pathStr = gamePath.ToString();
+	const std::string &pathStr = gamePath.ToString();
 
 	auto iter = info_.find(pathStr);
 	if (iter != info_.end()) {

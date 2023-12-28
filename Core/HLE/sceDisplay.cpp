@@ -351,7 +351,7 @@ void __DisplaySetWasPaused() {
 
 // TOOD: Should return 59.997?
 static int FrameTimingLimit() {
-	bool challenge = Achievements::ChallengeModeActive();
+	bool challenge = Achievements::HardcoreModeActive();
 
 	auto fixRate = [=](int limit) {
 		int minRate = challenge ? 60 : 1;
@@ -362,10 +362,10 @@ static int FrameTimingLimit() {
 		}
 	};
 
-	// Note: Fast-forward is OK in challenge mode.
+	// Note: Fast-forward is OK in hardcore mode.
 	if (PSP_CoreParameter().fastForward)
 		return 0;
-	// Can't slow down in challenge mode.
+	// Can't slow down in hardcore mode.
 	if (PSP_CoreParameter().fpsLimit == FPSLimit::CUSTOM1)
 		return fixRate(g_Config.iFpsLimit1);
 	if (PSP_CoreParameter().fpsLimit == FPSLimit::CUSTOM2)
@@ -391,7 +391,7 @@ static void DoFrameDropLogging(float scaledTimestep) {
 
 // All the throttling and frameskipping logic is here.
 // This is called just before we drop out of the main loop, in order to allow the submit and present to happen.
-static void DoFrameTiming(bool throttle, bool *skipFrame, float scaledTimestep) {
+static void DoFrameTiming(bool throttle, bool *skipFrame, float scaledTimestep, bool endOfFrame) {
 	PROFILE_THIS_SCOPE("timing");
 	*skipFrame = false;
 
@@ -438,16 +438,15 @@ static void DoFrameTiming(bool throttle, bool *skipFrame, float scaledTimestep) 
 			nextFrameTime = curFrameTime;
 		} else {
 			// Wait until we've caught up.
-			while (time_now_d() < nextFrameTime) {
-#ifdef _WIN32
-				sleep_ms(1); // Sleep for 1ms on this thread
-#else
-				const double left = nextFrameTime - curFrameTime;
-				usleep((long)(left * 1000000));
-#endif
+			// If we're ending the frame here, we'll defer the sleep until after the command buffers
+			// have been handed off to the render thread, for some more overlap.
+			if (endOfFrame) {
+				g_frameTiming.DeferWaitUntil(nextFrameTime, &curFrameTime);
+			} else {
+				WaitUntil(curFrameTime, nextFrameTime);
+				curFrameTime = time_now_d();  // I guess we could also just set it to nextFrameTime...
 			}
 		}
-		curFrameTime = time_now_d();
 	}
 
 	lastFrameTime = nextFrameTime;
@@ -598,6 +597,10 @@ void __DisplayFlip(int cyclesLate) {
 		postEffectRequiresFlip = duplicateFrames || g_Config.bShaderChainRequires60FPS;
 	}
 
+	if (!FrameTimingThrottled()) {
+		// NOTICE_LOG(SYSTEM, "Throttle: %d %d", (int)fastForwardSkipFlip, (int)postEffectRequiresFlip);
+	}
+
 	const bool fbDirty = gpu->FramebufferDirty();
 
 	bool needFlip = fbDirty || noRecentFlip || postEffectRequiresFlip;
@@ -633,9 +636,14 @@ void __DisplayFlip(int cyclesLate) {
 
 	// Setting CORE_NEXTFRAME (which Core_NextFrame does) causes a swap.
 	const bool fbReallyDirty = gpu->FramebufferReallyDirty();
+
+	bool nextFrame = false;
+
 	if (fbReallyDirty || noRecentFlip || postEffectRequiresFlip) {
 		// Check first though, might've just quit / been paused.
-		if (!forceNoFlip && Core_NextFrame()) {
+		if (!forceNoFlip)
+			nextFrame = Core_NextFrame();
+		if (nextFrame) {
 			gpu->CopyDisplayToOutput(fbReallyDirty);
 			if (fbReallyDirty) {
 				DisplayFireActualFlip();
@@ -655,7 +663,7 @@ void __DisplayFlip(int cyclesLate) {
 		scaledTimestep *= (float)framerate / fpsLimit;
 	}
 	bool skipFrame;
-	DoFrameTiming(throttle, &skipFrame, scaledTimestep);
+	DoFrameTiming(throttle, &skipFrame, scaledTimestep, nextFrame);
 
 	int maxFrameskip = 8;
 	int frameSkipNum = DisplayCalculateFrameSkip();
@@ -690,7 +698,8 @@ void __DisplayFlip(int cyclesLate) {
 }
 
 void hleAfterFlip(u64 userdata, int cyclesLate) {
-	gpu->BeginFrame();  // doesn't really matter if begin or end of frame.
+	gpu->PSPFrame();
+
 	PPGeNotifyFrame();
 
 	// This seems like as good a time as any to check if the config changed.

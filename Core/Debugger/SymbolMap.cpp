@@ -181,6 +181,14 @@ bool SymbolMap::LoadSymbolMap(const Path &filename) {
 		if (type == ST_DATA && size == 0)
 			size = 4;
 
+		// Ignore syscalls, will be recognized from stubs.
+		// Note: it's still useful to save these for grepping and importing into other tools.
+		if (strncmp(name, "zz_sce", 6) == 0)
+			continue;
+		// Also ignore unresolved imports, which will similarly be replaced.
+		if (strncmp(name, "zz_[UNK", 7) == 0)
+			continue;
+
 		if (!strcmp(name, ".text") || !strcmp(name, ".init") || strlen(name) <= 1) {
 
 		} else {
@@ -1106,7 +1114,7 @@ void SymbolMap::FillSymbolListBox(HWND listbox,SymbolType symType) {
 
 	case ST_DATA:
 		{
-			int count = ARRAYSIZE(defaultSymbols)+(int)activeData.size();
+			size_t count = ARRAYSIZE(defaultSymbols)+activeData.size();
 			SendMessage(listbox, LB_INITSTORAGE, (WPARAM)count, (LPARAM)count * 30);
 
 			for (int i = 0; i < ARRAYSIZE(defaultSymbols); i++) {

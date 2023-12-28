@@ -32,7 +32,6 @@
 // won't get any bone data, etc.
 
 #include "Common/Data/Collections/Hashmaps.h"
-#include "Common/GPU/Vulkan/VulkanMemory.h"
 
 #include "GPU/Vulkan/VulkanUtil.h"
 
@@ -62,56 +61,12 @@ class TextureCacheVulkan;
 class FramebufferManagerVulkan;
 
 class VulkanContext;
-class VulkanPushBuffer;
 class VulkanPushPool;
 struct VulkanPipeline;
 
 struct DrawEngineVulkanStats {
 	int pushVertexSpaceUsed;
 	int pushIndexSpaceUsed;
-};
-
-enum {
-	VAIVULKAN_FLAG_VERTEXFULLALPHA = 1,
-};
-
-// Try to keep this POD.
-class VertexArrayInfoVulkan {
-public:
-	VertexArrayInfoVulkan() {
-		lastFrame = gpuStats.numFlips;
-	}
-	// No destructor needed - we always fully wipe.
-
-	enum VAIStatus : uint8_t {
-		VAI_NEW,
-		VAI_HASHING,
-		VAI_RELIABLE,  // cache, don't hash
-		VAI_UNRELIABLE,  // never cache
-	};
-
-	uint64_t hash = 0;
-	u32 minihash = 0;
-
-	// These will probably always be the same, but whatever.
-	VkBuffer vb = VK_NULL_HANDLE;
-	VkBuffer ib = VK_NULL_HANDLE;
-	// Offsets into the cache buffer.
-	uint32_t vbOffset = 0;
-	uint32_t ibOffset = 0;
-
-	// Precalculated parameter for vkDrawIndexed
-	u16 numVerts = 0;
-	u16 maxIndex = 0;
-	s8 prim = GE_PRIM_INVALID;
-	VAIStatus status = VAI_NEW;
-
-	// ID information
-	int numDraws = 0;
-	int numFrames = 0;
-	int lastFrame;  // So that we can forget.
-	u16 drawsUntilNextFullHash = 0;
-	u8 flags = 0;
 };
 
 class VulkanRenderManager;
@@ -170,13 +125,13 @@ public:
 
 	// So that this can be inlined
 	void Flush() {
-		if (!numDrawCalls_)
+		if (!numDrawInds_)
 			return;
 		DoFlush();
 	}
 
 	void FinishDeferred() {
-		if (!numDrawCalls_)
+		if (!numDrawInds_)
 			return;
 		// Decode any pending vertices. And also flush while we're at it, for simplicity.
 		// It might be possible to only decode like in the other backends, but meh, it can't matter.
@@ -185,12 +140,12 @@ public:
 	}
 
 	void DispatchFlush() override {
-		if (!numDrawCalls_)
+		if (!numDrawInds_)
 			return;
-		Flush();
+		DoFlush();
 	}
 
-	VkPipelineLayout GetPipelineLayout() const {
+	VKRPipelineLayout *GetPipelineLayout() const {
 		return pipelineLayout_;
 	}
 
@@ -222,33 +177,21 @@ public:
 private:
 	void Invalidate(InvalidationCallbackFlags flags);
 
-	struct FrameData;
 	void ApplyDrawStateLate(VulkanRenderManager *renderManager, bool applyStencilRef, uint8_t stencilRef, bool useBlendConstant);
 	void ConvertStateToVulkanKey(FramebufferManagerVulkan &fbManager, ShaderManagerVulkan *shaderManager, int prim, VulkanPipelineRasterStateKey &key, VulkanDynamicState &dynState);
 	void BindShaderBlendTex();
 
 	void DestroyDeviceObjects();
 
-	bool VertexCacheLookup(int &vertexCount, GEPrimitiveType &prim, VkBuffer &vbuf, uint32_t &vbOffset, VkBuffer &ibuf, uint32_t &ibOffset, bool &useElements, bool forceIndexed);
-
-	void DecodeVertsToPushPool(VulkanPushPool *push, uint32_t *bindOffset, VkBuffer *vkbuf);
-	void DecodeVertsToPushBuffer(VulkanPushBuffer *push, uint32_t *bindOffset, VkBuffer *vkbuf);
-
 	void DoFlush();
-	void UpdateUBOs(FrameData *frame);
-	FrameData &GetCurFrame();
+	void UpdateUBOs();
 
 	NO_INLINE void ResetAfterDraw();
-
-	VkDescriptorSet GetOrCreateDescriptorSet(VkImageView imageView, VkSampler sampler, VkBuffer base, VkBuffer light, VkBuffer bone, bool tess);
 
 	Draw::DrawContext *draw_;
 
 	// We use a shared descriptor set layouts for all PSP draws.
-	// Descriptors created from descriptorSetLayout_ is rebound all the time at set 1.
-	VkDescriptorSetLayout descriptorSetLayout_;
-
-	VkPipelineLayout pipelineLayout_;
+	VKRPipelineLayout *pipelineLayout_;
 	VulkanPipeline *lastPipeline_;
 	VkDescriptorSet lastDs_ = VK_NULL_HANDLE;
 
@@ -261,10 +204,6 @@ private:
 	VkSampler samplerSecondaryLinear_ = VK_NULL_HANDLE;
 	VkSampler samplerSecondaryNearest_ = VK_NULL_HANDLE;
 
-	PrehashMap<VertexArrayInfoVulkan *> vai_;
-	VulkanPushBuffer *vertexCache_;
-	int descDecimationCounter_ = 0;
-
 	struct DescriptorSetKey {
 		VkImageView imageView_;
 		VkImageView secondaryImageView_;
@@ -274,22 +213,7 @@ private:
 		// for all draws in a frame, except when the buffer has to grow.
 	};
 
-	// We alternate between these.
-	struct FrameData {
-		FrameData() : descSets(512), descPool("DrawEngine", true) {
-			descPool.Setup([this] { descSets.Clear(); });
-		}
-
-		VulkanDescSetPool descPool;
-
-		// We do rolling allocation and reset instead of caching across frames. That we might do later.
-		DenseHashMap<DescriptorSetKey, VkDescriptorSet> descSets;
-
-		void Destroy(VulkanContext *vulkan);
-	};
-
 	GEPrimitiveType lastPrim_ = GE_PRIM_INVALID;
-	FrameData frame_[VulkanContext::MAX_INFLIGHT_FRAMES];
 
 	// This one's not accurately named, it's used for all kinds of stuff that's not vertices or indices.
 	VulkanPushPool *pushUBO_ = nullptr;

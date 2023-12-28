@@ -112,10 +112,8 @@ static std::wstring windowTitle;
 
 #define TIMER_CURSORUPDATE 1
 #define TIMER_CURSORMOVEUPDATE 2
-#define TIMER_WHEELRELEASE 3
 #define CURSORUPDATE_INTERVAL_MS 1000
 #define CURSORUPDATE_MOVE_TIMESPAN_MS 500
-#define WHEELRELEASE_DELAY_MS 16
 
 namespace MainWindow
 {
@@ -241,7 +239,7 @@ namespace MainWindow
 				g_Config.iInternalResolution = 0;
 		}
 
-		System_PostUIMessage("gpu_renderResized", "");
+		System_PostUIMessage(UIMessage::GPU_RENDER_RESIZED);
 	}
 
 	void CorrectCursor() {
@@ -267,22 +265,11 @@ namespace MainWindow
 		}
 	}
 
-	void ReleaseMouseWheel() {
-		// For simplicity release both wheel events
-		KeyInput key;
-		key.deviceId = DEVICE_ID_MOUSE;
-		key.flags = KEY_UP;
-		key.keyCode = NKCODE_EXT_MOUSEWHEEL_DOWN;
-		NativeKey(key);
-		key.keyCode = NKCODE_EXT_MOUSEWHEEL_UP;
-		NativeKey(key);
-	}
-
 	static void HandleSizeChange(int newSizingType) {
 		SavePosition();
 		Core_NotifyWindowHidden(false);
 		if (!g_Config.bPauseWhenMinimized) {
-			System_PostUIMessage("window minimized", "false");
+			System_PostUIMessage(UIMessage::WINDOW_MINIMIZED, "false");
 		}
 
 		int width, height;
@@ -302,8 +289,8 @@ namespace MainWindow
 		DEBUG_LOG(SYSTEM, "Pixel width/height: %dx%d", PSP_CoreParameter().pixelWidth, PSP_CoreParameter().pixelHeight);
 
 		if (UpdateScreenScale(width, height)) {
-			System_PostUIMessage("gpu_displayResized", "");
-			System_PostUIMessage("gpu_renderResized", "");
+			System_PostUIMessage(UIMessage::GPU_DISPLAY_RESIZED);
+			System_PostUIMessage(UIMessage::GPU_RENDER_RESIZED);
 		}
 
 		// Don't save the window state if fullscreen.
@@ -660,7 +647,7 @@ namespace MainWindow
 				double now = time_now_d();
 				if ((now - lastMouseDown) < 0.001 * GetDoubleClickTime()) {
 					float dx = lastMouseDownX - x;
-					float dy = lastMouseDownX - x;
+					float dy = lastMouseDownY - y;
 					float distSq = dx * dx + dy * dy;
 					if (distSq < 3.0f*3.0f && !g_Config.bShowTouchControls && !g_Config.bMouseControl && GetUIState() == UISTATE_INGAME && g_Config.bFullscreenOnDoubleclick) {
 						SendToggleFullscreen(!g_Config.UseFullScreen());
@@ -853,12 +840,12 @@ namespace MainWindow
 				}
 
 				if (wParam == WA_ACTIVE || wParam == WA_CLICKACTIVE) {
-					System_PostUIMessage("got_focus", "");
+					System_PostUIMessage(UIMessage::GOT_FOCUS);
 					hasFocus = true;
 					trapMouse = true;
 				}
 				if (wParam == WA_INACTIVE) {
-					System_PostUIMessage("lost_focus", "");
+					System_PostUIMessage(UIMessage::LOST_FOCUS);
 					WindowsRawInput::LoseFocus();
 					InputDevice::LoseFocus();
 					hasFocus = false;
@@ -905,7 +892,7 @@ namespace MainWindow
 			case SIZE_MINIMIZED:
 				Core_NotifyWindowHidden(true);
 				if (!g_Config.bPauseWhenMinimized) {
-					System_PostUIMessage("window minimized", "true");
+					System_PostUIMessage(UIMessage::WINDOW_MINIMIZED, "true");
 				}
 				InputDevice::LoseFocus();
 				break;
@@ -927,10 +914,8 @@ namespace MainWindow
 				} else {
 					key.keyCode = NKCODE_EXT_MOUSEWHEEL_UP;
 				}
-				// There's no separate keyup event for mousewheel events,
-				// so we release it with a slight delay.
+				// There's no release event, but we simulate it in NativeKey/NativeFrame.
 				key.flags = KEY_DOWN | KEY_HASWHEELDELTA | (wheelDelta << 16);
-				SetTimer(hwndMain, TIMER_WHEELRELEASE, WHEELRELEASE_DELAY_MS, 0);
 				NativeKey(key);
 			}
 			break;
@@ -945,11 +930,6 @@ namespace MainWindow
 			case TIMER_CURSORMOVEUPDATE:
 				hideCursor = true;
 				KillTimer(hWnd, TIMER_CURSORMOVEUPDATE);
-				return 0;
-			// Hack: need to release wheel event with a delay for games to register it was "pressed down".
-			case TIMER_WHEELRELEASE:
-				ReleaseMouseWheel();
-				KillTimer(hWnd, TIMER_WHEELRELEASE);
 				return 0;
 			}
 			break;
@@ -1029,7 +1009,7 @@ namespace MainWindow
 					TCHAR filename[512];
 					if (DragQueryFile(hdrop, 0, filename, 512) != 0) {
 						const std::string utf8_filename = ReplaceAll(ConvertWStringToUTF8(filename), "\\", "/");
-						System_PostUIMessage("boot", utf8_filename);
+						System_PostUIMessage(UIMessage::REQUEST_GAME_BOOT, utf8_filename);
 						Core_EnableStepping(false);
 					}
 				}
@@ -1045,7 +1025,6 @@ namespace MainWindow
 		case WM_DESTROY:
 			KillTimer(hWnd, TIMER_CURSORUPDATE);
 			KillTimer(hWnd, TIMER_CURSORMOVEUPDATE);
-			KillTimer(hWnd, TIMER_WHEELRELEASE);
 			// Main window is gone, this tells the message loop to exit.
 			PostQuitMessage(0);
 			return 0;

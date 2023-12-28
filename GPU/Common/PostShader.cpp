@@ -225,7 +225,6 @@ void LoadPostShaderInfo(Draw::DrawContext *draw, const std::vector<Path> &direct
 		off.settings[i].maxValue = 1.0f;
 		off.settings[i].step = 0.01f;
 	}
-	shaderInfo.insert(shaderInfo.begin(), off);
 
 	TextureShaderInfo textureOff{};
 	textureOff.name = "Off";
@@ -233,6 +232,8 @@ void LoadPostShaderInfo(Draw::DrawContext *draw, const std::vector<Path> &direct
 	textureShaderInfo.insert(textureShaderInfo.begin(), textureOff);
 
 	// We always want the not visible ones at the end.  Makes menus easier.
+	shaderInfo.reserve(notVisible.size() + 1);
+	shaderInfo.insert(shaderInfo.begin(), off);
 	for (const auto &info : notVisible) {
 		appendShader(info);
 	}
@@ -290,8 +291,8 @@ std::vector<const ShaderInfo *> GetPostShaderChain(const std::string &name) {
 
 std::vector<const ShaderInfo *> GetFullPostShadersChain(const std::vector<std::string> &names) {
 	std::vector<const ShaderInfo *> fullChain;
-	for (auto shaderName : names) {
-		auto shaderChain = GetPostShaderChain(shaderName);
+	for (const auto &shaderName : names) {
+		const auto &shaderChain = GetPostShaderChain(shaderName);
 		fullChain.insert(fullChain.end(), shaderChain.begin(), shaderChain.end());
 	}
 	return fullChain;

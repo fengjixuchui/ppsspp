@@ -37,7 +37,7 @@
 
 static std::map<std::string, std::unique_ptr<FileLoaderFactory>> factories;
 
-void RegisterFileLoaderFactory(std::string prefix, std::unique_ptr<FileLoaderFactory> factory) {
+void RegisterFileLoaderFactory(const std::string &prefix, std::unique_ptr<FileLoaderFactory> factory) {
 	factories[prefix] = std::move(factory);
 }
 
@@ -93,6 +93,8 @@ IdentifiedFileType Identify_File(FileLoader *fileLoader, std::string *errorStrin
 		}
 		return IdentifiedFileType::PSP_ISO;
 	} else if (extension == ".cso") {
+		return IdentifiedFileType::PSP_ISO;
+	} else if (extension == ".chd") {
 		return IdentifiedFileType::PSP_ISO;
 	} else if (extension == ".ppst") {
 		return IdentifiedFileType::PPSSPP_SAVESTATE;

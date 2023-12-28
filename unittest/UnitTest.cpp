@@ -59,6 +59,7 @@
 #include "Common/System/NativeApp.h"
 #include "Common/System/System.h"
 #include "Common/Thread/ThreadUtil.h"
+#include "Common/Data/Format/IniFile.h"
 
 #include "Common/ArmEmitter.h"
 #include "Common/BitScan.h"
@@ -99,7 +100,7 @@ bool System_GetPropertyBool(SystemProperty prop) {
 	}
 }
 void System_Notify(SystemNotification notification) {}
-void System_PostUIMessage(const std::string &message, const std::string &param) {}
+void System_PostUIMessage(UIMessage message, const std::string &param) {}
 void System_AudioGetDebugStats(char *buf, size_t bufSize) { if (buf) buf[0] = '\0'; }
 void System_AudioClear() {}
 void System_AudioPushSamples(const s32 *audio, int numSamples) {}
@@ -978,6 +979,24 @@ bool TestSubstitutions() {
 	return true;
 }
 
+bool TestIniFile() {
+	const std::string testLine = "adsf\\#asdf = jkl\\# # comment";
+	const std::string testLine2 = "# Just a comment";
+
+	std::string temp;
+	ParsedIniLine line;
+	line.ParseFrom(testLine);
+	line.Reconstruct(&temp);
+	EXPECT_EQ_STR(testLine, temp);
+
+	temp.clear();
+	line.ParseFrom(testLine2);
+	line.Reconstruct(&temp);
+
+	EXPECT_EQ_STR(testLine2, temp);
+	return true;
+}
+
 typedef bool (*TestFunc)();
 struct TestItem {
 	const char *name;
@@ -1036,6 +1055,7 @@ TestItem availableTests[] = {
 	TEST_ITEM(EscapeMenuString),
 	TEST_ITEM(VFS),
 	TEST_ITEM(Substitutions),
+	TEST_ITEM(IniFile),
 };
 
 int main(int argc, const char *argv[]) {

@@ -201,14 +201,6 @@ u32 GPU_GLES::CheckGPUFeatures() const {
 	return features;
 }
 
-bool GPU_GLES::IsReady() {
-	return shaderManagerGL_->ContinuePrecompile();
-}
-
-void  GPU_GLES::CancelReady() {
-	shaderManagerGL_->CancelPrecompile();
-}
-
 void GPU_GLES::BuildReportingInfo() {
 	GLRenderManager *render = (GLRenderManager *)draw_->GetNativeObject(Draw::NativeObject::RENDER_MANAGER);
 
@@ -238,7 +230,6 @@ void GPU_GLES::DeviceLost() {
 	// Simply drop all caches and textures.
 	// FBOs appear to survive? Or no?
 	// TransformDraw has registered as a GfxResourceHolder.
-	CancelReady();
 	fragmentTestCache_.DeviceLost();
 
 	GPUCommonHW::DeviceLost();
@@ -254,6 +245,22 @@ void GPU_GLES::BeginHostFrame() {
 	GPUCommonHW::BeginHostFrame();
 	drawEngine_.BeginFrame();
 
+	textureCache_->StartFrame();
+
+	// Save the cache from time to time. TODO: How often? We save on exit, so shouldn't need to do this all that often.
+
+	const int saveShaderCacheFrameInterval = 32767;  // power of 2 - 1. About every 10 minutes at 60fps.
+	if (shaderCachePath_.Valid() && !(gpuStats.numFlips & saveShaderCacheFrameInterval) && coreState == CORE_RUNNING) {
+		shaderManagerGL_->SaveCache(shaderCachePath_, &drawEngine_);
+	}
+	shaderManagerGL_->DirtyLastShader();
+
+	// Not sure if this is really needed.
+	gstate_c.Dirty(DIRTY_ALL_UNIFORMS);
+
+	framebufferManager_->BeginFrame();
+
+	fragmentTestCache_.Decimate();
 	if (gstate_c.useFlagsChanged) {
 		// TODO: It'd be better to recompile them in the background, probably?
 		// This most likely means that saw equal depth changed.
@@ -266,25 +273,6 @@ void GPU_GLES::BeginHostFrame() {
 
 void GPU_GLES::EndHostFrame() {
 	drawEngine_.EndFrame();
-}
-
-void GPU_GLES::BeginFrame() {
-	GPUCommonHW::BeginFrame();
-
-	textureCache_->StartFrame();
-
-	// Save the cache from time to time. TODO: How often? We save on exit, so shouldn't need to do this all that often.
-	if (shaderCachePath_.Valid() && (gpuStats.numFlips & 4095) == 0) {
-		shaderManagerGL_->SaveCache(shaderCachePath_, &drawEngine_);
-	}
-	shaderManagerGL_->DirtyLastShader();
-
-	// Not sure if this is really needed.
-	gstate_c.Dirty(DIRTY_ALL_UNIFORMS);
-
-	framebufferManager_->BeginFrame();
-
-	fragmentTestCache_.Decimate();
 }
 
 void GPU_GLES::FinishDeferred() {

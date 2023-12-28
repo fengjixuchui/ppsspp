@@ -32,18 +32,19 @@ public:
 	void dialogFinished(const Screen *dialog, DialogResult result) override;
 	void onFinish(DialogResult reason) override;
 
-	void DrawBackground(UIContext &dc) override;
-
 	void resized() override {
 		RecreateViews();
 	}
+
+	bool wantBrightBackground() const override { return true; }
 
 	const char *tag() const override { return "DisplayLayout"; }
 	
 protected:
 	UI::EventReturn OnPostProcShaderChange(UI::EventParams &e);
 
-	void sendMessage(const char *message, const char *value) override;
+	void sendMessage(UIMessage message, const char *value) override;
+	void DrawBackground(UIContext &dc) override;
 
 private:
 	UI::ChoiceStrip *mode_ = nullptr;

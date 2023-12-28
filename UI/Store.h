@@ -72,11 +72,10 @@ protected:
 	UI::EventReturn OnGameLaunch(UI::EventParams &e);
 
 private:
-	void ParseListing(std::string json);
+	void ParseListing(const std::string &json);
 	ProductItemView *GetSelectedItem();
-	std::vector<StoreEntry> FilterEntries();
 
-	std::string GetTranslatedString(const json::JsonGet json, std::string key, const char *fallback = nullptr) const;
+	std::string GetTranslatedString(const json::JsonGet json, const std::string &key, const char *fallback = nullptr) const;
 
 	std::shared_ptr<http::Request> listing_;
 	std::shared_ptr<http::Request> image_;
@@ -98,8 +97,8 @@ private:
 	std::string lang_;
 	std::string lastSelectedName_;
 
-	UI::ViewGroup *scrollItemView_;
-	UI::ViewGroup *productPanel_;
-	UI::TextView *titleText_;
+	UI::ViewGroup *scrollItemView_ = nullptr;
+	UI::ViewGroup *productPanel_ = nullptr;
+	UI::TextView *titleText_ = nullptr;
 };
 

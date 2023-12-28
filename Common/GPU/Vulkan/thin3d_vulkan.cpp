@@ -20,27 +20,20 @@
 #include <string>
 #include <map>
 
+#include "Common/Log.h"
+#include "Common/StringUtils.h"
 #include "Common/System/Display.h"
 #include "Common/Math/lin/matrix4x4.h"
 #include "Common/Data/Convert/SmallDataConvert.h"
 #include "Common/GPU/thin3d.h"
 #include "Common/GPU/Vulkan/VulkanRenderManager.h"
-
-#include "Common/Log.h"
-#include "Common/StringUtils.h"
 #include "Common/GPU/Vulkan/VulkanContext.h"
 #include "Common/GPU/Vulkan/VulkanImage.h"
 #include "Common/GPU/Vulkan/VulkanMemory.h"
+#include "Common/GPU/Vulkan/VulkanLoader.h"
 #include "Common/Thread/Promise.h"
 
-#include "Common/GPU/Vulkan/VulkanLoader.h"
-
-// We support a frame-global descriptor set, which can be optionally used by other code,
-// but is not directly used by thin3d. It has to be defined here though, be in set 0
-// and specified in every pipeline layout, otherwise it can't sit undisturbed when other
-// descriptor sets are bound on top.
-
-// For descriptor set 1, we use a simple descriptor set for all thin3d rendering: 1 UBO binding point, 3 combined texture/samples.
+// For descriptor set 0 (the only one), we use a simple descriptor set for all thin3d rendering: 1 UBO binding point, 3 combined texture/samples.
 //
 // binding 0 - uniform buffer
 // binding 1 - texture/sampler
@@ -254,7 +247,7 @@ bool VKShaderModule::Compile(VulkanContext *vulkan, ShaderLanguage language, con
 
 class VKInputLayout : public InputLayout {
 public:
-	std::vector<VkVertexInputBindingDescription> bindings;
+	VkVertexInputBindingDescription binding;
 	std::vector<VkVertexInputAttributeDescription> attributes;
 	VkPipelineVertexInputStateCreateInfo visc;
 };
@@ -297,7 +290,7 @@ public:
 
 	std::vector<VKShaderModule *> deps;
 
-	int stride[4]{};
+	int stride = 0;
 	int dynamicUniformSize = 0;
 
 	bool usesStencil = false;
@@ -399,6 +392,26 @@ public:
 		}
 		return list;
 	}
+	std::vector<std::string> GetPresentModeList(const char *currentMarkerString) const override {
+		std::vector<std::string> list;
+		for (auto mode : vulkan_->GetAvailablePresentModes()) {
+			std::string str = VulkanPresentModeToString(mode);
+			if (mode == vulkan_->GetPresentMode()) {
+				str += std::string(" (") + currentMarkerString + ")";
+			}
+			list.push_back(str);
+		}
+		return list;
+	}
+	std::vector<std::string> GetSurfaceFormatList() const override {
+		std::vector<std::string> list;
+		for (auto &format : vulkan_->SurfaceFormats()) {
+			std::string str = StringFromFormat("%s : %s", VulkanFormatToString(format.format), VulkanColorSpaceToString(format.colorSpace));
+			list.push_back(str);
+		}
+		return list;
+	}
+
 	uint32_t GetSupportedShaderLanguages() const override {
 		return (uint32_t)ShaderLanguage::GLSL_VULKAN;
 	}
@@ -453,13 +466,9 @@ public:
 		curPipeline_ = (VKPipeline *)pipeline;
 	}
 
-	// TODO: Make VKBuffers proper buffers, and do a proper binding model. This is just silly.
-	void BindVertexBuffers(int start, int count, Buffer **buffers, const int *offsets) override {
-		_assert_(start + count <= ARRAY_SIZE(curVBuffers_));
-		for (int i = 0; i < count; i++) {
-			curVBuffers_[i + start] = (VKBuffer *)buffers[i];
-			curVBufferOffsets_[i + start] = offsets ? offsets[i] : 0;
-		}
+	void BindVertexBuffer(Buffer *vertexBuffer, int offset) override {
+		curVBuffer_ = (VKBuffer *)vertexBuffer;
+		curVBufferOffset_ = offset;
 	}
 	void BindIndexBuffer(Buffer *indexBuffer, int offset) override {
 		curIBuffer_ = (VKBuffer *)indexBuffer;
@@ -511,7 +520,7 @@ public:
 		}
 	}
 
-	VkDescriptorSet GetOrCreateDescriptorSet(VkBuffer buffer);
+	void BindDescriptors(VkBuffer buffer, PackedDescriptor descriptors[4]);
 
 	std::vector<std::string> GetFeatureList() const override;
 	std::vector<std::string> GetExtensionList(bool device, bool enabledOnly) const override;
@@ -542,13 +551,12 @@ private:
 	VulkanTexture *nullTexture_ = nullptr;
 
 	AutoRef<VKPipeline> curPipeline_;
-	AutoRef<VKBuffer> curVBuffers_[4];
-	int curVBufferOffsets_[4]{};
+	AutoRef<VKBuffer> curVBuffer_;
+	int curVBufferOffset_ = 0;
 	AutoRef<VKBuffer> curIBuffer_;
 	int curIBufferOffset_ = 0;
 
-	VkDescriptorSetLayout descriptorSetLayout_ = VK_NULL_HANDLE;
-	VkPipelineLayout pipelineLayout_ = VK_NULL_HANDLE;
+	VKRPipelineLayout *pipelineLayout_ = nullptr;
 	VkPipelineCache pipelineCache_ = VK_NULL_HANDLE;
 	AutoRef<VKFramebuffer> curFramebuffer_;
 
@@ -563,19 +571,6 @@ private:
 	TextureBindFlags boundTextureFlags_[MAX_BOUND_TEXTURES]{};
 
 	VulkanPushPool *push_ = nullptr;
-
-	struct FrameData {
-		FrameData() : descriptorPool("VKContext", false) {
-			descriptorPool.Setup([this] { descSets_.clear(); });
-		}
-		// Per-frame descriptor set cache. As it's per frame and reset every frame, we don't need to
-		// worry about invalidating descriptors pointing to deleted textures.
-		// However! ARM is not a fan of doing it this way.
-		std::map<DescriptorSetKey, VkDescriptorSet> descSets_;
-		VulkanDescSetPool descriptorPool;
-	};
-
-	FrameData frame_[VulkanContext::MAX_INFLIGHT_FRAMES];
 
 	DeviceCaps caps_{};
 
@@ -957,22 +952,15 @@ VKContext::VKContext(VulkanContext *vulkan, bool useRenderThread)
 
 	// VkSampleCountFlagBits is arranged correctly for our purposes.
 	// Only support MSAA levels that have support for all three of color, depth, stencil.
-	if (!caps_.isTilingGPU) {
-		// Check for depth stencil resolve. Without it, depth textures won't work, and we don't want that mess
-		// of compatibility reports, so we'll just disable multisampling in this case for now.
-		// There are potential workarounds for devices that don't support it, but those are nearly non-existent now.
-		const auto &resolveProperties = vulkan->GetPhysicalDeviceProperties().depthStencilResolve;
-		if (vulkan->Extensions().KHR_depth_stencil_resolve &&
-			((resolveProperties.supportedDepthResolveModes & resolveProperties.supportedStencilResolveModes) & VK_RESOLVE_MODE_SAMPLE_ZERO_BIT) != 0) {
-			caps_.multiSampleLevelsMask = (limits.framebufferColorSampleCounts & limits.framebufferDepthSampleCounts & limits.framebufferStencilSampleCounts);
-		} else {
-			caps_.multiSampleLevelsMask = 1;
-		}
-	} else {
-		caps_.multiSampleLevelsMask = 1;
-	}
 
-	if (caps_.vendor == GPUVendor::VENDOR_QUALCOMM) {
+	bool multisampleAllowed = true;
+
+    caps_.deviceID = deviceProps.deviceID;
+
+    if (caps_.vendor == GPUVendor::VENDOR_QUALCOMM) {
+		if (caps_.deviceID < 0x6000000)  // On sub 6xx series GPUs, disallow multisample.
+			multisampleAllowed = false;
+
 		// Adreno 5xx devices, all known driver versions, fail to discard stencil when depth write is off.
 		// See: https://github.com/hrydgard/ppsspp/pull/11684
 		if (deviceProps.deviceID >= 0x05000000 && deviceProps.deviceID < 0x06000000) {
@@ -1032,73 +1020,56 @@ VKContext::VKContext(VulkanContext *vulkan, bool useRenderThread)
 				bugs_.Infest(Bugs::UNIFORM_INDEXING_BROKEN);
 			}
 		}
+
+		if (isOldVersion) {
+			// Very rough heuristic.
+			multisampleAllowed = false;
+		}
+	}
+
+	if (!vulkan->Extensions().KHR_depth_stencil_resolve) {
+		INFO_LOG(G3D, "KHR_depth_stencil_resolve not supported, disabling multisampling");
+	}
+
+	// We limit multisampling functionality to reasonably recent and known-good tiling GPUs.
+	if (multisampleAllowed) {
+		// Check for depth stencil resolve. Without it, depth textures won't work, and we don't want that mess
+		// of compatibility reports, so we'll just disable multisampling in this case for now.
+		// There are potential workarounds for devices that don't support it, but those are nearly non-existent now.
+		const auto &resolveProperties = vulkan->GetPhysicalDeviceProperties().depthStencilResolve;
+		if (((resolveProperties.supportedDepthResolveModes & resolveProperties.supportedStencilResolveModes) & VK_RESOLVE_MODE_SAMPLE_ZERO_BIT) != 0) {
+			caps_.multiSampleLevelsMask = (limits.framebufferColorSampleCounts & limits.framebufferDepthSampleCounts & limits.framebufferStencilSampleCounts);
+			INFO_LOG(G3D, "Multisample levels mask: %d", caps_.multiSampleLevelsMask);
+		} else {
+			INFO_LOG(G3D, "Not enough depth/stencil resolve modes supported, disabling multisampling.");
+			caps_.multiSampleLevelsMask = 1;
+		}
+	} else {
+		caps_.multiSampleLevelsMask = 1;
 	}
 
 	// Vulkan can support this through input attachments and various extensions, but not worth
 	// the trouble.
 	caps_.framebufferFetchSupported = false;
 
-	caps_.deviceID = deviceProps.deviceID;
 	device_ = vulkan->GetDevice();
-
-	std::vector<VkDescriptorPoolSize> dpTypes;
-	dpTypes.resize(2);
-	dpTypes[0].descriptorCount = 200;
-	dpTypes[0].type = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-	dpTypes[1].descriptorCount = 200 * MAX_BOUND_TEXTURES;
-	dpTypes[1].type = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-
-	VkDescriptorPoolCreateInfo dp{ VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO };
-	// Don't want to mess around with individually freeing these, let's go dynamic each frame.
-	dp.flags = 0;
-	// 200 textures per frame was not enough for the UI.
-	dp.maxSets = 4096;
 
 	VkBufferUsageFlags usage = VK_BUFFER_USAGE_INDEX_BUFFER_BIT | VK_BUFFER_USAGE_UNIFORM_BUFFER_BIT | VK_BUFFER_USAGE_STORAGE_BUFFER_BIT | VK_BUFFER_USAGE_VERTEX_BUFFER_BIT | VK_BUFFER_USAGE_TRANSFER_SRC_BIT;
 	push_ = new VulkanPushPool(vulkan_, "pushBuffer", 4 * 1024 * 1024, usage);
 
-	for (int i = 0; i < VulkanContext::MAX_INFLIGHT_FRAMES; i++) {
-		frame_[i].descriptorPool.Create(vulkan_, dp, dpTypes);
-	}
-
 	// binding 0 - uniform data
 	// binding 1 - combined sampler/image 0
 	// binding 2 - combined sampler/image 1
-	VkDescriptorSetLayoutBinding bindings[MAX_BOUND_TEXTURES + 1];
-	bindings[0].descriptorCount = 1;
-	bindings[0].pImmutableSamplers = nullptr;
-	bindings[0].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-	bindings[0].stageFlags = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
-	bindings[0].binding = 0;
+	// ...etc
+	BindingType bindings[MAX_BOUND_TEXTURES + 1];
+	bindings[0] = BindingType::UNIFORM_BUFFER_DYNAMIC_ALL;
 	for (int i = 0; i < MAX_BOUND_TEXTURES; ++i) {
-		bindings[i + 1].descriptorCount = 1;
-		bindings[i + 1].pImmutableSamplers = nullptr;
-		bindings[i + 1].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-		bindings[i + 1].stageFlags = VK_SHADER_STAGE_FRAGMENT_BIT;
-		bindings[i + 1].binding = i + 1;
+		bindings[1 + i] = BindingType::COMBINED_IMAGE_SAMPLER;
 	}
-
-	VkDescriptorSetLayoutCreateInfo dsl = { VK_STRUCTURE_TYPE_DESCRIPTOR_SET_LAYOUT_CREATE_INFO };
-	dsl.bindingCount = ARRAY_SIZE(bindings);
-	dsl.pBindings = bindings;
-	VkResult res = vkCreateDescriptorSetLayout(device_, &dsl, nullptr, &descriptorSetLayout_);
-	_assert_(VK_SUCCESS == res);
-
-	vulkan_->SetDebugName(descriptorSetLayout_, VK_OBJECT_TYPE_DESCRIPTOR_SET_LAYOUT, "thin3d_d_layout");
-
-	VkPipelineLayoutCreateInfo pl = { VK_STRUCTURE_TYPE_PIPELINE_LAYOUT_CREATE_INFO };
-	pl.pPushConstantRanges = nullptr;
-	pl.pushConstantRangeCount = 0;
-	VkDescriptorSetLayout setLayouts[1] = { descriptorSetLayout_ };
-	pl.setLayoutCount = ARRAY_SIZE(setLayouts);
-	pl.pSetLayouts = setLayouts;
-	res = vkCreatePipelineLayout(device_, &pl, nullptr, &pipelineLayout_);
-	_assert_(VK_SUCCESS == res);
-
-	vulkan_->SetDebugName(pipelineLayout_, VK_OBJECT_TYPE_PIPELINE_LAYOUT, "thin3d_p_layout");
+	pipelineLayout_ = renderManager_.CreatePipelineLayout(bindings, ARRAY_SIZE(bindings), caps_.geometryShaderSupported, "thin3d_layout");
 
 	VkPipelineCacheCreateInfo pc{ VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO };
-	res = vkCreatePipelineCache(vulkan_->GetDevice(), &pc, nullptr, &pipelineCache_);
+	VkResult res = vkCreatePipelineCache(vulkan_->GetDevice(), &pc, nullptr, &pipelineCache_);
 	_assert_(VK_SUCCESS == res);
 }
 
@@ -1106,25 +1077,15 @@ VKContext::~VKContext() {
 	DestroyPresets();
 
 	delete nullTexture_;
-	// This also destroys all descriptor sets.
-	for (int i = 0; i < VulkanContext::MAX_INFLIGHT_FRAMES; i++) {
-		frame_[i].descriptorPool.Destroy();
-	}
 	push_->Destroy();
 	delete push_;
-	vulkan_->Delete().QueueDeleteDescriptorSetLayout(descriptorSetLayout_);
-	vulkan_->Delete().QueueDeletePipelineLayout(pipelineLayout_);
+	renderManager_.DestroyPipelineLayout(pipelineLayout_);
 	vulkan_->Delete().QueueDeletePipelineCache(pipelineCache_);
 }
 
 void VKContext::BeginFrame(DebugFlags debugFlags) {
 	renderManager_.BeginFrame(debugFlags & DebugFlags::PROFILE_TIMESTAMPS, debugFlags & DebugFlags::PROFILE_SCOPES);
-
-	FrameData &frame = frame_[vulkan_->GetCurFrame()];
-
 	push_->BeginFrame();
-
-	frame.descriptorPool.Reset();
 }
 
 void VKContext::EndFrame() {
@@ -1162,81 +1123,30 @@ void VKContext::WipeQueue() {
 	renderManager_.Wipe();
 }
 
-VkDescriptorSet VKContext::GetOrCreateDescriptorSet(VkBuffer buf) {
-	DescriptorSetKey key{};
+void VKContext::BindDescriptors(VkBuffer buf, PackedDescriptor descriptors[4]) {
+	descriptors[0].buffer.buffer = buf;
+	descriptors[0].buffer.offset = 0;  // dynamic
+	descriptors[0].buffer.range = curPipeline_->GetUBOSize();
 
-	FrameData *frame = &frame_[vulkan_->GetCurFrame()];
-
+	int numDescs = 1;
 	for (int i = 0; i < MAX_BOUND_TEXTURES; ++i) {
+		VkImageView view;
+		VkSampler sampler;
 		if (boundTextures_[i]) {
-			key.imageViews_[i] = (boundTextureFlags_[i] & TextureBindFlags::VULKAN_BIND_ARRAY) ? boundTextures_[i]->GetImageArrayView() : boundTextures_[i]->GetImageView();
+			view = (boundTextureFlags_[i] & TextureBindFlags::VULKAN_BIND_ARRAY) ? boundTextures_[i]->GetImageArrayView() : boundTextures_[i]->GetImageView();
 		} else {
-			key.imageViews_[i] = boundImageView_[i];
+			view = boundImageView_[i];
 		}
-		key.samplers_[i] = boundSamplers_[i];
-	}
-	key.buffer_ = buf;
+		sampler = boundSamplers_[i] ? boundSamplers_[i]->GetSampler() : VK_NULL_HANDLE;
 
-	auto iter = frame->descSets_.find(key);
-	if (iter != frame->descSets_.end()) {
-		return iter->second;
-	}
-
-	VkDescriptorSet descSet = frame->descriptorPool.Allocate(1, &descriptorSetLayout_, "thin3d_descset");
-	if (descSet == VK_NULL_HANDLE) {
-		ERROR_LOG(G3D, "GetOrCreateDescriptorSet failed");
-		return VK_NULL_HANDLE;
-	}
-
-	vulkan_->SetDebugName(descSet, VK_OBJECT_TYPE_DESCRIPTOR_SET, "(thin3d desc set)");
-
-	VkDescriptorBufferInfo bufferDesc;
-	bufferDesc.buffer = buf;
-	bufferDesc.offset = 0;
-	bufferDesc.range = curPipeline_->GetUBOSize();
-
-	VkDescriptorImageInfo imageDesc[MAX_BOUND_TEXTURES]{};
-	VkWriteDescriptorSet writes[1 + MAX_BOUND_TEXTURES]{};
-
-	// If handles are NULL for whatever buggy reason, it's best to leave the descriptors
-	// unwritten instead of trying to write a zero, which is not legal.
-
-	int numWrites = 0;
-	if (buf) {
-		writes[numWrites].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-		writes[numWrites].dstSet = descSet;
-		writes[numWrites].dstArrayElement = 0;
-		writes[numWrites].dstBinding = 0;
-		writes[numWrites].pBufferInfo = &bufferDesc;
-		writes[numWrites].pImageInfo = nullptr;
-		writes[numWrites].pTexelBufferView = nullptr;
-		writes[numWrites].descriptorCount = 1;
-		writes[numWrites].descriptorType = VK_DESCRIPTOR_TYPE_UNIFORM_BUFFER_DYNAMIC;
-		numWrites++;
-	}
-
-	for (int i = 0; i < MAX_BOUND_TEXTURES; ++i) {
-		if (key.imageViews_[i] && key.samplers_[i] && key.samplers_[i]->GetSampler()) {
-			imageDesc[i].imageView = key.imageViews_[i];
-			imageDesc[i].sampler = key.samplers_[i]->GetSampler();
-			imageDesc[i].imageLayout = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
-			writes[numWrites].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
-			writes[numWrites].dstSet = descSet;
-			writes[numWrites].dstArrayElement = 0;
-			writes[numWrites].dstBinding = i + 1;
-			writes[numWrites].pBufferInfo = nullptr;
-			writes[numWrites].pImageInfo = &imageDesc[i];
-			writes[numWrites].pTexelBufferView = nullptr;
-			writes[numWrites].descriptorCount = 1;
-			writes[numWrites].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
-			numWrites++;
+		if (view && sampler) {
+			descriptors[i + 1].image.view = view;
+			descriptors[i + 1].image.sampler = sampler;
+		} else {
+			descriptors[i + 1].image.view = VK_NULL_HANDLE;
+			descriptors[i + 1].image.sampler = VK_NULL_HANDLE;
 		}
 	}
-
-	vkUpdateDescriptorSets(device_, numWrites, writes, 0, nullptr);
-
-	frame->descSets_[key] = descSet;
-	return descSet;
 }
 
 Pipeline *VKContext::CreateGraphicsPipeline(const PipelineDesc &desc, const char *tag) {
@@ -1273,13 +1183,11 @@ Pipeline *VKContext::CreateGraphicsPipeline(const PipelineDesc &desc, const char
 		}
 	}
 
-	_dbg_assert_(input && input->bindings.size() == 1);
+	_dbg_assert_(input);
 	_dbg_assert_((int)input->attributes.size() == (int)input->visc.vertexAttributeDescriptionCount);
 
-	for (int i = 0; i < (int)input->bindings.size(); i++) {
-		pipeline->stride[i] = input->bindings[i].stride;
-	}
-	gDesc.ibd = input->bindings[0];
+	pipeline->stride = input->binding.stride;
+	gDesc.ibd = input->binding;
 	for (size_t i = 0; i < input->attributes.size(); i++) {
 		gDesc.attrs[i] = input->attributes[i];
 	}
@@ -1361,23 +1269,20 @@ InputLayout *VKContext::CreateInputLayout(const InputLayoutDesc &desc) {
 	VKInputLayout *vl = new VKInputLayout();
 	vl->visc = { VK_STRUCTURE_TYPE_PIPELINE_VERTEX_INPUT_STATE_CREATE_INFO };
 	vl->visc.flags = 0;
+	vl->visc.vertexBindingDescriptionCount = 1;
 	vl->visc.vertexAttributeDescriptionCount = (uint32_t)desc.attributes.size();
-	vl->visc.vertexBindingDescriptionCount = (uint32_t)desc.bindings.size();
-	vl->bindings.resize(vl->visc.vertexBindingDescriptionCount);
 	vl->attributes.resize(vl->visc.vertexAttributeDescriptionCount);
-	vl->visc.pVertexBindingDescriptions = vl->bindings.data();
+	vl->visc.pVertexBindingDescriptions = &vl->binding;
 	vl->visc.pVertexAttributeDescriptions = vl->attributes.data();
 	for (size_t i = 0; i < desc.attributes.size(); i++) {
-		vl->attributes[i].binding = (uint32_t)desc.attributes[i].binding;
+		vl->attributes[i].binding = 0;
 		vl->attributes[i].format = DataFormatToVulkan(desc.attributes[i].format);
 		vl->attributes[i].location = desc.attributes[i].location;
 		vl->attributes[i].offset = desc.attributes[i].offset;
 	}
-	for (size_t i = 0; i < desc.bindings.size(); i++) {
-		vl->bindings[i].inputRate = desc.bindings[i].instanceRate ? VK_VERTEX_INPUT_RATE_INSTANCE : VK_VERTEX_INPUT_RATE_VERTEX;
-		vl->bindings[i].binding = (uint32_t)i;
-		vl->bindings[i].stride = desc.bindings[i].stride;
-	}
+	vl->binding.inputRate = VK_VERTEX_INPUT_RATE_VERTEX;
+	vl->binding.binding = 0;
+	vl->binding.stride = desc.stride;
 	return vl;
 }
 
@@ -1393,7 +1298,7 @@ Texture *VKContext::CreateTexture(const TextureDesc &desc) {
 		return tex;
 	} else {
 		ERROR_LOG(G3D,  "Failed to create texture");
-		delete tex;
+		tex->Release();
 		return nullptr;
 	}
 }
@@ -1486,7 +1391,7 @@ void VKContext::BindTextures(int start, int count, Texture **textures, TextureBi
 		boundTextures_[i] = static_cast<VKTexture *>(textures[i - start]);
 		boundTextureFlags_[i] = flags;
 		if (boundTextures_[i]) {
-			// If a texture is bound, we set these up in GetOrCreateDescriptorSet too.
+			// If a texture is bound, we set these up in BindDescriptors too.
 			// But we might need to set the view here anyway so it can be queried using GetNativeObject.
 			if (flags & TextureBindFlags::VULKAN_BIND_ARRAY) {
 				boundImageView_[i] = boundTextures_[i]->GetImageArrayView();
@@ -1532,42 +1437,36 @@ void VKContext::ApplyDynamicState() {
 }
 
 void VKContext::Draw(int vertexCount, int offset) {
-	VKBuffer *vbuf = curVBuffers_[0];
+	VKBuffer *vbuf = curVBuffer_;
 
 	VkBuffer vulkanVbuf;
 	VkBuffer vulkanUBObuf;
 	uint32_t ubo_offset = (uint32_t)curPipeline_->PushUBO(push_, vulkan_, &vulkanUBObuf);
 	size_t vbBindOffset = push_->Push(vbuf->GetData(), vbuf->GetSize(), 4, &vulkanVbuf);
 
-	VkDescriptorSet descSet = GetOrCreateDescriptorSet(vulkanUBObuf);
-	if (descSet == VK_NULL_HANDLE) {
-		ERROR_LOG(G3D, "GetOrCreateDescriptorSet failed, skipping %s", __FUNCTION__);
-		return;
-	}
-
 	BindCurrentPipeline();
 	ApplyDynamicState();
-	renderManager_.Draw(descSet, 1, &ubo_offset, vulkanVbuf, (int)vbBindOffset + curVBufferOffsets_[0], vertexCount, offset);
+	int descSetIndex;
+	PackedDescriptor *descriptors = renderManager_.PushDescriptorSet(4, &descSetIndex);
+	BindDescriptors(vulkanUBObuf, descriptors);
+	renderManager_.Draw(descSetIndex, 1, &ubo_offset, vulkanVbuf, (int)vbBindOffset + curVBufferOffset_, vertexCount, offset);
 }
 
 void VKContext::DrawIndexed(int vertexCount, int offset) {
 	VKBuffer *ibuf = curIBuffer_;
-	VKBuffer *vbuf = curVBuffers_[0];
+	VKBuffer *vbuf = curVBuffer_;
 
 	VkBuffer vulkanVbuf, vulkanIbuf, vulkanUBObuf;
 	uint32_t ubo_offset = (uint32_t)curPipeline_->PushUBO(push_, vulkan_, &vulkanUBObuf);
 	size_t vbBindOffset = push_->Push(vbuf->GetData(), vbuf->GetSize(), 4, &vulkanVbuf);
 	size_t ibBindOffset = push_->Push(ibuf->GetData(), ibuf->GetSize(), 4, &vulkanIbuf);
 
-	VkDescriptorSet descSet = GetOrCreateDescriptorSet(vulkanUBObuf);
-	if (descSet == VK_NULL_HANDLE) {
-		ERROR_LOG(G3D, "GetOrCreateDescriptorSet failed, skipping %s", __FUNCTION__);
-		return;
-	}
-
 	BindCurrentPipeline();
 	ApplyDynamicState();
-	renderManager_.DrawIndexed(descSet, 1, &ubo_offset, vulkanVbuf, (int)vbBindOffset + curVBufferOffsets_[0], vulkanIbuf, (int)ibBindOffset + offset * sizeof(uint32_t), vertexCount, 1);
+	int descSetIndex;
+	PackedDescriptor *descriptors = renderManager_.PushDescriptorSet(4, &descSetIndex);
+	BindDescriptors(vulkanUBObuf, descriptors);
+	renderManager_.DrawIndexed(descSetIndex, 1, &ubo_offset, vulkanVbuf, (int)vbBindOffset + curVBufferOffset_, vulkanIbuf, (int)ibBindOffset + offset * sizeof(uint32_t), vertexCount, 1);
 }
 
 void VKContext::DrawUP(const void *vdata, int vertexCount) {
@@ -1577,7 +1476,7 @@ void VKContext::DrawUP(const void *vdata, int vertexCount) {
 	}
 
 	VkBuffer vulkanVbuf, vulkanUBObuf;
-	size_t dataSize = vertexCount * curPipeline_->stride[0];
+	size_t dataSize = vertexCount * curPipeline_->stride;
 	uint32_t vbBindOffset;
 	uint8_t *dataPtr = push_->Allocate(dataSize, 4, &vulkanVbuf, &vbBindOffset);
 	_assert_(dataPtr != nullptr);
@@ -1585,15 +1484,12 @@ void VKContext::DrawUP(const void *vdata, int vertexCount) {
 
 	uint32_t ubo_offset = (uint32_t)curPipeline_->PushUBO(push_, vulkan_, &vulkanUBObuf);
 
-	VkDescriptorSet descSet = GetOrCreateDescriptorSet(vulkanUBObuf);
-	if (descSet == VK_NULL_HANDLE) {
-		ERROR_LOG(G3D, "GetOrCreateDescriptorSet failed, skipping %s", __FUNCTION__);
-		return;
-	}
-
 	BindCurrentPipeline();
 	ApplyDynamicState();
-	renderManager_.Draw(descSet, 1, &ubo_offset, vulkanVbuf, (int)vbBindOffset + curVBufferOffsets_[0], vertexCount);
+	int descSetIndex;
+	PackedDescriptor *descriptors = renderManager_.PushDescriptorSet(4, &descSetIndex);
+	BindDescriptors(vulkanUBObuf, descriptors);
+	renderManager_.Draw(descSetIndex, 1, &ubo_offset, vulkanVbuf, (int)vbBindOffset + curVBufferOffset_, vertexCount);
 }
 
 void VKContext::BindCurrentPipeline() {
@@ -1654,11 +1550,15 @@ std::vector<std::string> VKContext::GetFeatureList() const {
 std::vector<std::string> VKContext::GetExtensionList(bool device, bool enabledOnly) const {
 	std::vector<std::string> extensions;
 	if (enabledOnly) {
-		for (auto &iter : (device ? vulkan_->GetDeviceExtensionsEnabled() : vulkan_->GetInstanceExtensionsEnabled())) {
+		const auto& enabled = (device ? vulkan_->GetDeviceExtensionsEnabled() : vulkan_->GetInstanceExtensionsEnabled());
+		extensions.reserve(enabled.size());
+		for (auto &iter : enabled) {
 			extensions.push_back(iter);
 		}
 	} else {
-		for (auto &iter : (device ? vulkan_->GetDeviceExtensionsAvailable() : vulkan_->GetInstanceExtensionsAvailable())) {
+		const auto& available = (device ? vulkan_->GetDeviceExtensionsAvailable() : vulkan_->GetInstanceExtensionsAvailable());
+		extensions.reserve(available.size());
+		for (auto &iter : available) {
 			extensions.push_back(iter.extensionName);
 		}
 	}
@@ -1809,7 +1709,7 @@ void VKContext::BindFramebufferAsTexture(Framebuffer *fbo, int binding, FBChanne
 		break;
 	}
 
-	boundTextures_[binding].clear();
+	boundTextures_[binding].reset(nullptr);
 	boundImageView_[binding] = renderManager_.BindFramebufferAsTexture(fb->GetFB(), binding, aspect, layer);
 }
 

@@ -26,7 +26,6 @@
 #include "Common/Thread/Event.h"
 #include "Core/ELF/ParamSFO.h"
 #include "Common/File/Path.h"
-#include "Common/Render/ManagedTexture.h"
 
 namespace Draw {
 	class DrawContext;
@@ -56,6 +55,7 @@ enum GameInfoWantFlags {
 	GAMEINFO_WANTSIZE = 0x02,
 	GAMEINFO_WANTSND = 0x04,
 	GAMEINFO_WANTBGDATA = 0x08, // Use with WANTBG.
+	GAMEINFO_WANTUNCOMPRESSEDSIZE = 0x10,
 };
 
 class FileLoader;
@@ -63,19 +63,14 @@ enum class IdentifiedFileType;
 
 struct GameInfoTex {
 	std::string data;
-	std::unique_ptr<ManagedTexture> texture;
+	Draw::Texture *texture = nullptr;
 	// The time at which the Icon and the BG were loaded.
 	// Can be useful to fade them in smoothly once they appear.
 	double timeLoaded = 0.0;
 	std::atomic<bool> dataLoaded{};
 
-	void Clear() {
-		if (!data.empty()) {
-			data.clear();
-			dataLoaded = false;
-		}
-		texture.reset(nullptr);
-	}
+	// Can ONLY be called from the main thread!
+	void Clear();
 };
 
 class GameInfo {
@@ -94,7 +89,8 @@ public:
 	std::shared_ptr<FileLoader> GetFileLoader();
 	void DisposeFileLoader();
 
-	u64 GetGameSizeInBytes();
+	u64 GetGameSizeUncompressedInBytes();  // NOTE: More expensive than GetGameSizeOnDiskInBytes().
+	u64 GetGameSizeOnDiskInBytes();
 	u64 GetSaveDataSizeInBytes();
 	u64 GetInstallDataSizeInBytes();
 
@@ -144,7 +140,8 @@ public:
 
 	double lastAccessedTime = 0.0;
 
-	u64 gameSize = 0;
+	u64 gameSizeUncompressed = 0;
+	u64 gameSizeOnDisk = 0;  // compressed size, in case of CSO
 	u64 saveDataSize = 0;
 	u64 installDataSize = 0;
 

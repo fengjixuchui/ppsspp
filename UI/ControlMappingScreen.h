@@ -36,7 +36,10 @@ class SingleControlMapper;
 
 class ControlMappingScreen : public UIDialogScreenWithGameBackground {
 public:
-	explicit ControlMappingScreen(const Path &gamePath) : UIDialogScreenWithGameBackground(gamePath) {}
+	explicit ControlMappingScreen(const Path &gamePath) : UIDialogScreenWithGameBackground(gamePath) {
+		categoryToggles_[0] = true;
+		categoryToggles_[1] = true;
+	}
 	const char *tag() const override { return "ControlMapping"; }
 
 protected:
@@ -51,6 +54,8 @@ private:
 	UI::ScrollView *rightScroll_ = nullptr;
 	std::vector<SingleControlMapper *> mappers_;
 	int keyMapGeneration_ = -1;
+
+	bool categoryToggles_[10]{};
 };
 
 class KeyMappingNewKeyDialog : public PopupScreen {
@@ -138,45 +143,6 @@ private:
 	JoystickHistoryView *stickView_[2]{};
 };
 
-class TouchTestScreen : public UIDialogScreenWithGameBackground {
-public:
-	TouchTestScreen(const Path &gamePath) : UIDialogScreenWithGameBackground(gamePath) {
-		for (int i = 0; i < MAX_TOUCH_POINTS; i++) {
-			touches_[i].id = -1;
-		}
-	}
-
-	void touch(const TouchInput &touch) override;
-	void render() override;
-
-	bool key(const KeyInput &key) override;
-	void axis(const AxisInput &axis) override;
-
-	const char *tag() const override { return "TouchTest"; }
-
-protected:
-	struct TrackedTouch {
-		int id;
-		float x;
-		float y;
-	};
-	enum {
-		MAX_TOUCH_POINTS = 10,
-	};
-	TrackedTouch touches_[MAX_TOUCH_POINTS]{};
-
-	std::vector<std::string> keyEventLog_;
-
-	UI::TextView *lastKeyEvents_ = nullptr;
-
-	void CreateViews() override;
-	void UpdateLogView();
-
-	UI::EventReturn OnImmersiveModeChange(UI::EventParams &e);
-	UI::EventReturn OnRenderingBackend(UI::EventParams &e);
-	UI::EventReturn OnRecreateActivity(UI::EventParams &e);
-};
-
 class MockPSP;
 
 class VisualMappingScreen : public UIDialogScreenWithGameBackground {
@@ -197,7 +163,7 @@ protected:
 private:
 	UI::EventReturn OnMapButton(UI::EventParams &e);
 	UI::EventReturn OnBindAll(UI::EventParams &e);
-	void HandleKeyMapping(KeyMap::MultiInputMapping key);
+	void HandleKeyMapping(const KeyMap::MultiInputMapping &key);
 	void MapNext(bool successive);
 
 	MockPSP *psp_ = nullptr;

@@ -42,21 +42,24 @@ public:
 	const char *tag() const override { return "Emu"; }
 
 	void update() override;
-	void render() override;
-	void preRender() override;
-	void postRender() override;
+	ScreenRenderFlags render(ScreenRenderMode mode) override;
 	void dialogFinished(const Screen *dialog, DialogResult result) override;
-	void sendMessage(const char *msg, const char *value) override;
+	void sendMessage(UIMessage message, const char *value) override;
 	void resized() override;
+	bool canBeBackground(bool isTop) const override;
 
 	// Note: Unlike your average boring UIScreen, here we override the Unsync* functions
 	// to get minimal latency and full control. We forward to UIScreen when needed.
 	bool UnsyncTouch(const TouchInput &touch) override;
 	bool UnsyncKey(const KeyInput &key) override;
-	void UnsyncAxis(const AxisInput &axis) override;
+	void UnsyncAxis(const AxisInput *axes, size_t count) override;
 
 	// We also need to do some special handling of queued UI events to handle closing the chat window.
 	bool key(const KeyInput &key) override;
+
+protected:
+	void darken();
+	void focusChanged(ScreenFocusChange focusChange) override;
 
 private:
 	void CreateViews() override;
@@ -76,7 +79,7 @@ private:
 	void onVKeyAnalog(int virtualKeyCode, float value);
 
 	void autoLoad();
-	void checkPowerDown();
+	bool checkPowerDown();
 
 	UI::Event OnDevMenu;
 	UI::Event OnChatMenu;

@@ -842,7 +842,7 @@ std::vector<PSPFileInfo> DirectoryFileSystem::GetDirListing(const std::string &p
 					if (entry.name.size() > 2 && !startsWithNoCase(entry.name, gameID)) {
 						continue;
 					}
-				} else if (file.name == "GAME" || file.name == "TEXTURES" || file.name == "PPSSPP_STATE" || equalsNoCase(file.name, "Cheats")) {
+				} else if (file.name == "GAME" || file.name == "TEXTURES" || file.name == "PPSSPP_STATE" || file.name == "PLUGINS" || file.name == "SYSTEM" || equalsNoCase(file.name, "Cheats")) {
 					// The game scans these folders on startup which can take time. Skip them.
 					continue;
 				}
@@ -966,7 +966,7 @@ VFSFileSystem::~VFSFileSystem() {
 	entries.clear();
 }
 
-std::string VFSFileSystem::GetLocalPath(std::string localPath) {
+std::string VFSFileSystem::GetLocalPath(const std::string &localPath) {
 	return basePath + localPath;
 }
 

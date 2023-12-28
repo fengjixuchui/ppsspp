@@ -67,6 +67,18 @@ struct TransformedVertex {
 	}
 };
 
+inline bool IsTrianglePrim(GEPrimitiveType prim) {
+	// TODO: KEEP_PREVIOUS is mistakenly treated as TRIANGLE here... This isn't new.
+	//
+	// Interesting optimization, but not confident in performance:
+	// static const bool p[8] = { false, false, false, true, true, true, false, true };
+	// 10111000 = 0xB8;
+	// return (0xB8U >> (u8)prim) & 1;
+
+	return prim > GE_PRIM_LINE_STRIP && prim != GE_PRIM_RECTANGLES;
+}
+
+
 class GPUCommon : public GPUInterface, public GPUDebugInterface {
 public:
 	GPUCommon(GraphicsContext *gfxCtx, Draw::DrawContext *draw);
@@ -78,13 +90,9 @@ public:
 
 	virtual void UpdateCmdInfo() = 0;
 
-	bool IsReady() override {
-		return true;
-	}
 	bool IsStarted() override {
 		return true;
 	}
-	void CancelReady() override {}
 	void Reinitialize() override;
 
 	void BeginHostFrame() override;
@@ -196,8 +204,6 @@ public:
 	GPUgstate GetGState() override;
 	void SetCmdValue(u32 op) override;
 
-	void UpdateUVScaleOffset();
-
 	DisplayList* getList(int listid) override {
 		return &dls[listid];
 	}
@@ -218,14 +224,12 @@ public:
 		fullInfo = reportingFullInfo_;
 	}
 
+	bool PresentedThisFrame() const override;
+
 protected:
 	void ClearCacheNextFrame() override {}
 
 	virtual void CheckRenderResized() {}
-
-	inline bool IsTrianglePrim(GEPrimitiveType prim) const {
-		return prim != GE_PRIM_RECTANGLES && prim > GE_PRIM_LINE_STRIP;
-	}
 
 	void SetDrawType(DrawType type, GEPrimitiveType prim) {
 		if (type != lastDraw_) {
@@ -242,7 +246,7 @@ protected:
 		}
 	}
 
-	void BeginFrame() override;
+	void PSPFrame() override;
 
 	virtual void CheckDepthUsage(VirtualFramebuffer *vfb) {}
 	virtual void FastRunLoop(DisplayList &list) = 0;

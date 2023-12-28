@@ -552,7 +552,7 @@ void ARM64XEmitter::EncodeSystemInst(u32 op0, u32 op1, u32 CRn, u32 CRm, u32 op2
 	Write32((0x354 << 22) | (op0 << 19) | (op1 << 16) | (CRn << 12) | (CRm << 8) | (op2 << 5) | Rt);
 }
 
-void ARM64XEmitter::EncodeArithmeticInst(u32 instenc, bool flags, ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm, ArithOption Option)
+void ARM64XEmitter::EncodeArithmeticInst(u32 instenc, bool flags, ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm, const ArithOption &Option)
 {
 	bool b64Bit = Is64Bit(Rd);
 
@@ -646,7 +646,7 @@ void ARM64XEmitter::EncodeData3SrcInst(u32 instenc, ARM64Reg Rd, ARM64Reg Rn, AR
 	        (Ra << 10) | (Rn << 5) | Rd);
 }
 
-void ARM64XEmitter::EncodeLogicalInst(u32 instenc, ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm, ArithOption Shift)
+void ARM64XEmitter::EncodeLogicalInst(u32 instenc, ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm, const ArithOption &Shift)
 {
 	bool b64Bit = Is64Bit(Rd);
 
@@ -771,7 +771,7 @@ void ARM64XEmitter::EncodeBitfieldMOVInst(u32 op, ARM64Reg Rd, ARM64Reg Rn, u32 
 	        (immr << 16) | (imms << 10) | (Rn << 5) | Rd);
 }
 
-void ARM64XEmitter::EncodeLoadStoreRegisterOffset(u32 size, u32 opc, ARM64Reg Rt, ARM64Reg Rn, ArithOption Rm)
+void ARM64XEmitter::EncodeLoadStoreRegisterOffset(u32 size, u32 opc, ARM64Reg Rt, ARM64Reg Rn, const ArithOption &Rm)
 {
 	Rt = DecodeReg(Rt);
 	Rn = DecodeReg(Rn);
@@ -1186,7 +1186,7 @@ void ARM64XEmitter::ADD(ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm)
 	ADD(Rd, Rn, Rm, ArithOption(Rd, ST_LSL, 0));
 }
 
-void ARM64XEmitter::ADD(ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm, ArithOption Option)
+void ARM64XEmitter::ADD(ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm, const ArithOption &Option)
 {
 	EncodeArithmeticInst(0, false, Rd, Rn, Rm, Option);
 }
@@ -1196,7 +1196,7 @@ void ARM64XEmitter::ADDS(ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm)
 	EncodeArithmeticInst(0, true, Rd, Rn, Rm, ArithOption(Rd, ST_LSL, 0));
 }
 
-void ARM64XEmitter::ADDS(ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm, ArithOption Option)
+void ARM64XEmitter::ADDS(ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm, const ArithOption &Option)
 {
 	EncodeArithmeticInst(0, true, Rd, Rn, Rm, Option);
 }
@@ -1206,7 +1206,7 @@ void ARM64XEmitter::SUB(ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm)
 	SUB(Rd, Rn, Rm, ArithOption(Rd, ST_LSL, 0));
 }
 
-void ARM64XEmitter::SUB(ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm, ArithOption Option)
+void ARM64XEmitter::SUB(ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm, const ArithOption &Option)
 {
 	EncodeArithmeticInst(1, false, Rd, Rn, Rm, Option);
 }
@@ -1216,7 +1216,7 @@ void ARM64XEmitter::SUBS(ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm)
 	EncodeArithmeticInst(1, true, Rd, Rn, Rm, ArithOption(Rd, ST_LSL, 0));
 }
 
-void ARM64XEmitter::SUBS(ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm, ArithOption Option)
+void ARM64XEmitter::SUBS(ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm, const ArithOption &Option)
 {
 	EncodeArithmeticInst(1, true, Rd, Rn, Rm, Option);
 }
@@ -1226,7 +1226,7 @@ void ARM64XEmitter::CMN(ARM64Reg Rn, ARM64Reg Rm)
 	CMN(Rn, Rm, ArithOption(Rn, ST_LSL, 0));
 }
 
-void ARM64XEmitter::CMN(ARM64Reg Rn, ARM64Reg Rm, ArithOption Option)
+void ARM64XEmitter::CMN(ARM64Reg Rn, ARM64Reg Rm, const ArithOption &Option)
 {
 	EncodeArithmeticInst(0, true, Is64Bit(Rn) ? ZR : WZR, Rn, Rm, Option);
 }
@@ -1236,7 +1236,7 @@ void ARM64XEmitter::CMP(ARM64Reg Rn, ARM64Reg Rm)
 	CMP(Rn, Rm, ArithOption(Rn, ST_LSL, 0));
 }
 
-void ARM64XEmitter::CMP(ARM64Reg Rn, ARM64Reg Rm, ArithOption Option)
+void ARM64XEmitter::CMP(ARM64Reg Rn, ARM64Reg Rm, const ArithOption &Option)
 {
 	EncodeArithmeticInst(1, true, Is64Bit(Rn) ? ZR : WZR, Rn, Rm, Option);
 }
@@ -1432,44 +1432,44 @@ void ARM64XEmitter::MNEG(ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm)
 }
 
 // Logical (shifted register)
-void ARM64XEmitter::AND(ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm, ArithOption Shift)
+void ARM64XEmitter::AND(ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm, const ArithOption &Shift)
 {
 	EncodeLogicalInst(0, Rd, Rn, Rm, Shift);
 }
-void ARM64XEmitter::BIC(ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm, ArithOption Shift)
+void ARM64XEmitter::BIC(ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm, const ArithOption &Shift)
 {
 	EncodeLogicalInst(1, Rd, Rn, Rm, Shift);
 }
-void ARM64XEmitter::ORR(ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm, ArithOption Shift)
+void ARM64XEmitter::ORR(ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm, const ArithOption &Shift)
 {
 	EncodeLogicalInst(2, Rd, Rn, Rm, Shift);
 }
-void ARM64XEmitter::ORN(ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm, ArithOption Shift)
+void ARM64XEmitter::ORN(ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm, const ArithOption &Shift)
 {
 	EncodeLogicalInst(3, Rd, Rn, Rm, Shift);
 }
-void ARM64XEmitter::EOR(ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm, ArithOption Shift)
+void ARM64XEmitter::EOR(ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm, const ArithOption &Shift)
 {
 	EncodeLogicalInst(4, Rd, Rn, Rm, Shift);
 }
-void ARM64XEmitter::EON(ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm, ArithOption Shift)
+void ARM64XEmitter::EON(ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm, const ArithOption &Shift)
 {
 	EncodeLogicalInst(5, Rd, Rn, Rm, Shift);
 }
-void ARM64XEmitter::ANDS(ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm, ArithOption Shift)
+void ARM64XEmitter::ANDS(ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm, const ArithOption &Shift)
 {
 	EncodeLogicalInst(6, Rd, Rn, Rm, Shift);
 }
-void ARM64XEmitter::BICS(ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm, ArithOption Shift)
+void ARM64XEmitter::BICS(ARM64Reg Rd, ARM64Reg Rn, ARM64Reg Rm, const ArithOption &Shift)
 {
 	EncodeLogicalInst(7, Rd, Rn, Rm, Shift);
 }
-void ARM64XEmitter::TST(ARM64Reg Rn, ARM64Reg Rm, ArithOption Shift)
+void ARM64XEmitter::TST(ARM64Reg Rn, ARM64Reg Rm, const ArithOption &Shift)
 {
 	ANDS(Is64Bit(Rn) ? ZR : WZR, Rn, Rm, Shift);
 }
 
-void ARM64XEmitter::MOV(ARM64Reg Rd, ARM64Reg Rm, ArithOption Shift) {
+void ARM64XEmitter::MOV(ARM64Reg Rd, ARM64Reg Rm, const ArithOption &Shift) {
 	ORR(Rd, Is64Bit(Rd) ? ZR : WZR, Rm, Shift);
 }
 
@@ -1835,47 +1835,47 @@ void ARM64XEmitter::LDRSW(IndexType type, ARM64Reg Rt, ARM64Reg Rn, s32 imm)
 }
 
 // Load/Store register (register offset)
-void ARM64XEmitter::STRB(ARM64Reg Rt, ARM64Reg Rn, ArithOption Rm)
+void ARM64XEmitter::STRB(ARM64Reg Rt, ARM64Reg Rn, const ArithOption &Rm)
 {
 	EncodeLoadStoreRegisterOffset(0, 0, Rt, Rn, Rm);
 }
-void ARM64XEmitter::LDRB(ARM64Reg Rt, ARM64Reg Rn, ArithOption Rm)
+void ARM64XEmitter::LDRB(ARM64Reg Rt, ARM64Reg Rn, const ArithOption &Rm)
 {
 	EncodeLoadStoreRegisterOffset(0, 1, Rt, Rn, Rm);
 }
-void ARM64XEmitter::LDRSB(ARM64Reg Rt, ARM64Reg Rn, ArithOption Rm)
+void ARM64XEmitter::LDRSB(ARM64Reg Rt, ARM64Reg Rn, const ArithOption &Rm)
 {
 	bool b64Bit = Is64Bit(Rt);
 	EncodeLoadStoreRegisterOffset(0, 3 - b64Bit, Rt, Rn, Rm);
 }
-void ARM64XEmitter::STRH(ARM64Reg Rt, ARM64Reg Rn, ArithOption Rm)
+void ARM64XEmitter::STRH(ARM64Reg Rt, ARM64Reg Rn, const ArithOption &Rm)
 {
 	EncodeLoadStoreRegisterOffset(1, 0, Rt, Rn, Rm);
 }
-void ARM64XEmitter::LDRH(ARM64Reg Rt, ARM64Reg Rn, ArithOption Rm)
+void ARM64XEmitter::LDRH(ARM64Reg Rt, ARM64Reg Rn, const ArithOption &Rm)
 {
 	EncodeLoadStoreRegisterOffset(1, 1, Rt, Rn, Rm);
 }
-void ARM64XEmitter::LDRSH(ARM64Reg Rt, ARM64Reg Rn, ArithOption Rm)
+void ARM64XEmitter::LDRSH(ARM64Reg Rt, ARM64Reg Rn, const ArithOption &Rm)
 {
 	bool b64Bit = Is64Bit(Rt);
 	EncodeLoadStoreRegisterOffset(1, 3 - b64Bit, Rt, Rn, Rm);
 }
-void ARM64XEmitter::STR(ARM64Reg Rt, ARM64Reg Rn, ArithOption Rm)
+void ARM64XEmitter::STR(ARM64Reg Rt, ARM64Reg Rn, const ArithOption &Rm)
 {
 	bool b64Bit = Is64Bit(Rt);
 	EncodeLoadStoreRegisterOffset(2 + b64Bit, 0, Rt, Rn, Rm);
 }
-void ARM64XEmitter::LDR(ARM64Reg Rt, ARM64Reg Rn, ArithOption Rm)
+void ARM64XEmitter::LDR(ARM64Reg Rt, ARM64Reg Rn, const ArithOption &Rm)
 {
 	bool b64Bit = Is64Bit(Rt);
 	EncodeLoadStoreRegisterOffset(2 + b64Bit, 1, Rt, Rn, Rm);
 }
-void ARM64XEmitter::LDRSW(ARM64Reg Rt, ARM64Reg Rn, ArithOption Rm)
+void ARM64XEmitter::LDRSW(ARM64Reg Rt, ARM64Reg Rn, const ArithOption &Rm)
 {
 	EncodeLoadStoreRegisterOffset(2, 2, Rt, Rn, Rm);
 }
-void ARM64XEmitter::PRFM(ARM64Reg Rt, ARM64Reg Rn, ArithOption Rm)
+void ARM64XEmitter::PRFM(ARM64Reg Rt, ARM64Reg Rn, const ArithOption &Rm)
 {
 	EncodeLoadStoreRegisterOffset(3, 2, Rt, Rn, Rm);
 }
@@ -2491,7 +2491,7 @@ void ARM64FloatEmitter::EncodeLoadStorePair(u32 size, bool load, IndexType type,
 
 }
 
-void ARM64FloatEmitter::EncodeLoadStoreRegisterOffset(u32 size, bool load, ARM64Reg Rt, ARM64Reg Rn, ArithOption Rm)
+void ARM64FloatEmitter::EncodeLoadStoreRegisterOffset(u32 size, bool load, ARM64Reg Rt, ARM64Reg Rn, const ArithOption &Rm)
 {
 	_assert_msg_(Rm.GetType() == ArithOption::TYPE_EXTENDEDREG, "%s must contain an extended reg as Rm!", __FUNCTION__);
 
@@ -2941,11 +2941,11 @@ void ARM64FloatEmitter::STP(u8 size, IndexType type, ARM64Reg Rt, ARM64Reg Rt2, 
 }
 
 // Loadstore register offset
-void ARM64FloatEmitter::STR(u8 size, ARM64Reg Rt, ARM64Reg Rn, ArithOption Rm)
+void ARM64FloatEmitter::STR(u8 size, ARM64Reg Rt, ARM64Reg Rn, const ArithOption &Rm)
 {
 	EncodeLoadStoreRegisterOffset(size, false, Rt, Rn, Rm);
 }
-void ARM64FloatEmitter::LDR(u8 size, ARM64Reg Rt, ARM64Reg Rn, ArithOption Rm)
+void ARM64FloatEmitter::LDR(u8 size, ARM64Reg Rt, ARM64Reg Rn, const ArithOption &Rm)
 {
 	EncodeLoadStoreRegisterOffset(size, true, Rt, Rn, Rm);
 }
@@ -4204,6 +4204,14 @@ void ARM64FloatEmitter::MOVI2FDUP(ARM64Reg Rd, float value, ARM64Reg scratch, bo
 		if (negate) {
 			FNEG(32, Rd, Rd);
 		}
+	} else if (TryAnyMOVI(32, Rd, ival)) {
+		if (negate) {
+			FNEG(32, Rd, Rd);
+		}
+	} else if (TryAnyMOVI(32, Rd, ival ^ 0x80000000)) {
+		if (!negate) {
+			FNEG(32, Rd, Rd);
+		}
 	} else {
 		_assert_msg_(scratch != INVALID_REG, "Failed to find a way to generate FP immediate %f without scratch", value);
 		if (negate) {
@@ -4212,6 +4220,96 @@ void ARM64FloatEmitter::MOVI2FDUP(ARM64Reg Rd, float value, ARM64Reg scratch, bo
 		m_emit->MOVI2R(scratch, ival);
 		DUP(32, Rd, scratch);
 	}
+}
+
+bool ARM64FloatEmitter::TryMOVI(u8 size, ARM64Reg Rd, uint64_t elementValue) {
+	if (size == 8) {
+		// Can always do 8.
+		MOVI(size, Rd, elementValue & 0xFF);
+		return true;
+	} else if (size == 16) {
+		if ((elementValue & 0xFF00) == 0) {
+			MOVI(size, Rd, elementValue & 0xFF, 0);
+			return true;
+		} else if ((elementValue & 0x00FF) == 0) {
+			MOVI(size, Rd, (elementValue >> 8) & 0xFF, 8);
+			return true;
+		} else if ((elementValue & 0xFF00) == 0xFF00) {
+			MVNI(size, Rd, ~elementValue & 0xFF, 0);
+			return true;
+		} else if ((elementValue & 0x00FF) == 0x00FF) {
+			MVNI(size, Rd, (~elementValue >> 8) & 0xFF, 8);
+			return true;
+		}
+
+		return false;
+	} else if (size == 32) {
+		for (int shift = 0; shift < 32; shift += 8) {
+			uint32_t mask = 0xFFFFFFFF &~ (0xFF << shift);
+			if ((elementValue & mask) == 0) {
+				MOVI(size, Rd, (elementValue >> shift) & 0xFF, shift);
+				return true;
+			} else if ((elementValue & mask) == mask) {
+				MVNI(size, Rd, (~elementValue >> shift) & 0xFF, shift);
+				return true;
+			}
+		}
+
+		// Maybe an MSL shift will work?
+		for (int shift = 8; shift <= 16; shift += 8) {
+			uint32_t mask = 0xFFFFFFFF & ~(0xFF << shift);
+			uint32_t ones = (1 << shift) - 1;
+			uint32_t notOnes = 0xFFFFFF00 << shift;
+			if ((elementValue & mask) == ones) {
+				MOVI(size, Rd, (elementValue >> shift) & 0xFF, shift, true);
+				return true;
+			} else if ((elementValue & mask) == notOnes) {
+				MVNI(size, Rd, (elementValue >> shift) & 0xFF, shift, true);
+				return true;
+			}
+		}
+
+		return false;
+	} else if (size == 64) {
+		uint8_t imm8 = 0;
+		for (int i = 0; i < 8; ++i) {
+			uint8_t byte = (elementValue >> (i * 8)) & 0xFF;
+			if (byte != 0 && byte != 0xFF)
+				return false;
+
+			if (byte == 0xFF)
+				imm8 |= 1 << i;
+		}
+
+		// Didn't run into any partial bytes, so size 64 is doable.
+		MOVI(size, Rd, imm8);
+		return true;
+	}
+	return false;
+}
+
+bool ARM64FloatEmitter::TryAnyMOVI(u8 size, ARM64Reg Rd, uint64_t elementValue) {
+	// Try the original size first in case that's more optimal.
+	if (TryMOVI(size, Rd, elementValue))
+		return true;
+
+	uint64_t value = elementValue;
+	if (size != 64) {
+		uint64_t masked = elementValue & ((1 << size) - 1);
+		for (int i = size; i < 64; ++i) {
+			value |= masked << i;
+		}
+	}
+
+	for (int attempt = 8; attempt <= 64; attempt += attempt) {
+		// Original size was already attempted above.
+		if (attempt != size) {
+			if (TryMOVI(attempt, Rd, value))
+				return true;
+		}
+	}
+
+	return false;
 }
 
 void ARM64XEmitter::SUBSI2R(ARM64Reg Rd, ARM64Reg Rn, u64 imm, ARM64Reg scratch) {

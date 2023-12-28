@@ -99,7 +99,6 @@ View::~View() {
 	// Could use unique_ptr, but then we have to include tween everywhere.
 	for (auto &tween : tweens_)
 		delete tween;
-	tweens_.clear();
 }
 
 void View::Update() {
@@ -180,6 +179,16 @@ Point View::GetFocusPosition(FocusDirection dir) const {
 
 	default:
 		return bounds_.Center();
+	}
+}
+
+Point CollapsibleHeader::GetFocusPosition(FocusDirection dir) const {
+	// Bias the focus position to the left.
+	switch (dir) {
+	case FOCUS_UP: return Point(bounds_.x + 50, bounds_.y + 2);
+	case FOCUS_DOWN: return Point(bounds_.x + 50, bounds_.y2() - 2);
+	default:
+		return View::GetFocusPosition(dir);
 	}
 }
 
@@ -304,6 +313,21 @@ bool IsEscapeKey(const KeyInput &key) {
 		}
 	} else {
 		return MatchesKeyDef(cancelKeys, key);
+	}
+}
+
+// Corresponds to Triangle
+bool IsInfoKey(const KeyInput &key) {
+	if (infoKeys.empty()) {
+		// This path is pretty much not used, infoKeys should be set.
+		// TODO: Get rid of this stuff?
+		if (key.deviceId == DEVICE_ID_KEYBOARD) {
+			return key.keyCode == NKCODE_S || key.keyCode == NKCODE_NUMPAD_ADD;
+		} else {
+			return key.keyCode == NKCODE_BUTTON_Y || key.keyCode == NKCODE_BUTTON_3;
+		}
+	} else {
+		return MatchesKeyDef(infoKeys, key);
 	}
 }
 
@@ -606,7 +630,6 @@ CollapsibleHeader::CollapsibleHeader(bool *toggle, const std::string &text, Layo
 
 void CollapsibleHeader::Draw(UIContext &dc) {
 	Style style = dc.theme->itemStyle;
-	style.background.color = 0;
 	if (HasFocus()) style = dc.theme->itemFocusedStyle;
 	if (down_) style = dc.theme->itemDownStyle;
 	if (!IsEnabled()) style = dc.theme->itemDisabledStyle;
@@ -1557,6 +1580,9 @@ bool SliderFloat::ApplyKey(InputKeyCode keyCode) {
 	default:
 		return false;
 	}
+
+	_dbg_assert_(!my_isnanorinf(*value_));
+
 	EventParams params{};
 	params.v = this;
 	params.a = (uint32_t)(*value_);
@@ -1584,6 +1610,7 @@ bool SliderFloat::Touch(const TouchInput &input) {
 }
 
 void SliderFloat::Clamp() {
+	_dbg_assert_(!my_isnanorinf(*value_));
 	if (*value_ < minValue_)
 		*value_ = minValue_;
 	else if (*value_ > maxValue_)

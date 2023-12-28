@@ -43,7 +43,7 @@ static std::string StoreBaseUrl() {
 }
 
 // baseUrl is assumed to have a trailing slash, and not contain any subdirectories.
-std::string ResolveUrl(std::string baseUrl, std::string url) {
+std::string ResolveUrl(const std::string &baseUrl, const std::string &url) {
 	if (url.empty()) {
 		return baseUrl;
 	} else if (url[0] == '/') {
@@ -91,7 +91,7 @@ public:
 	void Draw(UIContext &dc) override;
 	std::string DescribeText() const override { return ""; }
 
-	void SetFilename(std::string filename);
+	void SetFilename(const std::string &filename);
 	void SetColor(uint32_t color) { color_ = color; }
 	void SetFixedSize(float fixW, float fixH) { fixedSizeW_ = fixW; fixedSizeH_ = fixH; }
 	void SetCanBeFocused(bool can) { canFocus_ = can; }
@@ -112,7 +112,7 @@ private:
 	std::shared_ptr<http::Request> download_;
 
 	std::string textureData_;
-	std::unique_ptr<ManagedTexture> texture_;
+	Draw::AutoRef<Draw::Texture> texture_;
 	bool textureFailed_ = false;
 	float fixedSizeW_ = 0.0f;
 	float fixedSizeH_ = 0.0f;
@@ -150,11 +150,13 @@ void HttpImageFileView::GetContentDimensions(const UIContext &dc, float &w, floa
 	}
 }
 
-void HttpImageFileView::SetFilename(std::string filename) {
+void HttpImageFileView::SetFilename(const std::string &filename) {
 	if (!useIconCache_ && path_ != filename) {
 		textureFailed_ = false;
 		path_ = filename;
-		texture_.reset(nullptr);
+		if (texture_) {
+			texture_.reset(nullptr);
+		}
 	}
 }
 
@@ -181,7 +183,7 @@ void HttpImageFileView::Draw(UIContext &dc) {
 		}
 
 		if (!textureData_.empty()) {
-			texture_ = CreateTextureFromFileData(dc.GetDrawContext(), (const uint8_t *)(textureData_.data()), (int)textureData_.size(), DETECT, false, "store_icon");
+			texture_ = CreateTextureFromFileData(dc.GetDrawContext(), (const uint8_t *)(textureData_.data()), (int)textureData_.size(), ImageFileType::DETECT, false, "store_icon");
 			if (!texture_)
 				textureFailed_ = true;
 			textureData_.clear();
@@ -198,7 +200,7 @@ void HttpImageFileView::Draw(UIContext &dc) {
 	if (useIconCache_) {
 		texture = g_iconCache.BindIconTexture(&dc, path_);
 	} else {
-		texture = texture_->GetTexture();
+		texture = texture_;
 	}
 
 	if (texture) {
@@ -266,7 +268,6 @@ private:
 	void CreateViews();
 	UI::EventReturn OnInstall(UI::EventParams &e);
 	UI::EventReturn OnCancel(UI::EventParams &e);
-	UI::EventReturn OnUninstall(UI::EventParams &e);
 	UI::EventReturn OnLaunchClick(UI::EventParams &e);
 
 	bool IsGameInstalled() {
@@ -275,6 +276,7 @@ private:
 	std::string DownloadURL();
 
 	StoreEntry entry_;
+	UI::Button *uninstallButton_ = nullptr;
 	UI::Button *installButton_ = nullptr;
 	UI::Button *launchButton_ = nullptr;
 	UI::Button *cancelButton_ = nullptr;
@@ -301,6 +303,7 @@ void ProductView::CreateViews() {
 		LinearLayout *progressDisplay = new LinearLayout(ORIENT_HORIZONTAL);
 		installButton_ = progressDisplay->Add(new Button(st->T("Install")));
 		installButton_->OnClick.Handle(this, &ProductView::OnInstall);
+		uninstallButton_ = nullptr;
 
 		speedView_ = progressDisplay->Add(new TextView(""));
 		speedView_->SetVisibility(isDownloading ? V_VISIBLE : V_GONE);
@@ -309,7 +312,11 @@ void ProductView::CreateViews() {
 		installButton_ = nullptr;
 		speedView_ = nullptr;
 		Add(new TextView(st->T("Already Installed")));
-		Add(new Button(st->T("Uninstall")))->OnClick.Handle(this, &ProductView::OnUninstall);
+		uninstallButton_ = new Button(st->T("Uninstall"));
+		Add(uninstallButton_)->OnClick.Add([=](UI::EventParams &e) {
+			g_GameManager.UninstallGameOnThread(entry_.file);
+			return UI::EVENT_DONE;
+		});
 		launchButton_ = new Button(st->T("Launch Game"));
 		launchButton_->OnClick.Handle(this, &ProductView::OnLaunchClick);
 		Add(launchButton_);
@@ -338,6 +345,9 @@ void ProductView::Update() {
 	}
 	if (installButton_) {
 		installButton_->SetEnabled(g_GameManager.GetState() == GameManagerState::IDLE);
+	}
+	if (uninstallButton_) {
+		uninstallButton_->SetEnabled(g_GameManager.GetState() == GameManagerState::IDLE);
 	}
 	if (g_GameManager.GetState() == GameManagerState::DOWNLOADING) {
 		if (speedView_) {
@@ -384,12 +394,6 @@ UI::EventReturn ProductView::OnInstall(UI::EventParams &e) {
 
 UI::EventReturn ProductView::OnCancel(UI::EventParams &e) {
 	g_GameManager.CancelDownload();
-	return UI::EVENT_DONE;
-}
-
-UI::EventReturn ProductView::OnUninstall(UI::EventParams &e) {
-	g_GameManager.Uninstall(entry_.file);
-	CreateViews();
 	return UI::EVENT_DONE;
 }
 
@@ -452,7 +456,7 @@ void StoreScreen::update() {
 	}
 }
 
-void StoreScreen::ParseListing(std::string json) {
+void StoreScreen::ParseListing(const std::string &json) {
 	using namespace json;
 	JsonReader reader(json.c_str(), json.size());
 	if (!reader.ok() || !reader.root()) {
@@ -491,7 +495,6 @@ void StoreScreen::CreateViews() {
 	root_ = new LinearLayout(ORIENT_VERTICAL);
 	
 	auto di = GetI18NCategory(I18NCat::DIALOG);
-	auto st = GetI18NCategory(I18NCat::STORE);
 	auto mm = GetI18NCategory(I18NCat::MAINMENU);
 
 	// Top bar
@@ -504,6 +507,7 @@ void StoreScreen::CreateViews() {
 
 	LinearLayout *content;
 	if (connectionError_ || loading_) {
+		auto st = GetI18NCategory(I18NCat::STORE);
 		content = new LinearLayout(ORIENT_VERTICAL, new LinearLayoutParams(FILL_PARENT, FILL_PARENT, 1.0f));
 		content->Add(new TextView(loading_ ? std::string(st->T("Loading...")) : StringFromFormat("%s: %d", st->T("Connection Error"), resultCode_)));
 		if (!loading_) {
@@ -583,7 +587,7 @@ UI::EventReturn StoreScreen::OnRetry(UI::EventParams &e) {
 	return UI::EVENT_DONE;
 }
 
-std::string StoreScreen::GetTranslatedString(const json::JsonGet json, std::string key, const char *fallback) const {
+std::string StoreScreen::GetTranslatedString(const json::JsonGet json, const std::string &key, const char *fallback) const {
 	json::JsonGet dict = json.getDict("en_US");
 	if (dict && json.hasChild(lang_.c_str(), JSON_OBJECT)) {
 		if (json.getDict(lang_.c_str()).hasChild(key.c_str(), JSON_STRING)) {

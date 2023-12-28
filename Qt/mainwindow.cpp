@@ -125,12 +125,12 @@ void MainWindow::bootDone()
 /* SIGNALS */
 void MainWindow::loadAct()
 {
-	QString filename = QFileDialog::getOpenFileName(NULL, "Load File", g_Config.currentDirectory.c_str(), "PSP ROMs (*.pbp *.elf *.iso *.cso *.prx)");
+	QString filename = QFileDialog::getOpenFileName(NULL, "Load File", g_Config.currentDirectory.c_str(), "PSP ROMs (*.pbp *.elf *.iso *.cso *.chd *.prx)");
 	if (QFile::exists(filename))
 	{
 		QFileInfo info(filename);
 		g_Config.currentDirectory = Path(info.absolutePath().toStdString());
-		System_PostUIMessage("boot", filename.toStdString().c_str());
+		System_PostUIMessage(UIMessage::REQUEST_GAME_BOOT, filename.toStdString().c_str());
 	}
 }
 
@@ -138,7 +138,7 @@ void MainWindow::closeAct()
 {
 	updateMenus();
 
-	System_PostUIMessage("stop", "");
+	System_PostUIMessage(UIMessage::REQUEST_GAME_STOP);
 	SetGameTitle("");
 }
 
@@ -232,30 +232,29 @@ void MainWindow::exitAct()
 
 void MainWindow::runAct()
 {
-	System_PostUIMessage("run", "");
+	System_PostUIMessage(UIMessage::REQUEST_GAME_RUN);
 }
 
 void MainWindow::pauseAct()
 {
-	System_PostUIMessage("pause", "");
+	System_PostUIMessage(UIMessage::REQUEST_GAME_PAUSE);
 }
 
 void MainWindow::stopAct()
 {
 	Core_Stop();
-	System_PostUIMessage("stop", "");
+	System_PostUIMessage(UIMessage::REQUEST_GAME_STOP);
 }
 
 void MainWindow::resetAct()
 {
 	updateMenus();
-
-	System_PostUIMessage("reset", "");
+	System_PostUIMessage(UIMessage::REQUEST_GAME_RESET);
 }
 
 void MainWindow::switchUMDAct()
 {
-	QString filename = QFileDialog::getOpenFileName(NULL, "Switch UMD", g_Config.currentDirectory.c_str(), "PSP ROMs (*.pbp *.elf *.iso *.cso *.prx)");
+	QString filename = QFileDialog::getOpenFileName(NULL, "Switch UMD", g_Config.currentDirectory.c_str(), "PSP ROMs (*.pbp *.elf *.iso *.cso *.chd *.prx)");
 	if (QFile::exists(filename))
 	{
 		QFileInfo info(filename);
@@ -651,8 +650,6 @@ void MainWindow::createMenus()
 
 	gameSettingsMenu->add(new MenuAction(this, SLOT(transformAct()),     QT_TR_NOOP("&Hardware transform")))
 		->addEventChecked(&g_Config.bHardwareTransform);
-	gameSettingsMenu->add(new MenuAction(this, SLOT(vertexCacheAct()),   QT_TR_NOOP("&Vertex cache")))
-		->addEventChecked(&g_Config.bVertexCache);
 	gameSettingsMenu->addSeparator();
 	gameSettingsMenu->add(new MenuAction(this, SLOT(audioAct()),   QT_TR_NOOP("Enable s&ound")))
 		->addEventChecked(&g_Config.bEnableSound);

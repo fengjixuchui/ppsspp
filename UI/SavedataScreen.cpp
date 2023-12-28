@@ -98,7 +98,6 @@ public:
 		LinearLayout *toprow = new LinearLayout(ORIENT_HORIZONTAL, new LayoutParams(FILL_PARENT, WRAP_CONTENT));
 		content->Add(toprow);
 
-		auto sa = GetI18NCategory(I18NCat::SAVEDATA);
 		if (ginfo->fileType == IdentifiedFileType::PSP_SAVEDATA_DIRECTORY) {
 			std::string savedata_detail = ginfo->paramSFO.GetValueString("SAVEDATA_DETAIL");
 			std::string savedata_title = ginfo->paramSFO.GetValueString("SAVEDATA_TITLE");
@@ -109,7 +108,7 @@ public:
 			LinearLayout *topright = new LinearLayout(ORIENT_VERTICAL, new LinearLayoutParams(WRAP_CONTENT, WRAP_CONTENT, 1.0f));
 			topright->SetSpacing(1.0f);
 			topright->Add(new TextView(savedata_title, ALIGN_LEFT | FLAG_WRAP_TEXT, false))->SetTextColor(textStyle.fgColor);
-			topright->Add(new TextView(StringFromFormat("%lld kB", ginfo->gameSize / 1024), 0, true))->SetTextColor(textStyle.fgColor);
+			topright->Add(new TextView(StringFromFormat("%lld kB", ginfo->gameSizeOnDisk / 1024), 0, true))->SetTextColor(textStyle.fgColor);
 			topright->Add(new TextView(GetFileDateAsString(savePath_ / "PARAM.SFO"), 0, true))->SetTextColor(textStyle.fgColor);
 			toprow->Add(topright);
 			content->Add(new Spacer(3.0));
@@ -120,6 +119,7 @@ public:
 			if (File::Exists(image_path)) {
 				toprow->Add(new AsyncImageFileView(image_path, IS_KEEP_ASPECT, new LinearLayoutParams(480, 272, Margins(10, 0))));
 			} else {
+				auto sa = GetI18NCategory(I18NCat::SAVEDATA);
 				toprow->Add(new TextView(sa->T("No screenshot"), new LinearLayoutParams(Margins(10, 5))))->SetTextColor(textStyle.fgColor);
 			}
 			content->Add(new TextView(GetFileDateAsString(savePath_), 0, true, new LinearLayoutParams(Margins(10, 5))))->SetTextColor(textStyle.fgColor);
@@ -266,7 +266,7 @@ UI::EventReturn SavedataPopupScreen::OnDeleteButtonClick(UI::EventParams &e) {
 	return UI::EVENT_DONE;
 }
 
-static std::string CleanSaveString(std::string str) {
+static std::string CleanSaveString(const std::string &str) {
 	std::string s = ReplaceAll(str, "&", "&&");
 	s = ReplaceAll(s, "\n", " ");
 	s = ReplaceAll(s, "\r", " ");
@@ -287,9 +287,9 @@ void SavedataButton::UpdateText(const std::shared_ptr<GameInfo> &ginfo) {
 	if (!currentTitle.empty()) {
 		title_ = CleanSaveString(currentTitle);
 	}
-	if (subtitle_.empty() && ginfo->gameSize > 0) {
+	if (subtitle_.empty() && ginfo->gameSizeOnDisk > 0) {
 		std::string savedata_title = ginfo->paramSFO.GetValueString("SAVEDATA_TITLE");
-		subtitle_ = CleanSaveString(savedata_title) + StringFromFormat(" (%lld kB)", ginfo->gameSize / 1024);
+		subtitle_ = CleanSaveString(savedata_title) + StringFromFormat(" (%lld kB)", ginfo->gameSizeOnDisk / 1024);
 	}
 }
 
@@ -300,7 +300,7 @@ void SavedataButton::Draw(UIContext &dc) {
 	using namespace UI;
 
 	if (ginfo->icon.texture) {
-		texture = ginfo->icon.texture->GetTexture();
+		texture = ginfo->icon.texture;
 	}
 
 	int x = bounds_.x;
@@ -613,7 +613,6 @@ SavedataScreen::~SavedataScreen() {
 void SavedataScreen::CreateViews() {
 	using namespace UI;
 	auto sa = GetI18NCategory(I18NCat::SAVEDATA);
-	auto di = GetI18NCategory(I18NCat::DIALOG);
 	Path savedata_dir = GetSysDirectory(DIRECTORY_SAVEDATA);
 	Path savestate_dir = GetSysDirectory(DIRECTORY_SAVESTATE);
 
@@ -655,6 +654,7 @@ void SavedataScreen::CreateViews() {
 
 	AddStandardBack(root_);
 	if (System_GetPropertyBool(SYSPROP_HAS_TEXT_INPUT_DIALOG)) {
+		auto di = GetI18NCategory(I18NCat::DIALOG);
 		root_->Add(new Choice(di->T("Search"), "", false, new AnchorLayoutParams(WRAP_CONTENT, 64, NONE, NONE, 10, 10)))->OnClick.Handle<SavedataScreen>(this, &SavedataScreen::OnSearch);
 	}
 
@@ -672,10 +672,10 @@ UI::EventReturn SavedataScreen::OnSortClick(UI::EventParams &e) {
 }
 
 UI::EventReturn SavedataScreen::OnSearch(UI::EventParams &e) {
-	auto di = GetI18NCategory(I18NCat::DIALOG);
 	if (System_GetPropertyBool(SYSPROP_HAS_TEXT_INPUT_DIALOG)) {
+		auto di = GetI18NCategory(I18NCat::DIALOG);
 		System_InputBoxGetString(di->T("Filter"), searchFilter_, [](const std::string &value, int ivalue) {
-			System_PostUIMessage("savedatascreen_search", value);
+			System_PostUIMessage(UIMessage::SAVEDATA_SEARCH, value);
 		});
 	}
 	return UI::EVENT_DONE;
@@ -698,9 +698,9 @@ void SavedataScreen::dialogFinished(const Screen *dialog, DialogResult result) {
 	}
 }
 
-void SavedataScreen::sendMessage(const char *message, const char *value) {
+void SavedataScreen::sendMessage(UIMessage message, const char *value) {
 	UIDialogScreenWithGameBackground::sendMessage(message, value);
-	if (!strcmp(message, "savedatascreen_search")) {
+	if (message == UIMessage::SAVEDATA_SEARCH) {
 		searchFilter_ = value;
 		dataBrowser_->SetSearchFilter(searchFilter_);
 		stateBrowser_->SetSearchFilter(searchFilter_);
@@ -736,7 +736,7 @@ void GameIconView::Draw(UIContext &dc) {
 	float nw = std::min(bounds_.h * textureWidth_ / textureHeight_, (float)bounds_.w);
 
 	dc.Flush();
-	dc.GetDrawContext()->BindTexture(0, info->icon.texture->GetTexture());
+	dc.GetDrawContext()->BindTexture(0, info->icon.texture);
 	dc.Draw()->Rect(bounds_.x, bounds_.y, nw, bounds_.h, color);
 	dc.Flush();
 	dc.RebindTexture();

@@ -75,13 +75,12 @@ struct GPUStatistics {
 
 	void ResetFrame() {
 		numDrawCalls = 0;
+		numVertexDecodes = 0;
+		numCulledDraws = 0;
 		numDrawSyncs = 0;
 		numListSyncs = 0;
-		numCachedDrawCalls = 0;
 		numVertsSubmitted = 0;
-		numCachedVertsDrawn = 0;
 		numUncachedVertsDrawn = 0;
-		numTrackedVertexArrays = 0;
 		numTextureInvalidations = 0;
 		numTextureInvalidationsByFramebuffer = 0;
 		numTexturesHashed = 0;
@@ -94,6 +93,7 @@ struct GPUStatistics {
 		numBlockingReadbacks = 0;
 		numReadbacks = 0;
 		numUploads = 0;
+		numCachedUploads = 0;
 		numDepal = 0;
 		numClears = 0;
 		numDepthCopies = 0;
@@ -101,7 +101,7 @@ struct GPUStatistics {
 		numColorCopies = 0;
 		numCopiesForShaderBlend = 0;
 		numCopiesForSelfTex = 0;
-		numDrawPixels = 0;
+		numBlockTransfers = 0;
 		numReplacerTrackedTex = 0;
 		numCachedReplacedTextures = 0;
 		msProcessingDisplayLists = 0;
@@ -111,16 +111,15 @@ struct GPUStatistics {
 
 	// Per frame statistics
 	int numDrawCalls;
+	int numVertexDecodes;
+	int numCulledDraws;
 	int numDrawSyncs;
 	int numListSyncs;
-	int numCachedDrawCalls;
 	int numFlushes;
 	int numBBOXJumps;
 	int numPlaneUpdates;
 	int numVertsSubmitted;
-	int numCachedVertsDrawn;
 	int numUncachedVertsDrawn;
-	int numTrackedVertexArrays;
 	int numTextureInvalidations;
 	int numTextureInvalidationsByFramebuffer;
 	int numTexturesHashed;
@@ -130,6 +129,7 @@ struct GPUStatistics {
 	int numBlockingReadbacks;
 	int numReadbacks;
 	int numUploads;
+	int numCachedUploads;
 	int numDepal;
 	int numClears;
 	int numDepthCopies;
@@ -137,7 +137,7 @@ struct GPUStatistics {
 	int numColorCopies;
 	int numCopiesForShaderBlend;
 	int numCopiesForSelfTex;
-	int numDrawPixels;
+	int numBlockTransfers;
 	int numReplacerTrackedTex;
 	int numCachedReplacedTextures;
 	double msProcessingDisplayLists;

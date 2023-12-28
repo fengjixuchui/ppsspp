@@ -147,7 +147,7 @@ void X64JitBackend::CompIR_Breakpoint(IRInst inst) {
 			}
 			bool isWrite = MIPSAnalyst::IsOpMemoryWrite(checkedPC);
 
-			const auto memchecks = CBreakPoints::GetMemCheckRanges(isWrite);
+			const auto &memchecks = CBreakPoints::GetMemCheckRanges(isWrite);
 			// We can trivially skip if there are no checks for this type (i.e. read vs write.)
 			if (memchecks.empty())
 				break;
@@ -159,7 +159,8 @@ void X64JitBackend::CompIR_Breakpoint(IRInst inst) {
 			FlushAll();
 
 			std::vector<FixupBranch> hitChecks;
-			for (auto it : memchecks) {
+			hitChecks.reserve(memchecks.size());
+			for (const auto &it : memchecks) {
 				if (it.end != 0) {
 					CMP(32, R(SCRATCH1), Imm32(it.start - size));
 					FixupBranch skipNext = J_CC(CC_BE);
@@ -232,8 +233,21 @@ void X64JitBackend::CompIR_System(IRInst inst) {
 		ABI_CallFunction(GetReplacementFunc(inst.constant)->replaceFunc);
 		WriteDebugProfilerStatus(IRProfilerStatus::IN_JIT);
 		LoadStaticRegisters();
-		//SUB(32, R(DOWNCOUNTREG), R(DOWNCOUNTREG), R(EAX));
-		SUB(32, MDisp(CTXREG, downcountOffset), R(EAX));
+
+		// Since we flushed above, and we're mapping write, EAX should be safe.
+		regs_.Map(inst);
+		MOV(32, regs_.R(inst.dest), R(EAX));
+		NEG(32, R(EAX));
+		// Set it back if it negate made it negative.  That's the absolute value.
+		CMOVcc(32, EAX, regs_.R(inst.dest), CC_S);
+
+		// Now set the dest to the sign bit status.
+		SAR(32, regs_.R(inst.dest), Imm8(31));
+
+		if (jo.downcountInRegister)
+			SUB(32, R(DOWNCOUNTREG), R(EAX));
+		else
+			SUB(32, MDisp(CTXREG, downcountOffset), R(EAX));
 		break;
 
 	case IROp::Break:
@@ -382,6 +396,7 @@ void X64JitBackend::CompIR_ValidateAddress(IRInst inst) {
 	AND(32, R(SCRATCH1), Imm32(0x3FFFFFFF));
 
 	std::vector<FixupBranch> validJumps;
+	validJumps.reserve(3);
 
 	FixupBranch unaligned;
 	if (alignment != 1) {

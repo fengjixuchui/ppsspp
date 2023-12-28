@@ -1,6 +1,9 @@
 #include <algorithm>
+
+#include "Common/Log.h"
 #include "Common/System/Display.h"
 #include "Common/System/System.h"
+#include "Common/System/Request.h"
 #include "Common/Input/InputState.h"
 #include "Common/Input/KeyCodes.h"
 #include "Common/Math/curves.h"
@@ -10,8 +13,6 @@
 #include "Common/UI/Root.h"
 #include "Common/Data/Text/I18n.h"
 #include "Common/Render/DrawBuffer.h"
-#include "Common/Log.h"
-#include <Common/System/Request.h>
 
 static const bool ClickDebug = false;
 
@@ -99,12 +100,14 @@ bool UIScreen::UnsyncTouch(const TouchInput &touch) {
 	return false;
 }
 
-void UIScreen::UnsyncAxis(const AxisInput &axis) {
+void UIScreen::UnsyncAxis(const AxisInput *axes, size_t count) {
 	QueuedEvent ev{};
 	ev.type = QueuedEventType::AXIS;
-	ev.axis = axis;
 	std::lock_guard<std::mutex> guard(eventQueueLock_);
-	eventQueue_.push_back(ev);
+	for (size_t i = 0; i < count; i++) {
+		ev.axis = axes[i];
+		eventQueue_.push_back(ev);
+	}
 }
 
 bool UIScreen::UnsyncKey(const KeyInput &key) {
@@ -190,7 +193,7 @@ void UIScreen::deviceRestored() {
 		root_->DeviceRestored(screenManager()->getDrawContext());
 }
 
-void UIScreen::preRender() {
+void UIScreen::SetupViewport() {
 	using namespace Draw;
 	Draw::DrawContext *draw = screenManager()->getDrawContext();
 	_dbg_assert_(draw != nullptr);
@@ -209,29 +212,32 @@ void UIScreen::preRender() {
 	draw->SetTargetSize(g_display.pixel_xres, g_display.pixel_yres);
 }
 
-void UIScreen::postRender() {
-	screenManager()->getUIContext()->Flush();
-}
+ScreenRenderFlags UIScreen::render(ScreenRenderMode mode) {
+	if (mode & ScreenRenderMode::FIRST) {
+		SetupViewport();
+	}
 
-void UIScreen::render() {
 	DoRecreateViews();
 
+	UIContext &uiContext = *screenManager()->getUIContext();
 	if (root_) {
-		UIContext *uiContext = screenManager()->getUIContext();
-
-		uiContext->SetScreenTag(tag());
-
-		UI::LayoutViewHierarchy(*uiContext, root_, ignoreInsets_);
-
-		uiContext->PushTransform({translation_, scale_, alpha_});
-
-		uiContext->Begin();
-		DrawBackground(*uiContext);
-		root_->Draw(*uiContext);
-		uiContext->Flush();
-
-		uiContext->PopTransform();
+		UI::LayoutViewHierarchy(uiContext, root_, ignoreInsets_);
 	}
+
+	uiContext.PushTransform({translation_, scale_, alpha_});
+
+	uiContext.Begin();
+	DrawBackground(uiContext);
+	if (root_) {
+		root_->Draw(uiContext);
+	}
+	uiContext.Flush();
+	DrawForeground(uiContext);
+	uiContext.Flush();
+
+	uiContext.PopTransform();
+
+	return ScreenRenderFlags::NONE;
 }
 
 TouchInput UIScreen::transformTouch(const TouchInput &touch) {
@@ -267,10 +273,10 @@ bool UIDialogScreen::key(const KeyInput &key) {
 	return retval;
 }
 
-void UIDialogScreen::sendMessage(const char *msg, const char *value) {
+void UIDialogScreen::sendMessage(UIMessage message, const char *value) {
 	Screen *screen = screenManager()->dialogParent(this);
 	if (screen) {
-		screen->sendMessage(msg, value);
+		screen->sendMessage(message, value);
 	}
 }
 
@@ -391,10 +397,8 @@ void PopupScreen::TriggerFinish(DialogResult result) {
 
 		OnCompleted(result);
 	}
-#if PPSSPP_PLATFORM(UWP)
 	// Inform UI that popup close to hide OSK (if visible)
 	System_NotifyUIState("popup_closed");
-#endif
 }
 
 void PopupScreen::CreateViews() {
@@ -417,8 +421,8 @@ void PopupScreen::CreateViews() {
 	box_->SetDropShadowExpand(std::max(g_display.dp_xres, g_display.dp_yres));
 	box_->SetSpacing(0.0f);
 
-	View *title = new PopupHeader(title_);
 	if (HasTitleBar()) {
+		View* title = new PopupHeader(title_);
 		box_->Add(title);
 	}
 
@@ -431,17 +435,17 @@ void PopupScreen::CreateViews() {
 		Margins buttonMargins(5, 5);
 
 		// Adjust button order to the platform default.
-#if defined(_WIN32)
-		defaultButton_ = buttonRow->Add(new Button(button1_, new LinearLayoutParams(1.0f, buttonMargins)));
-		defaultButton_->OnClick.Handle<UIScreen>(this, &UIScreen::OnOK);
-		if (!button2_.empty())
-			buttonRow->Add(new Button(button2_, new LinearLayoutParams(1.0f, buttonMargins)))->OnClick.Handle<UIScreen>(this, &UIScreen::OnCancel);
-#else
-		if (!button2_.empty())
-			buttonRow->Add(new Button(button2_, new LinearLayoutParams(1.0f)))->OnClick.Handle<UIScreen>(this, &UIScreen::OnCancel);
-		defaultButton_ = buttonRow->Add(new Button(button1_, new LinearLayoutParams(1.0f)));
-		defaultButton_->OnClick.Handle<UIScreen>(this, &UIScreen::OnOK);
-#endif
+		if (System_GetPropertyBool(SYSPROP_OK_BUTTON_LEFT)) {
+			defaultButton_ = buttonRow->Add(new Button(button1_, new LinearLayoutParams(1.0f, buttonMargins)));
+			defaultButton_->OnClick.Handle<UIScreen>(this, &UIScreen::OnOK);
+			if (!button2_.empty())
+				buttonRow->Add(new Button(button2_, new LinearLayoutParams(1.0f, buttonMargins)))->OnClick.Handle<UIScreen>(this, &UIScreen::OnCancel);
+		} else {
+			if (!button2_.empty())
+				buttonRow->Add(new Button(button2_, new LinearLayoutParams(1.0f)))->OnClick.Handle<UIScreen>(this, &UIScreen::OnCancel);
+			defaultButton_ = buttonRow->Add(new Button(button1_, new LinearLayoutParams(1.0f)));
+			defaultButton_->OnClick.Handle<UIScreen>(this, &UIScreen::OnOK);
+		}
 
 		box_->Add(buttonRow);
 	}

@@ -158,12 +158,10 @@ public:
 		std::vector<int> pspKeys;
 		bool showInfo = false;
 
-		if (KeyMap::InputMappingToPspButton(InputMapping(key.deviceId, key.keyCode), &pspKeys)) {
-			for (auto it = pspKeys.begin(), end = pspKeys.end(); it != end; ++it) {
-				// If the button mapped to triangle, then show the info.
-				if (HasFocus() && (key.flags & KEY_UP) && *it == CTRL_TRIANGLE) {
-					showInfo = true;
-				}
+		if (HasFocus() && UI::IsInfoKey(key)) {
+			// If the button mapped to triangle, then show the info.
+			if (key.flags & KEY_UP) {
+				showInfo = true;
 			}
 		} else if (hovering_ && key.deviceId == DEVICE_ID_MOUSE && key.keyCode == NKCODE_EXT_MOUSEBUTTON_2) {
 			// If it's the right mouse button, and it's not otherwise mapped, show the info also.
@@ -233,7 +231,7 @@ void GameButton::Draw(UIContext &dc) {
 	using namespace UI;
 
 	if (ginfo->icon.texture) {
-		texture = ginfo->icon.texture->GetTexture();
+		texture = ginfo->icon.texture;
 	}
 
 	int x = bounds_.x;
@@ -846,7 +844,7 @@ void GameBrowser::Refresh() {
 		}
 	} else if (!listingPending_) {
 		std::vector<File::FileInfo> fileInfo;
-		path_.GetListing(fileInfo, "iso:cso:pbp:elf:prx:ppdmp:");
+		path_.GetListing(fileInfo, "iso:cso:chd:pbp:elf:prx:ppdmp:");
 		for (size_t i = 0; i < fileInfo.size(); i++) {
 			bool isGame = !fileInfo[i].isDirectory;
 			bool isSaveData = false;
@@ -1073,8 +1071,6 @@ void MainScreen::CreateViews() {
 
 	auto mm = GetI18NCategory(I18NCat::MAINMENU);
 
-	Margins actionMenuMargins(0, 10, 10, 0);
-
 	tabHolder_ = new TabHolder(ORIENT_HORIZONTAL, 64, new LinearLayoutParams(FILL_PARENT, WRAP_CONTENT, 1.0f));
 	ViewGroup *leftColumn = tabHolder_;
 	tabHolder_->SetTag("MainScreenGames");
@@ -1254,6 +1250,7 @@ void MainScreen::CreateViews() {
 		root_->Add(rightColumn);
 		root_->Add(leftColumn);
 	} else {
+		Margins actionMenuMargins(0, 10, 10, 0);
 		root_ = new LinearLayout(ORIENT_HORIZONTAL);
 		rightColumn->ReplaceLayoutParams(new LinearLayoutParams(300, FILL_PARENT, actionMenuMargins));
 		root_->Add(leftColumn);
@@ -1268,10 +1265,9 @@ void MainScreen::CreateViews() {
 
 	root_->SetTag("mainroot");
 
-	auto u = GetI18NCategory(I18NCat::UPGRADE);
-
 	upgradeBar_ = 0;
 	if (!g_Config.upgradeMessage.empty()) {
+		auto u = GetI18NCategory(I18NCat::UPGRADE);
 		upgradeBar_ = new LinearLayout(ORIENT_HORIZONTAL, new LinearLayoutParams(FILL_PARENT, WRAP_CONTENT));
 
 		UI::Margins textMargins(10, 5);
@@ -1343,27 +1339,15 @@ UI::EventReturn MainScreen::OnDismissUpgrade(UI::EventParams &e) {
 	return UI::EVENT_DONE;
 }
 
-void MainScreen::sendMessage(const char *message, const char *value) {
+void MainScreen::sendMessage(UIMessage message, const char *value) {
 	// Always call the base class method first to handle the most common messages.
 	UIScreenWithBackground::sendMessage(message, value);
 
-	if (screenManager()->topScreen() == this) {
-		if (!strcmp(message, "boot")) {
+	if (message == UIMessage::REQUEST_GAME_BOOT) {
+		if (screenManager()->topScreen() == this) {
 			LaunchFile(screenManager(), Path(std::string(value)));
 		}
-		if (!strcmp(message, "browse_fileSelect")) {
-			INFO_LOG(SYSTEM, "Attempting to launch: '%s'", value);
-			LaunchFile(screenManager(), Path(std::string(value)));
-		}
-		if (!strcmp(message, "browse_folderSelect")) {
-			std::string filename = value;
-			INFO_LOG(SYSTEM, "Got folder: '%s'", filename.c_str());;
-			// switch to the 'Games' tab which has the file browser
-			tabHolder_->SetCurrentTab(1);
-			gameBrowsers_[1]->SetPath(Path(filename));
-		}
-	}
-	if (!strcmp(message, "permission_granted") && !strcmp(value, "storage")) {
+	} else if (message == UIMessage::PERMISSION_GRANTED && !strcmp(value, "storage")) {
 		RecreateViews();
 	}
 }
@@ -1383,7 +1367,7 @@ UI::EventReturn MainScreen::OnLoadFile(UI::EventParams &e) {
 	if (System_GetPropertyBool(SYSPROP_HAS_FILE_BROWSER)) {
 		auto mm = GetI18NCategory(I18NCat::MAINMENU);
 		System_BrowseForFile(mm->T("Load"), BrowseFileType::BOOTABLE, [](const std::string &value, int) {
-			System_PostUIMessage("boot", value);
+			System_PostUIMessage(UIMessage::REQUEST_GAME_BOOT, value);
 		});
 	}
 	return UI::EVENT_DONE;
@@ -1403,7 +1387,6 @@ UI::EventReturn MainScreen::OnFullScreenToggle(UI::EventParams &e) {
 }
 
 void MainScreen::DrawBackground(UIContext &dc) {
-	UIScreenWithBackground::DrawBackground(dc);
 	if (highlightedGamePath_.empty() && prevHighlightedGamePath_.empty()) {
 		return;
 	}
@@ -1440,7 +1423,7 @@ bool MainScreen::DrawBackgroundFor(UIContext &dc, const Path &gamePath, float pr
 	}
 
 	auto pic = ginfo->GetBGPic();
-	Draw::Texture *texture = pic ? pic->texture->GetTexture() : nullptr;
+	Draw::Texture *texture = pic ? pic->texture : nullptr;
 
 	uint32_t color = whiteAlpha(ease(progress)) & 0xFFc0c0c0;
 	if (texture) {

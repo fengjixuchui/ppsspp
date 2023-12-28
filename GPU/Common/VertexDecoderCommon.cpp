@@ -60,7 +60,7 @@ int TranslateNumBones(int bones) {
 	return bones;
 }
 
-int DecFmtSize(u8 fmt) {
+static int DecFmtSize(u8 fmt) {
 	switch (fmt) {
 	case DEC_NONE: return 0;
 	case DEC_FLOAT_1: return 4;
@@ -83,7 +83,7 @@ int DecFmtSize(u8 fmt) {
 }
 
 void DecVtxFormat::ComputeID() {
-	id = w0fmt | (w1fmt << 4) | (uvfmt << 8) | (c0fmt << 12) | (c1fmt << 16) | (nrmfmt << 20) | (posfmt << 24);
+	id = w0fmt | (w1fmt << 4) | (uvfmt << 8) | (c0fmt << 12) | (c1fmt << 16) | (nrmfmt << 20);
 }
 
 void DecVtxFormat::InitializeFromID(uint32_t id) {
@@ -94,7 +94,6 @@ void DecVtxFormat::InitializeFromID(uint32_t id) {
 	c0fmt = ((id >> 12) & 0xF);
 	c1fmt = ((id >> 16) & 0xF);
 	nrmfmt = ((id >> 20) & 0xF);
-	posfmt = ((id >> 24) & 0xF);
 	w0off = 0;
 	w1off = w0off + DecFmtSize(w0fmt);
 	uvoff = w1off + DecFmtSize(w1fmt);
@@ -102,25 +101,16 @@ void DecVtxFormat::InitializeFromID(uint32_t id) {
 	c1off = c0off + DecFmtSize(c0fmt);
 	nrmoff = c1off + DecFmtSize(c1fmt);
 	posoff = nrmoff + DecFmtSize(nrmfmt);
-	stride = posoff + DecFmtSize(posfmt);
+	stride = posoff + DecFmtSize(PosFmt());
 }
 
 void GetIndexBounds(const void *inds, int count, u32 vertType, u16 *indexLowerBound, u16 *indexUpperBound) {
 	// Find index bounds. Could cache this in display lists.
 	// Also, this could be greatly sped up with SSE2/NEON, although rarely a bottleneck.
-	int lowerBound = 0x7FFFFFFF;
-	int upperBound = 0;
 	u32 idx = vertType & GE_VTYPE_IDX_MASK;
-	if (idx == GE_VTYPE_IDX_8BIT) {
-		const u8 *ind8 = (const u8 *)inds;
-		for (int i = 0; i < count; i++) {
-			u8 value = ind8[i];
-			if (value > upperBound)
-				upperBound = value;
-			if (value < lowerBound)
-				lowerBound = value;
-		}
-	} else if (idx == GE_VTYPE_IDX_16BIT) {
+	if (idx == GE_VTYPE_IDX_16BIT) {
+		uint16_t upperBound = 0;
+		uint16_t lowerBound = 0xFFFF;
 		const u16_le *ind16 = (const u16_le *)inds;
 		for (int i = 0; i < count; i++) {
 			u16 value = ind16[i];
@@ -129,7 +119,24 @@ void GetIndexBounds(const void *inds, int count, u32 vertType, u16 *indexLowerBo
 			if (value < lowerBound)
 				lowerBound = value;
 		}
+		*indexLowerBound = lowerBound;
+		*indexUpperBound = upperBound;
+	} else if (idx == GE_VTYPE_IDX_8BIT) {
+		uint8_t upperBound = 0;
+		uint8_t lowerBound = 0xFF;
+		const u8 *ind8 = (const u8 *)inds;
+		for (int i = 0; i < count; i++) {
+			u8 value = ind8[i];
+			if (value > upperBound)
+				upperBound = value;
+			if (value < lowerBound)
+				lowerBound = value;
+		}
+		*indexLowerBound = lowerBound;
+		*indexUpperBound = upperBound;
 	} else if (idx == GE_VTYPE_IDX_32BIT) {
+		int lowerBound = 0x7FFFFFFF;
+		int upperBound = 0;
 		WARN_LOG_REPORT_ONCE(indexBounds32, G3D, "GetIndexBounds: Decoding 32-bit indexes");
 		const u32_le *ind32 = (const u32_le *)inds;
 		for (int i = 0; i < count; i++) {
@@ -143,12 +150,16 @@ void GetIndexBounds(const void *inds, int count, u32 vertType, u16 *indexLowerBo
 			if (value < lowerBound)
 				lowerBound = value;
 		}
+		*indexLowerBound = (u16)lowerBound;
+		*indexUpperBound = (u16)upperBound;
 	} else {
-		lowerBound = 0;
-		upperBound = count - 1;
+		*indexLowerBound = 0;
+		if (count > 0) {
+			*indexUpperBound = count - 1;
+		} else {
+			*indexUpperBound = 0;
+		}
 	}
-	*indexLowerBound = (u16)lowerBound;
-	*indexUpperBound = (u16)upperBound;
 }
 
 void PrintDecodedVertex(const VertexReader &vtx) {
@@ -1240,20 +1251,18 @@ void VertexDecoder::SetVertexType(u32 fmt, const VertexDecoderOptions &options, 
 		if (posalign[pos] > biggest)
 			biggest = posalign[pos];
 
+		// We don't set posfmt because it's always DEC_FLOAT_3.
 		if (throughmode) {
 			steps_[numSteps_++] = posstep_through[pos];
-			decFmt.posfmt = DEC_FLOAT_3;
 		} else {
 			if (skinInDecode) {
 				steps_[numSteps_++] = morphcount == 1 ? posstep_skin[pos] : posstep_morph_skin[pos];
-				decFmt.posfmt = DEC_FLOAT_3;
 			} else {
 				steps_[numSteps_++] = morphcount == 1 ? posstep[pos] : posstep_morph[pos];
-				decFmt.posfmt = DEC_FLOAT_3;
 			}
 		}
 		decFmt.posoff = decOff;
-		decOff += DecFmtSize(decFmt.posfmt);
+		decOff += DecFmtSize(DecVtxFormat::PosFmt());
 	}
 
 	decFmt.stride = options.alignOutputToWord ? align(decOff, 4) : decOff;
@@ -1267,11 +1276,10 @@ void VertexDecoder::SetVertexType(u32 fmt, const VertexDecoderOptions &options, 
 
 	if (reportNoPos) {
 		char temp[256]{};
-		ToString(temp);
+		ToString(temp, true);
 		ERROR_LOG_REPORT(G3D, "Vertices without position found: (%08x) %s", fmt_, temp);
 	}
 
-	_assert_msg_(decFmt.posfmt == DEC_FLOAT_3, "Reader only supports float pos");
 	_assert_msg_(decFmt.uvfmt == DEC_FLOAT_2 || decFmt.uvfmt == DEC_NONE, "Reader only supports float UV");
 
 	// Attempt to JIT as well. But only do that if the main CPU JIT is enabled, in order to aid
@@ -1285,6 +1293,9 @@ void VertexDecoder::SetVertexType(u32 fmt, const VertexDecoderOptions &options, 
 }
 
 void VertexDecoder::DecodeVerts(u8 *decodedptr, const void *verts, const UVScale *uvScaleOffset, int indexLowerBound, int indexUpperBound) const {
+	// A single 0 is acceptable for point lists.
+	_dbg_assert_(indexLowerBound <= indexUpperBound);
+
 	// Decode the vertices within the found bounds, once each
 	// decoded_ and ptr_ are used in the steps, so can't be turned into locals for speed.
 	const u8 *startPtr = (const u8*)verts + indexLowerBound * size;
@@ -1391,7 +1402,7 @@ void VertexDecoder::CompareToJit(const u8 *startPtr, u8 *decodedptr, int count, 
 		jittedReader.Goto(i);
 		if (!DecodedVertsAreSimilar(controlReader, jittedReader)) {
 			char name[512]{};
-			ToString(name);
+			ToString(name, true);
 			ERROR_LOG(G3D, "Encountered vertexjit mismatch at %d/%d for %s", i, count, name);
 			if (morphcount > 1) {
 				printf("Morph:\n");
@@ -1445,8 +1456,9 @@ static const char *idxnames[4] = { "-", "u8", "u16", "?" };
 static const char *weightnames[4] = { "-", "u8", "u16", "f" };
 static const char *colnames[8] = { "", "?", "?", "?", "565", "5551", "4444", "8888" };
 
-int VertexDecoder::ToString(char *output) const {
-	char * start = output;
+int VertexDecoder::ToString(char *output, bool spaces) const {
+	char *start = output;
+	
 	output += sprintf(output, "P: %s ", posnames[pos]);
 	if (nrm)
 		output += sprintf(output, "N: %s ", nrmnames[nrm]);
@@ -1463,7 +1475,16 @@ int VertexDecoder::ToString(char *output) const {
 	if (throughmode)
 		output += sprintf(output, " (through)");
 
-	output += sprintf(output, " (size: %i)", VertexSize());
+	output += sprintf(output, " (%ib)", VertexSize());
+
+	if (!spaces) {
+		size_t len = strlen(start);
+		for (int i = 0; i < len; i++) {
+			if (start[i] == ' ')
+				start[i] = '_';
+		}
+	}
+
 	return output - start;
 }
 
@@ -1471,7 +1492,7 @@ std::string VertexDecoder::GetString(DebugShaderStringType stringType) {
 	char buffer[256];
 	switch (stringType) {
 	case SHADER_STRING_SHORT_DESC:
-		ToString(buffer);
+		ToString(buffer, true);
 		return std::string(buffer);
 	case SHADER_STRING_SOURCE_CODE:
 		{
@@ -1490,7 +1511,7 @@ std::string VertexDecoder::GetString(DebugShaderStringType stringType) {
 			// No disassembler defined
 #endif
 			std::string buffer;
-			for (auto line : lines) {
+			for (const auto &line : lines) {
 				buffer += line;
 				buffer += "\n";
 			}

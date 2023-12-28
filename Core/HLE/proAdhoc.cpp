@@ -1310,9 +1310,8 @@ void timeoutFriendsRecursive(SceNetAdhocctlPeerInfo * node, int32_t* count) {
 	if (count != NULL) (*count)++;
 }
 
-void sendChat(std::string chatString) {
+void sendChat(const std::string &chatString) {
 	SceNetAdhocctlChatPacketC2S chat;
-	auto n = GetI18NCategory(I18NCat::NETWORKING);
 	chat.base.opcode = OPCODE_CHAT;
 	//TODO check network inited, check send success or not, chatlog.pushback error on failed send, pushback error on not connected
 	if (friendFinderRunning) {
@@ -1334,6 +1333,7 @@ void sendChat(std::string chatString) {
 		}
 	} else {
 		std::lock_guard<std::mutex> guard(chatLogLock);
+		auto n = GetI18NCategory(I18NCat::NETWORKING);
 		chatLog.push_back(n->T("You're in Offline Mode, go to lobby or online hall"));
 		chatMessageGeneration++;
 	}

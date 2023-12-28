@@ -57,6 +57,8 @@
 #include "UI/RetroAchievementScreens.h"
 
 #include "Common/File/FileUtil.h"
+#include "Common/File/VFS/ZipFileReader.h"
+#include "Common/Data/Format/JSONReader.h"
 #include "Common/File/AndroidContentURI.h"
 #include "Common/OSVersion.h"
 #include "Common/TimeUtil.h"
@@ -91,10 +93,29 @@
 #if PPSSPP_PLATFORM(ANDROID)
 
 #include "android/jni/AndroidAudio.h"
+#include "Common/File/AndroidStorage.h"
 
 extern AndroidAudioState *g_audioState;
 
+static bool CheckKgslPresent() {
+    constexpr auto KgslPath{"/dev/kgsl-3d0"};
+
+    return access(KgslPath, F_OK) == 0;
+}
+
+bool SupportsCustomDriver() {
+    return android_get_device_api_level() >= 28 && CheckKgslPresent();
+}
+
+#else
+
+bool SupportsCustomDriver() {
+	return false;
+}
+
 #endif
+
+static void TriggerRestart(const char *why, bool editThenRestore, const Path &gamePath);
 
 GameSettingsScreen::GameSettingsScreen(const Path &gamePath, std::string gameID, bool editThenRestore)
 	: TabbedUIDialogScreenWithGameBackground(gamePath), gameID_(gameID), editThenRestore_(editThenRestore) {
@@ -137,9 +158,9 @@ static bool UsingHardwareTextureScaling() {
 }
 
 static std::string TextureTranslateName(const char *value) {
-	auto ts = GetI18NCategory(I18NCat::TEXTURESHADERS);
 	const TextureShaderInfo *info = GetTextureShaderInfo(value);
 	if (info) {
+		auto ts = GetI18NCategory(I18NCat::TEXTURESHADERS);
 		return ts->T(value, info ? info->name.c_str() : value);
 	} else {
 		return value;
@@ -184,9 +205,9 @@ bool PathToVisualUsbPath(Path path, std::string &outPath) {
 }
 
 static std::string PostShaderTranslateName(const char *value) {
-	auto ps = GetI18NCategory(I18NCat::POSTSHADERS);
 	const ShaderInfo *info = GetPostShaderInfo(value);
 	if (info) {
+		auto ps = GetI18NCategory(I18NCat::POSTSHADERS);
 		return ps->T(value, info ? info->name.c_str() : value);
 	} else {
 		return value;
@@ -298,15 +319,22 @@ void GameSettingsScreen::CreateGraphicsSettings(UI::ViewGroup *graphicsSettings)
 		static const char *msaaModes[] = { "Off", "2x", "4x", "8x", "16x" };
 		auto msaaChoice = graphicsSettings->Add(new PopupMultiChoice(&g_Config.iMultiSampleLevel, gr->T("Antialiasing (MSAA)"), msaaModes, 0, ARRAY_SIZE(msaaModes), I18NCat::GRAPHICS, screenManager()));
 		msaaChoice->OnChoice.Add([&](UI::EventParams &) -> UI::EventReturn {
-			System_PostUIMessage("gpu_renderResized", "");
+			System_PostUIMessage(UIMessage::GPU_RENDER_RESIZED);
 			return UI::EVENT_DONE;
 		});
-		msaaChoice->SetDisabledPtr(&g_Config.bSoftwareRendering);
+		if (g_Config.iMultiSampleLevel > 1 && draw->GetDeviceCaps().isTilingGPU) {
+			msaaChoice->SetIcon(ImageID("I_WARNING"), 0.7f);
+		}
+		msaaChoice->SetEnabledFunc([] {
+			return !g_Config.bSoftwareRendering && !g_Config.bSkipBufferEffects;
+		});
 
 		// Hide unsupported levels.
 		for (int i = 1; i < 5; i++) {
 			if ((draw->GetDeviceCaps().multiSampleLevelsMask & (1 << i)) == 0) {
 				msaaChoice->HideChoice(i);
+			} else if (i > 0 && draw->GetDeviceCaps().isTilingGPU) {
+				msaaChoice->SetChoiceIcon(i, ImageID("I_WARNING"));
 			}
 		}
 	}
@@ -320,6 +348,8 @@ void GameSettingsScreen::CreateGraphicsSettings(UI::ViewGroup *graphicsSettings)
 		int max_res = std::min(max_res_temp, (int)ARRAY_SIZE(deviceResolutions));
 		UI::PopupMultiChoice *hwscale = graphicsSettings->Add(new PopupMultiChoice(&g_Config.iAndroidHwScale, gr->T("Display Resolution (HW scaler)"), deviceResolutions, 0, max_res, I18NCat::GRAPHICS, screenManager()));
 		hwscale->OnChoice.Add([](UI::EventParams &) {
+			System_PostUIMessage(UIMessage::GPU_RENDER_RESIZED);
+			System_PostUIMessage(UIMessage::GPU_DISPLAY_RESIZED);
 			System_RecreateActivity();
 			return UI::EVENT_DONE;
 		});
@@ -393,22 +423,17 @@ void GameSettingsScreen::CreateGraphicsSettings(UI::ViewGroup *graphicsSettings)
 			settingInfo_->Show(gr->T("RenderingMode NonBuffered Tip", "Faster, but graphics may be missing in some games"), e.v);
 			g_Config.bAutoFrameSkip = false;
 		}
-		System_PostUIMessage("gpu_renderResized", "");
+		System_PostUIMessage(UIMessage::GPU_RENDER_RESIZED);
 		return UI::EVENT_DONE;
 	});
 	skipBufferEffects->SetDisabledPtr(&g_Config.bSoftwareRendering);
 
-	CheckBox *skipGPUReadbacks = graphicsSettings->Add(new CheckBox(&g_Config.bSkipGPUReadbacks, gr->T("Skip GPU Readbacks")));
-	skipGPUReadbacks->SetDisabledPtr(&g_Config.bSoftwareRendering);
+	graphicsSettings->Add(new CheckBox(&g_Config.bDisableRangeCulling, gr->T("Disable culling")));
 
-	CheckBox *vtxCache = graphicsSettings->Add(new CheckBox(&g_Config.bVertexCache, gr->T("Vertex Cache")));
-	vtxCache->OnClick.Add([=](EventParams &e) {
-		settingInfo_->Show(gr->T("VertexCache Tip", "Faster, but may cause temporary flicker"), e.v);
-		return UI::EVENT_CONTINUE;
-	});
-	vtxCache->SetEnabledFunc([] {
-		return !g_Config.bSoftwareRendering && g_Config.bHardwareTransform && g_Config.iGPUBackend != (int)GPUBackend::OPENGL;
-	});
+	static const char *skipGpuReadbackModes[] = { "No (default)", "Skip", "Copy to texture" };
+
+	PopupMultiChoice *skipGPUReadbacks = graphicsSettings->Add(new PopupMultiChoice(&g_Config.iSkipGPUReadbackMode, gr->T("Skip GPU Readbacks"), skipGpuReadbackModes, 0, ARRAY_SIZE(skipGpuReadbackModes), I18NCat::GRAPHICS, screenManager()));
+	skipGPUReadbacks->SetDisabledPtr(&g_Config.bSoftwareRendering);
 
 	CheckBox *texBackoff = graphicsSettings->Add(new CheckBox(&g_Config.bTextureBackoffCache, gr->T("Lazy texture caching", "Lazy texture caching (speedup)")));
 	texBackoff->SetDisabledPtr(&g_Config.bSoftwareRendering);
@@ -636,8 +661,8 @@ void GameSettingsScreen::CreateControlsSettings(UI::ViewGroup *controlsSettings)
 	using namespace UI;
 
 	auto co = GetI18NCategory(I18NCat::CONTROLS);
-	auto di = GetI18NCategory(I18NCat::DIALOG);
 	auto ms = GetI18NCategory(I18NCat::MAINSETTINGS);
+	auto di = GetI18NCategory(I18NCat::DIALOG);
 
 	int deviceType = System_GetPropertyInt(SYSPROP_DEVICE_TYPE);
 
@@ -652,10 +677,10 @@ void GameSettingsScreen::CreateControlsSettings(UI::ViewGroup *controlsSettings)
 	controlsSettings->Add(new CheckBox(&g_Config.bGamepadOnlyFocused, co->T("Ignore gamepads when not focused")));
 #endif
 
-	if (System_GetPropertyInt(SYSPROP_DEVICE_TYPE) == DEVICE_TYPE_MOBILE) {
+	if (System_GetPropertyBool(SYSPROP_HAS_ACCELEROMETER)) {
 		Choice *customizeTilt = controlsSettings->Add(new Choice(co->T("Tilt control setup")));
 		customizeTilt->OnClick.Handle(this, &GameSettingsScreen::OnTiltCustomize);
-	} else if (System_GetPropertyInt(SYSPROP_DEVICE_TYPE) == DEVICE_TYPE_VR) {
+	} else if (System_GetPropertyInt(SYSPROP_DEVICE_TYPE) == DEVICE_TYPE_VR) {  // TODO: This seems like a regression
 		controlsSettings->Add(new CheckBox(&g_Config.bHapticFeedback, co->T("HapticFeedback", "Haptic Feedback (vibration)")));
 	}
 
@@ -731,18 +756,38 @@ void GameSettingsScreen::CreateControlsSettings(UI::ViewGroup *controlsSettings)
 			return UI::EVENT_CONTINUE;
 		});
 		controlsSettings->Add(new PopupSliderChoice(&g_Config.iRapidFireInterval, 1, 10, 5, co->T("Rapid fire interval"), screenManager(), "frames"));
-#if defined(USING_WIN_UI) || defined(SDL)
-		controlsSettings->Add(new ItemHeader(co->T("Mouse", "Mouse settings")));
-		CheckBox *mouseControl = controlsSettings->Add(new CheckBox(&g_Config.bMouseControl, co->T("Use Mouse Control")));
-		mouseControl->OnClick.Add([=](EventParams &e) {
-			if (g_Config.bMouseControl)
-				settingInfo_->Show(co->T("MouseControl Tip", "You can now map mouse in control mapping screen by pressing the 'M' icon."), e.v);
-			return UI::EVENT_CONTINUE;
-		});
-		controlsSettings->Add(new CheckBox(&g_Config.bMouseConfine, co->T("Confine Mouse", "Trap mouse within window/display area")))->SetEnabledPtr(&g_Config.bMouseControl);
-		controlsSettings->Add(new PopupSliderChoiceFloat(&g_Config.fMouseSensitivity, 0.01f, 1.0f, 0.1f, co->T("Mouse sensitivity"), 0.01f, screenManager(), "x"))->SetEnabledPtr(&g_Config.bMouseControl);
-		controlsSettings->Add(new PopupSliderChoiceFloat(&g_Config.fMouseSmoothing, 0.0f, 0.95f, 0.9f, co->T("Mouse smoothing"), 0.05f, screenManager(), "x"))->SetEnabledPtr(&g_Config.bMouseControl);
+#if defined(USING_WIN_UI) || defined(SDL) || PPSSPP_PLATFORM(ANDROID)
+		bool enableMouseSettings = true;
+#if PPSSPP_PLATFORM(ANDROID)
+		if (System_GetPropertyInt(SYSPROP_SYSTEMVERSION) < 12) {
+			enableMouseSettings = false;
+		}
 #endif
+#else
+		bool enableMouseSettings = false;
+#endif
+		if (enableMouseSettings) {
+			// The mousewheel button-release setting is independent of actual mouse delta control.
+			controlsSettings->Add(new ItemHeader(co->T("Mouse", "Mouse settings")));
+			auto wheelUpDelaySlider = controlsSettings->Add(new PopupSliderChoice(&g_Config.iMouseWheelUpDelayMs, 10, 300, 1, co->T("Mouse wheel button-release delay"), screenManager()));
+			wheelUpDelaySlider->SetFormat(di->T("%d ms"));
+
+			CheckBox *mouseControl = controlsSettings->Add(new CheckBox(&g_Config.bMouseControl, co->T("Use Mouse Control")));
+			mouseControl->OnClick.Add([=](EventParams &e) {
+				if (g_Config.bMouseControl)
+					settingInfo_->Show(co->T("MouseControl Tip", "You can now map mouse in control mapping screen by pressing the 'M' icon."), e.v);
+				return UI::EVENT_CONTINUE;
+			});
+#if !PPSSPP_PLATFORM(ANDROID)
+			controlsSettings->Add(new CheckBox(&g_Config.bMouseConfine, co->T("Confine Mouse", "Trap mouse within window/display area")))->SetEnabledPtr(&g_Config.bMouseControl);
+#endif
+			auto sensitivitySlider = controlsSettings->Add(new PopupSliderChoiceFloat(&g_Config.fMouseSensitivity, 0.01f, 1.0f, 0.1f, co->T("Mouse sensitivity"), 0.01f, screenManager(), "x"));
+			sensitivitySlider->SetEnabledPtr(&g_Config.bMouseControl);
+			sensitivitySlider->SetLiveUpdate(true);
+			auto smoothingSlider = controlsSettings->Add(new PopupSliderChoiceFloat(&g_Config.fMouseSmoothing, 0.0f, 0.95f, 0.9f, co->T("Mouse smoothing"), 0.05f, screenManager(), "x"));
+			smoothingSlider->SetEnabledPtr(&g_Config.bMouseControl);
+			smoothingSlider->SetLiveUpdate(true);
+		}
 	}
 }
 
@@ -878,9 +923,11 @@ void GameSettingsScreen::CreateNetworkingSettings(UI::ViewGroup *networkingSetti
 	}
 #endif
 
+	auto di = GetI18NCategory(I18NCat::DIALOG);
+
 	networkingSettings->Add(new ItemHeader(n->T("Misc", "Misc (default = compatibility)")));
 	networkingSettings->Add(new PopupSliderChoice(&g_Config.iPortOffset, 0, 60000, 10000, n->T("Port offset", "Port offset (0 = PSP compatibility)"), 100, screenManager()));
-	networkingSettings->Add(new PopupSliderChoice(&g_Config.iMinTimeout, 0, 15000, 0, n->T("Minimum Timeout", "Minimum Timeout (override in ms, 0 = default)"), 50, screenManager()));
+	networkingSettings->Add(new PopupSliderChoice(&g_Config.iMinTimeout, 0, 15000, 0, n->T("Minimum Timeout", "Minimum Timeout (override in ms, 0 = default)"), 50, screenManager()))->SetFormat(di->T("%d ms"));
 	networkingSettings->Add(new CheckBox(&g_Config.bForcedFirstConnect, n->T("Forced First Connect", "Forced First Connect (faster Connect)")));
 }
 
@@ -1090,7 +1137,7 @@ void GameSettingsScreen::CreateSystemSettings(UI::ViewGroup *systemSettings) {
 	systemSettings->Add(new CheckBox(&g_Config.bFastMemory, sy->T("Fast Memory", "Fast Memory")))->OnClick.Handle(this, &GameSettingsScreen::OnJitAffectingSetting);
 	systemSettings->Add(new CheckBox(&g_Config.bIgnoreBadMemAccess, sy->T("Ignore bad memory accesses")));
 
-	static const char *ioTimingMethods[] = { "Fast (lag on slow storage)", "Host (bugs, less lag)", "Simulate UMD delays" };
+	static const char *ioTimingMethods[] = { "Fast (lag on slow storage)", "Host (bugs, less lag)", "Simulate UMD delays", "Simulate UMD slow reading speed"};
 	View *ioTimingMethod = systemSettings->Add(new PopupMultiChoice(&g_Config.iIOTimingMethod, sy->T("IO timing method"), ioTimingMethods, 0, ARRAY_SIZE(ioTimingMethods), I18NCat::SYSTEM, screenManager()));
 	systemSettings->Add(new CheckBox(&g_Config.bForceLagSync, sy->T("Force real clock sync (slower, less lag)")))->SetDisabledPtr(&g_Config.bAutoFrameSkip);
 	PopupSliderChoice *lockedMhz = systemSettings->Add(new PopupSliderChoice(&g_Config.iLockedCPUSpeed, 0, 1000, 0, sy->T("Change CPU Clock", "Change CPU Clock (unstable)"), screenManager(), sy->T("MHz, 0:default")));
@@ -1179,7 +1226,6 @@ void GameSettingsScreen::CreateVRSettings(UI::ViewGroup *vrSettings) {
 	vrSettings->Add(new ItemHeader(vr->T("VR camera")));
 	vrSettings->Add(new PopupSliderChoiceFloat(&g_Config.fCanvasDistance, 1.0f, 15.0f, 12.0f, vr->T("Distance to 2D menus and scenes"), 1.0f, screenManager(), ""));
 	vrSettings->Add(new PopupSliderChoiceFloat(&g_Config.fCanvas3DDistance, 1.0f, 15.0f, 3.0f, vr->T("Distance to 3D scenes when VR disabled"), 1.0f, screenManager(), ""));
-	vrSettings->Add(new PopupSliderChoiceFloat(&g_Config.fFieldOfViewPercentage, 100.0f, 200.0f, 100.0f, vr->T("Field of view scale"), 10.0f, screenManager(), vr->T("% of native FoV")));
 	vrSettings->Add(new CheckBox(&g_Config.bRescaleHUD, vr->T("Heads-up display detection")));
 	PopupSliderChoiceFloat* vrHudScale = vrSettings->Add(new PopupSliderChoiceFloat(&g_Config.fHeadUpDisplayScale, 0.0f, 1.5f, 0.3f, vr->T("Heads-up display scale"), 0.1f, screenManager(), ""));
 	vrHudScale->SetEnabledPtr(&g_Config.bRescaleHUD);
@@ -1196,6 +1242,77 @@ void GameSettingsScreen::CreateVRSettings(UI::ViewGroup *vrSettings) {
 	vrMotions->SetEnabledPtr(&g_Config.bEnableMotions);
 	static const char *cameraPitchModes[] = { "Disabled", "Top view -> First person", "First person -> Top view" };
 	vrSettings->Add(new PopupMultiChoice(&g_Config.iCameraPitch, vr->T("Camera type"), cameraPitchModes, 0, 3, I18NCat::NONE, screenManager()));
+}
+
+UI::EventReturn DeveloperToolsScreen::OnCustomDriverChange(UI::EventParams &e) {
+	auto di = GetI18NCategory(I18NCat::DIALOG);
+
+	screenManager()->push(new PromptScreen(gamePath_, di->T("Changing this setting requires PPSSPP to restart."), di->T("Restart"), di->T("Cancel"), [=](bool yes) {
+		if (yes) {
+			TriggerRestart("GameSettingsScreen::CustomDriverYes", false, gamePath_);
+		}
+	}));
+	return UI::EVENT_DONE;
+}
+
+UI::EventReturn DeveloperToolsScreen::OnCustomDriverInstall(UI::EventParams &e) {
+	auto gr = GetI18NCategory(I18NCat::GRAPHICS);
+
+	System_BrowseForFile(gr->T("Install Custom Driver..."), BrowseFileType::ANY, [this](const std::string &value, int) {
+		const Path driverPath = g_Config.internalDataDirectory / "drivers";
+
+		if (!value.empty()) {
+			Path zipPath = Path(value);
+
+			bool success = false;
+
+			if (zipPath.GetFileExtension() == ".zip") {
+				ZipFileReader *zipFileReader = ZipFileReader::Create(zipPath, "");
+
+				size_t metaDataSize;
+				uint8_t *metaData = zipFileReader->ReadFile("meta.json", &metaDataSize);
+
+				Path tempMeta = Path(g_Config.internalDataDirectory / "meta.json");
+
+				File::CreateEmptyFile(tempMeta);
+				File::WriteDataToFile(false, metaData, metaDataSize, tempMeta);
+
+				delete[] metaData;
+
+				json::JsonReader meta = json::JsonReader((g_Config.internalDataDirectory / "meta.json").c_str());
+				if (meta.ok()) {
+					std::string driverName = meta.root().get("name")->value.toString();
+
+					Path newCustomDriver = driverPath / driverName;
+					File::CreateFullPath(newCustomDriver);
+
+					std::vector<File::FileInfo> zipListing;
+					zipFileReader->GetFileListing("", &zipListing, nullptr);
+
+					for (auto file : zipListing) {
+						File::CreateEmptyFile(newCustomDriver / file.name);
+
+						size_t size;
+						uint8_t *data = zipFileReader->ReadFile(file.name.c_str(), &size);
+						File::WriteDataToFile(false, data, size, newCustomDriver / file.name);
+
+						delete[] data;
+					}
+
+					File::Delete(tempMeta);
+
+					success = true;
+
+					RecreateViews();
+				}
+			}
+			if (!success) {
+				auto gr = GetI18NCategory(I18NCat::GRAPHICS);
+				g_OSD.Show(OSDType::MESSAGE_ERROR, gr->T("The file is not a ZIP file containing a compatible driver."));
+			}
+		}
+	});
+	return UI::EVENT_DONE;
 }
 
 UI::EventReturn GameSettingsScreen::OnAutoFrameskip(UI::EventParams &e) {
@@ -1231,7 +1348,7 @@ UI::EventReturn GameSettingsScreen::OnSustainedPerformanceModeChange(UI::EventPa
 }
 
 UI::EventReturn GameSettingsScreen::OnJitAffectingSetting(UI::EventParams &e) {
-	System_PostUIMessage("clear jit", "");
+	System_PostUIMessage(UIMessage::REQUEST_CLEAR_JIT);
 	return UI::EVENT_DONE;
 }
 
@@ -1348,7 +1465,7 @@ UI::EventReturn GameSettingsScreen::OnResolutionChange(UI::EventParams &e) {
 		System_RecreateActivity();
 	}
 	Reporting::UpdateConfig();
-	System_PostUIMessage("gpu_renderResized", "");
+	System_PostUIMessage(UIMessage::GPU_RENDER_RESIZED);
 	return UI::EVENT_DONE;
 }
 
@@ -1372,7 +1489,7 @@ void GameSettingsScreen::onFinish(DialogResult result) {
 
 	// Wipe some caches after potentially changing settings.
 	// Let's not send resize messages here, handled elsewhere.
-	System_PostUIMessage("gpu_configChanged", "");
+	System_PostUIMessage(UIMessage::GPU_CONFIG_CHANGED);
 }
 
 void GameSettingsScreen::dialogFinished(const Screen *dialog, DialogResult result) {
@@ -1392,8 +1509,6 @@ void GameSettingsScreen::dialogFinished(const Screen *dialog, DialogResult resul
 }
 
 void GameSettingsScreen::CallbackMemstickFolder(bool yes) {
-	auto sy = GetI18NCategory(I18NCat::SYSTEM);
-
 	if (yes) {
 		Path memstickDirFile = g_Config.internalDataDirectory / "memstick_dir.txt";
 		std::string testWriteFile = pendingMemstickFolder_ + "/.write_verify_file";
@@ -1403,6 +1518,7 @@ void GameSettingsScreen::CallbackMemstickFolder(bool yes) {
 			File::CreateFullPath(Path(pendingMemstickFolder_));
 		}
 		if (!File::WriteDataToFile(true, "1", 1, Path(testWriteFile))) {
+			auto sy = GetI18NCategory(I18NCat::SYSTEM);
 			settingInfo_->Show(sy->T("ChangingMemstickPathInvalid", "That path couldn't be used to save Memory Stick files."), nullptr);
 			return;
 		}
@@ -1419,16 +1535,16 @@ void GameSettingsScreen::CallbackMemstickFolder(bool yes) {
 	}
 }
 
-void GameSettingsScreen::TriggerRestart(const char *why) {
+static void TriggerRestart(const char *why, bool editThenRestore, const Path &gamePath) {
 	// Extra save here to make sure the choice really gets saved even if there are shutdown bugs in
 	// the GPU backend code.
 	g_Config.Save(why);
 	std::string param = "--gamesettings";
-	if (editThenRestore_) {
+	if (editThenRestore) {
 		// We won't pass the gameID, so don't resume back into settings.
 		param.clear();
-	} else if (!gamePath_.empty()) {
-		param += " \"" + ReplaceAll(ReplaceAll(gamePath_.ToString(), "\\", "\\\\"), "\"", "\\\"") + "\"";
+	} else if (!gamePath.empty()) {
+		param += " \"" + ReplaceAll(ReplaceAll(gamePath.ToString(), "\\", "\\\\"), "\"", "\\\"") + "\"";
 	}
 	// Make sure the new instance is considered the first.
 	ShutdownInstanceCounter();
@@ -1436,13 +1552,12 @@ void GameSettingsScreen::TriggerRestart(const char *why) {
 }
 
 UI::EventReturn GameSettingsScreen::OnRenderingBackend(UI::EventParams &e) {
-	auto di = GetI18NCategory(I18NCat::DIALOG);
-
 	// It only makes sense to show the restart prompt if the backend was actually changed.
 	if (g_Config.iGPUBackend != (int)GetGPUBackend()) {
+		auto di = GetI18NCategory(I18NCat::DIALOG);
 		screenManager()->push(new PromptScreen(gamePath_, di->T("Changing this setting requires PPSSPP to restart."), di->T("Restart"), di->T("Cancel"), [=](bool yes) {
 			if (yes) {
-				TriggerRestart("GameSettingsScreen::RenderingBackendYes");
+				TriggerRestart("GameSettingsScreen::RenderingBackendYes", editThenRestore_, gamePath_);
 			} else {
 				g_Config.iGPUBackend = (int)GetGPUBackend();
 			}
@@ -1452,16 +1567,15 @@ UI::EventReturn GameSettingsScreen::OnRenderingBackend(UI::EventParams &e) {
 }
 
 UI::EventReturn GameSettingsScreen::OnRenderingDevice(UI::EventParams &e) {
-	auto di = GetI18NCategory(I18NCat::DIALOG);
-
 	// It only makes sense to show the restart prompt if the device was actually changed.
 	std::string *deviceNameSetting = GPUDeviceNameSetting();
 	if (deviceNameSetting && *deviceNameSetting != GetGPUBackendDevice()) {
+		auto di = GetI18NCategory(I18NCat::DIALOG);
 		screenManager()->push(new PromptScreen(gamePath_, di->T("Changing this setting requires PPSSPP to restart."), di->T("Restart"), di->T("Cancel"), [=](bool yes) {
 			// If the user ends up deciding not to restart, set the config back to the current backend
 			// so it doesn't get switched by accident.
 			if (yes) {
-				TriggerRestart("GameSettingsScreen::RenderingDeviceYes");
+				TriggerRestart("GameSettingsScreen::RenderingDeviceYes", editThenRestore_, gamePath_);
 			} else {
 				std::string *deviceNameSetting = GPUDeviceNameSetting();
 				if (deviceNameSetting)
@@ -1475,11 +1589,11 @@ UI::EventReturn GameSettingsScreen::OnRenderingDevice(UI::EventParams &e) {
 }
 
 UI::EventReturn GameSettingsScreen::OnInflightFramesChoice(UI::EventParams &e) {
-	auto di = GetI18NCategory(I18NCat::DIALOG);
 	if (g_Config.iInflightFrames != prevInflightFrames_) {
+		auto di = GetI18NCategory(I18NCat::DIALOG);
 		screenManager()->push(new PromptScreen(gamePath_, di->T("Changing this setting requires PPSSPP to restart."), di->T("Restart"), di->T("Cancel"), [=](bool yes) {
 			if (yes) {
-				TriggerRestart("GameSettingsScreen::InflightFramesYes");
+				TriggerRestart("GameSettingsScreen::InflightFramesYes", editThenRestore_, gamePath_);
 			} else {
 				g_Config.iInflightFrames = prevInflightFrames_;
 			}
@@ -1586,7 +1700,7 @@ UI::EventReturn GameSettingsScreen::OnTextureShader(UI::EventParams &e) {
 }
 
 UI::EventReturn GameSettingsScreen::OnTextureShaderChange(UI::EventParams &e) {
-	System_PostUIMessage("gpu_configChanged", "");
+	System_PostUIMessage(UIMessage::GPU_CONFIG_CHANGED);
 	RecreateViews(); // Update setting name
 	g_Config.bTexHardwareScaling = g_Config.sTextureShaderName != "Off";
 	return UI::EVENT_DONE;
@@ -1668,7 +1782,7 @@ void DeveloperToolsScreen::CreateViews() {
 		core->HideChoice(3);
 	}
 	// TODO: Enable on more architectures.
-#if !PPSSPP_ARCH(X86) && !PPSSPP_ARCH(AMD64)
+#if !PPSSPP_ARCH(X86) && !PPSSPP_ARCH(AMD64) && !PPSSPP_ARCH(ARM64)
 	core->HideChoice(3);
 #endif
 
@@ -1693,6 +1807,25 @@ void DeveloperToolsScreen::CreateViews() {
 		});
 	}
 
+	if (GetGPUBackend() == GPUBackend::VULKAN && SupportsCustomDriver()) {
+		const Path driverPath = g_Config.internalDataDirectory / "drivers";
+
+		std::vector<File::FileInfo> listing;
+		File::GetFilesInDir(driverPath, &listing);
+
+		std::vector<std::string> availableDrivers;
+		availableDrivers.push_back("Default");
+
+		for (auto driver : listing) {
+			availableDrivers.push_back(driver.name);
+		}
+		auto driverChoice = list->Add(new PopupMultiChoiceDynamic(&g_Config.customDriver, gr->T("Current GPU Driver"), availableDrivers, I18NCat::NONE, screenManager()));
+		driverChoice->OnChoice.Handle(this, &DeveloperToolsScreen::OnCustomDriverChange);
+
+		auto customDriverInstallChoice = list->Add(new Choice(gr->T("Install Custom Driver...")));
+		customDriverInstallChoice->OnClick.Handle(this, &DeveloperToolsScreen::OnCustomDriverInstall);
+	}
+
 	// For now, we only implement GPU driver tests for Vulkan and OpenGL. This is simply
 	// because the D3D drivers are generally solid enough to not need this type of investigation.
 	if (g_Config.iGPUBackend == (int)GPUBackend::VULKAN || g_Config.iGPUBackend == (int)GPUBackend::OPENGL) {
@@ -1715,6 +1848,21 @@ void DeveloperToolsScreen::CreateViews() {
 	if (GetGPUBackend() == GPUBackend::VULKAN) {
 		list->Add(new CheckBox(&g_Config.bGpuLogProfiler, dev->T("GPU log profiler")));
 	}
+
+#if PPSSPP_PLATFORM(ANDROID)
+	static const char *framerateModes[] = { "Default", "Request 60Hz", "Force 60Hz" };
+	PopupMultiChoice *framerateMode = list->Add(new PopupMultiChoice(&g_Config.iDisplayFramerateMode, gr->T("Framerate mode"), framerateModes, 0, ARRAY_SIZE(framerateModes), I18NCat::GRAPHICS, screenManager()));
+	framerateMode->SetEnabledFunc([]() { return System_GetPropertyInt(SYSPROP_SYSTEMVERSION) >= 30; });
+	framerateMode->OnChoice.Add([this](UI::EventParams &e) {
+		System_Notify(SystemNotification::FORCE_RECREATE_ACTIVITY);
+		return UI::EVENT_DONE;
+	});
+#endif
+
+	static const char *ffModes[] = { "Render all frames", "", "Frame Skipping" };
+	PopupMultiChoice *ffMode = list->Add(new PopupMultiChoice(&g_Config.iFastForwardMode, dev->T("Fast-forward mode"), ffModes, 0, ARRAY_SIZE(ffModes), I18NCat::GRAPHICS, screenManager()));
+	ffMode->SetEnabledFunc([]() { return !g_Config.bVSync; });
+	ffMode->HideChoice(1);  // not used
 
 	Draw::DrawContext *draw = screenManager()->getDrawContext();
 
@@ -1785,7 +1933,7 @@ void DeveloperToolsScreen::CreateViews() {
 
 void DeveloperToolsScreen::onFinish(DialogResult result) {
 	g_Config.Save("DeveloperToolsScreen::onFinish");
-	System_PostUIMessage("gpu_configChanged", "");
+	System_PostUIMessage(UIMessage::GPU_CONFIG_CHANGED);
 }
 
 void GameSettingsScreen::CallbackRestoreDefaults(bool yes) {
@@ -1796,10 +1944,10 @@ void GameSettingsScreen::CallbackRestoreDefaults(bool yes) {
 }
 
 UI::EventReturn GameSettingsScreen::OnRestoreDefaultSettings(UI::EventParams &e) {
-	auto dev = GetI18NCategory(I18NCat::DEVELOPER);
-	auto di = GetI18NCategory(I18NCat::DIALOG);
 	auto sy = GetI18NCategory(I18NCat::SYSTEM);
 	if (g_Config.bGameSpecific) {
+		auto dev = GetI18NCategory(I18NCat::DEVELOPER);
+		auto di = GetI18NCategory(I18NCat::DIALOG);
 		screenManager()->push(
 			new PromptScreen(gamePath_, dev->T("RestoreGameDefaultSettings", "Are you sure you want to restore the game-specific settings back to the ppsspp defaults?\n"), di->T("OK"), di->T("Cancel"),
 			std::bind(&GameSettingsScreen::CallbackRestoreDefaults, this, std::placeholders::_1)));
@@ -1866,7 +2014,7 @@ UI::EventReturn DeveloperToolsScreen::OnTouchscreenTest(UI::EventParams &e) {
 }
 
 UI::EventReturn DeveloperToolsScreen::OnJitAffectingSetting(UI::EventParams &e) {
-	System_PostUIMessage("clear jit", "");
+	System_PostUIMessage(UIMessage::REQUEST_CLEAR_JIT);
 	return UI::EVENT_DONE;
 }
 

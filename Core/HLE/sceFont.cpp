@@ -519,10 +519,10 @@ public:
 				fontMap.erase(fonts_[i]);
 			}
 		}
-		u32 args[2] = { userDataAddr(), (u32)handle_ };
 		// TODO: The return value of this is leaking.
 		if (handle_) {  // Avoid calling free-callback on double-free
 			if (coreState != CORE_POWERDOWN) {
+				u32 args[2] = { userDataAddr(), (u32)handle_ };
 				hleEnqueueCall(freeFuncAddr(), 2, args);
 			}
 		}
@@ -1192,7 +1192,7 @@ static int sceFontFindOptimumFont(u32 libHandle, u32 fontStylePtr, u32 errorCode
 	for (size_t i = 0; i < internalFonts.size(); i++) {
 		MatchQuality q = internalFonts[i]->MatchesStyle(*requestedStyle);
 		if (q != MATCH_NONE) {
-			auto matchStyle = internalFonts[i]->GetFontStyle();
+			const auto &matchStyle = internalFonts[i]->GetFontStyle();
 			if (requestedStyle->fontH > 0.0f) {
 				float hDist = fabs(matchStyle.fontHRes * matchStyle.fontH - hRes * requestedStyle->fontH);
 				if (hDist < nearestDist) {
@@ -1255,7 +1255,7 @@ static int sceFontFindFont(u32 libHandle, u32 fontStylePtr, u32 errorCodePtr) {
 	float hRes = requestedStyle->fontHRes > 0.0f ? (float)requestedStyle->fontHRes : fontLib->FontHRes();
 	for (size_t i = 0; i < internalFonts.size(); i++) {
 		if (internalFonts[i]->MatchesStyle(*requestedStyle) != MATCH_NONE) {
-			auto matchStyle = internalFonts[i]->GetFontStyle();
+			const auto &matchStyle = internalFonts[i]->GetFontStyle();
 			if (requestedStyle->fontH > 0.0f) {
 				float hDist = fabs(matchStyle.fontHRes * matchStyle.fontH - hRes * requestedStyle->fontH);
 				if (hDist > 0.001f) {

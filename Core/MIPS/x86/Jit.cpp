@@ -658,8 +658,18 @@ void Jit::Comp_ReplacementFunc(MIPSOpcode op) {
 			ApplyRoundingMode();
 			MIPSCompileOp(Memory::Read_Instruction(GetCompilerPC(), true), this);
 		} else {
+			CMP(32, R(EAX), Imm32(0));
+			FixupBranch positive = J_CC(CC_GE);
+
+			MOV(32, R(ECX), MIPSSTATE_VAR(pc));
+			ADD(32, MIPSSTATE_VAR(downcount), R(EAX));
+			FixupBranch done = J();
+
+			SetJumpTarget(positive);
 			MOV(32, R(ECX), MIPSSTATE_VAR(r[MIPS_REG_RA]));
 			SUB(32, MIPSSTATE_VAR(downcount), R(EAX));
+
+			SetJumpTarget(done);
 			ApplyRoundingMode();
 			// Need to set flags again, ApplyRoundingMode destroyed them (and EAX.)
 			SUB(32, MIPSSTATE_VAR(downcount), Imm8(0));
@@ -894,7 +904,7 @@ void Jit::CheckMemoryBreakpoint(int instructionOffset, MIPSGPReg rs, int offset)
 			SetJumpTarget(skipCheck);
 		}
 	} else {
-		const auto memchecks = CBreakPoints::GetMemCheckRanges(isWrite);
+		const auto &memchecks = CBreakPoints::GetMemCheckRanges(isWrite);
 		bool possible = !memchecks.empty();
 		if (!possible)
 			return;
@@ -908,6 +918,7 @@ void Jit::CheckMemoryBreakpoint(int instructionOffset, MIPSGPReg rs, int offset)
 		FlushAll();
 
 		std::vector<FixupBranch> hitChecks;
+		hitChecks.reserve(memchecks.size());
 		for (auto it = memchecks.begin(), end = memchecks.end(); it != end; ++it) {
 			if (it->end != 0) {
 				CMP(32, R(RAX), Imm32(it->start - size));

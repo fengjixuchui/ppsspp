@@ -29,8 +29,11 @@ public:
 	std::string GetChoiceString() const {
 		return adaptor_.GetTitle(listView_->GetSelected());
 	}
-	void SetHiddenChoices(std::set<int> hidden) {
+	void SetHiddenChoices(const std::set<int> &hidden) {
 		hidden_ = hidden;
+	}
+	void SetChoiceIcons(const std::map<int, ImageID> &icons) {
+		icons_ = icons;
 	}
 	const char *tag() const override { return "listpopup"; }
 
@@ -49,6 +52,7 @@ private:
 	std::function<void(int)> callback_;
 	bool showButtons_ = false;
 	std::set<int> hidden_;
+	std::map<int, ImageID> icons_;
 };
 
 class MessagePopupScreen : public PopupScreen {
@@ -231,6 +235,9 @@ public:
 	void HideChoice(int c) {
 		hidden_.insert(c);
 	}
+	void SetChoiceIcon(int c, ImageID id) {
+		icons_[c] = id;
+	}
 
 	UI::Event OnChoice;
 
@@ -254,6 +261,7 @@ private:
 	std::string valueText_;
 	bool restoreFocus_ = false;
 	std::set<int> hidden_;
+	std::map<int, ImageID> icons_;
 };
 
 // Allows passing in a dynamic vector of strings. Saves the string.

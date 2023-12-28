@@ -45,10 +45,12 @@ public:
 		return true;
 	}
 	int GetBlockSize() const { return 2048;}  // forced, it cannot be changed by subclasses
-	virtual u32 GetNumBlocks() = 0;
-	virtual bool IsDisc() = 0;
+	virtual u32 GetNumBlocks() const = 0;
+	virtual u64 GetUncompressedSize() const {
+		return (u64)GetNumBlocks() * (u64)GetBlockSize();
+	}
+	virtual bool IsDisc() const = 0;
 
-	u32 CalculateCRC(volatile bool *cancel = nullptr);
 	void NotifyReadError();
 
 protected:
@@ -62,8 +64,8 @@ public:
 	~CISOFileBlockDevice();
 	bool ReadBlock(int blockNumber, u8 *outPtr, bool uncached = false) override;
 	bool ReadBlocks(u32 minBlock, int count, u8 *outPtr) override;
-	u32 GetNumBlocks() override { return numBlocks; }
-	bool IsDisc() override { return true; }
+	u32 GetNumBlocks() const override { return numBlocks; }
+	bool IsDisc() const override { return true; }
 
 private:
 	u32 *index;
@@ -85,9 +87,11 @@ public:
 	~FileBlockDevice();
 	bool ReadBlock(int blockNumber, u8 *outPtr, bool uncached = false) override;
 	bool ReadBlocks(u32 minBlock, int count, u8 *outPtr) override;
-	u32 GetNumBlocks() override {return (u32)(filesize_ / GetBlockSize());}
-	bool IsDisc() override { return true; }
-
+	u32 GetNumBlocks() const override {return (u32)(filesize_ / GetBlockSize());}
+	bool IsDisc() const override { return true; }
+	u64 GetUncompressedSize() const override {
+		return filesize_;
+	}
 private:
 	u64 filesize_;
 };
@@ -109,8 +113,8 @@ public:
 	~NPDRMDemoBlockDevice();
 
 	bool ReadBlock(int blockNumber, u8 *outPtr, bool uncached = false) override;
-	u32 GetNumBlocks() override {return (u32)lbaSize;}
-	bool IsDisc() override { return false; }
+	u32 GetNumBlocks() const override {return (u32)lbaSize;}
+	bool IsDisc() const override { return false; }
 
 private:
 	static std::mutex mutex_;
@@ -130,5 +134,23 @@ private:
 	u8 *tempBuf;
 };
 
+struct CHDImpl;
+
+class CHDFileBlockDevice : public BlockDevice {
+public:
+	CHDFileBlockDevice(FileLoader *fileLoader);
+	~CHDFileBlockDevice();
+	bool ReadBlock(int blockNumber, u8 *outPtr, bool uncached = false) override;
+	bool ReadBlocks(u32 minBlock, int count, u8 *outPtr) override;
+	u32 GetNumBlocks() const override { return numBlocks; }
+	bool IsDisc() const override { return true; }
+
+private:
+	std::unique_ptr<CHDImpl> impl_;
+	u8 *readBuffer;
+	u32 currentHunk;
+	u32 blocksPerHunk;
+	u32 numBlocks;
+};
 
 BlockDevice *constructBlockDevice(FileLoader *fileLoader);

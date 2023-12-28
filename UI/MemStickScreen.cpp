@@ -50,7 +50,7 @@
 #include "UI/MiscScreens.h"
 #include "UI/OnScreenDisplay.h"
 
-static bool FolderSeemsToBeUsed(Path newMemstickFolder) {
+static bool FolderSeemsToBeUsed(const Path &newMemstickFolder) {
 	// Inspect the potential new folder, quickly.
 	if (File::Exists(newMemstickFolder / "PSP/SAVEDATA") || File::Exists(newMemstickFolder / "SAVEDATA")) {
 		// Does seem likely. We could add more criteria like checking for actual savegames or something.
@@ -61,14 +61,13 @@ static bool FolderSeemsToBeUsed(Path newMemstickFolder) {
 }
 
 static bool SwitchMemstickFolderTo(Path newMemstickFolder) {
-	Path testWriteFile = newMemstickFolder / ".write_verify_file";
-
 	// Doesn't already exist, create.
 	// Should this ever happen?
 	if (newMemstickFolder.Type() == PathType::NATIVE) {
 		if (!File::Exists(newMemstickFolder)) {
 			File::CreateFullPath(newMemstickFolder);
 		}
+		Path testWriteFile = newMemstickFolder / ".write_verify_file";
 		if (!File::WriteDataToFile(true, "1", 1, testWriteFile)) {
 			return false;
 		}
@@ -514,7 +513,7 @@ struct FileSuffix {
 	u64 fileSize;
 };
 
-static bool ListFileSuffixesRecursively(const Path &root, Path folder, std::vector<std::string> &dirSuffixes, std::vector<FileSuffix> &fileSuffixes) {
+static bool ListFileSuffixesRecursively(const Path &root, const Path &folder, std::vector<std::string> &dirSuffixes, std::vector<FileSuffix> &fileSuffixes) {
 	std::vector<File::FileInfo> files;
 	if (!File::GetFilesInDir(folder, &files)) {
 		return false;
@@ -562,7 +561,6 @@ ConfirmMemstickMoveScreen::~ConfirmMemstickMoveScreen() {
 
 void ConfirmMemstickMoveScreen::CreateViews() {
 	using namespace UI;
-	auto di = GetI18NCategory(I18NCat::DIALOG);
 	auto sy = GetI18NCategory(I18NCat::SYSTEM);
 	auto iz = GetI18NCategory(I18NCat::MEMSTICK);
 
@@ -618,6 +616,7 @@ void ConfirmMemstickMoveScreen::CreateViews() {
 			leftColumn->Add(new CheckBox(&moveData_, iz->T("Move Data")))->OnClick.Handle(this, &ConfirmMemstickMoveScreen::OnMoveDataClick);
 		}
 
+		auto di = GetI18NCategory(I18NCat::DIALOG);
 		leftColumn->Add(new Choice(di->T("OK")))->OnClick.Handle(this, &ConfirmMemstickMoveScreen::OnConfirm);
 		leftColumn->Add(new Choice(di->T("Back")))->OnClick.Handle<UIScreen>(this, &UIScreen::OnBack);
 	}

@@ -2,6 +2,27 @@
 #include "Common/GPU/Vulkan/VulkanFramebuffer.h"
 #include "Common/GPU/Vulkan/VulkanQueueRunner.h"
 
+static const char *rpTypeDebugNames[] = {
+	"RENDER",
+	"RENDER_DEPTH",
+	"MV_RENDER",
+	"MV_RENDER_DEPTH",
+	"MS_RENDER",
+	"MS_RENDER_DEPTH",
+	"MS_MV_RENDER",
+	"MS_MV_RENDER_DEPTH",
+	"BACKBUF",
+};
+
+const char *GetRPTypeName(RenderPassType rpType) {
+	uint32_t index = (uint32_t)rpType;
+	if (index < ARRAY_SIZE(rpTypeDebugNames)) {
+		return rpTypeDebugNames[index];
+	} else {
+		return "N/A";
+	}
+}
+
 VkSampleCountFlagBits MultiSampleLevelToFlagBits(int count) {
 	// TODO: Check hardware support here, or elsewhere?
 	// Some hardware only supports 4x.
@@ -161,9 +182,6 @@ void VKRFramebuffer::CreateImage(VulkanContext *vulkan, VkCommandBuffer cmd, VKR
 	}
 	if (color) {
 		ici.usage |= VK_IMAGE_USAGE_COLOR_ATTACHMENT_BIT;
-		if (sampleCount == VK_SAMPLE_COUNT_1_BIT) {
-			ici.usage |= VK_IMAGE_USAGE_INPUT_ATTACHMENT_BIT;
-		}
 	} else {
 		ici.usage |= VK_IMAGE_USAGE_DEPTH_STENCIL_ATTACHMENT_BIT;
 	}
@@ -273,7 +291,7 @@ VkRenderPass CreateRenderPass(VulkanContext *vulkan, const RPKey &key, RenderPas
 	_dbg_assert_(!(isBackbuffer && multisample));
 
 	if (isBackbuffer) {
-		_dbg_assert_(key.depthLoadAction == VKRRenderPassLoadAction::CLEAR);
+		_dbg_assert_(key.depthLoadAction != VKRRenderPassLoadAction::KEEP);
 	}
 
 	if (multiview) {
@@ -344,8 +362,6 @@ VkRenderPass CreateRenderPass(VulkanContext *vulkan, const RPKey &key, RenderPas
 	VkSubpassDescription subpass{};
 	subpass.pipelineBindPoint = VK_PIPELINE_BIND_POINT_GRAPHICS;
 	subpass.flags = 0;
-	subpass.inputAttachmentCount = 0;
-	subpass.pInputAttachments = nullptr;
 	subpass.colorAttachmentCount = 1;
 	subpass.pColorAttachments = &colorReference;
 
@@ -387,12 +403,25 @@ VkRenderPass CreateRenderPass(VulkanContext *vulkan, const RPKey &key, RenderPas
 	}
 
 	if (isBackbuffer) {
+		// We don't specify any explicit transitions for these, so let's use subpass dependencies.
+		// This makes sure that writes to the depth image are done before we try to write to it again.
+		// From Sascha's examples.
 		deps[numDeps].srcSubpass = VK_SUBPASS_EXTERNAL;
 		deps[numDeps].dstSubpass = 0;
-		deps[numDeps].srcStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
+		deps[numDeps].srcStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+		deps[numDeps].dstStageMask = VK_PIPELINE_STAGE_EARLY_FRAGMENT_TESTS_BIT | VK_PIPELINE_STAGE_LATE_FRAGMENT_TESTS_BIT;
+		deps[numDeps].srcAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+		deps[numDeps].dstAccessMask = VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_READ_BIT | VK_ACCESS_DEPTH_STENCIL_ATTACHMENT_WRITE_BIT;
+		deps[numDeps].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
+		numDeps++;
+		// Dependencies for the color image.
+		deps[numDeps].srcSubpass = VK_SUBPASS_EXTERNAL;
+		deps[numDeps].dstSubpass = 0;
+		deps[numDeps].srcStageMask = VK_PIPELINE_STAGE_BOTTOM_OF_PIPE_BIT;
 		deps[numDeps].dstStageMask = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
-		deps[numDeps].srcAccessMask = 0;
+		deps[numDeps].srcAccessMask = VK_ACCESS_MEMORY_READ_BIT;
 		deps[numDeps].dstAccessMask = VK_ACCESS_COLOR_ATTACHMENT_READ_BIT | VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT;
+		deps[numDeps].dependencyFlags = VK_DEPENDENCY_BY_REGION_BIT;
 		numDeps++;
 	}
 
@@ -492,6 +521,10 @@ VkRenderPass CreateRenderPass(VulkanContext *vulkan, const RPKey &key, RenderPas
 		res = vkCreateRenderPass2KHR(vulkan->GetDevice(), &rp2, nullptr, &pass);
 	} else {
 		res = vkCreateRenderPass(vulkan->GetDevice(), &rp, nullptr, &pass);
+	}
+
+	if (pass) {
+		vulkan->SetDebugName(pass, VK_OBJECT_TYPE_RENDER_PASS, GetRPTypeName(rpType));
 	}
 
 	_assert_(res == VK_SUCCESS);

@@ -161,8 +161,13 @@ struct VirtualFramebuffer {
 	inline GEBufferFormat Format(RasterChannel channel) const { return channel == RASTER_COLOR ? fb_format : GE_FORMAT_DEPTH16; }
 	inline int BindSeq(RasterChannel channel) const { return channel == RASTER_COLOR ? colorBindSeq : depthBindSeq; }
 
-	int BufferByteSize(RasterChannel channel) const {
-		return channel == RASTER_COLOR ? fb_stride * height * (fb_format == GE_FORMAT_8888 ? 4 : 2) : z_stride * height * 2;
+	// Computed from stride.
+	int BufferByteSize(RasterChannel channel) const { return BufferByteStride(channel) * height; }
+	int BufferByteStride(RasterChannel channel) const {
+		return channel == RASTER_COLOR ? fb_stride * (fb_format == GE_FORMAT_8888 ? 4 : 2) : z_stride * 2;
+	}
+	int BufferByteWidth(RasterChannel channel) const {
+		return channel == RASTER_COLOR ? width * (fb_format == GE_FORMAT_8888 ? 4 : 2) : width * 2;
 	}
 };
 
@@ -269,6 +274,7 @@ class DrawContext;
 
 struct DrawPixelsEntry {
 	Draw::Texture *tex;
+	uint64_t contentsHash;
 	int frameNumber;
 };
 
@@ -321,7 +327,7 @@ public:
 	void SetDepthFrameBuffer(bool isClearingDepth);
 
 	void RebindFramebuffer(const char *tag);
-	std::vector<FramebufferInfo> GetFramebufferList() const;
+	std::vector<const VirtualFramebuffer *> GetFramebufferList() const;
 
 	void CopyDisplayToOutput(bool reallyDirty);
 
@@ -376,13 +382,14 @@ public:
 		return useBufferedRendering_;
 	}
 
-	bool MayIntersectFramebuffer(u32 start) const {
+	// TODO: Maybe just include the last depth buffer address in this, too.
+	bool MayIntersectFramebufferColor(u32 start) const {
 		// Clear the cache/kernel bits.
 		start &= 0x3FFFFFFF;
 		if (Memory::IsVRAMAddress(start))
 			start &= 0x041FFFFF;
 		// Most games only have two framebuffers at the start.
-		if (start >= framebufRangeEnd_ || start < PSP_GetVidMemBase()) {
+		if (start >= framebufColorRangeEnd_ || start < PSP_GetVidMemBase()) {
 			return false;
 		}
 		return true;
@@ -478,6 +485,8 @@ public:
 		currentFramebufferCopy_ = nullptr;
 	}
 
+	bool PresentedThisFrame() const;
+
 protected:
 	virtual void ReadbackFramebuffer(VirtualFramebuffer *vfb, int x, int y, int w, int h, RasterChannel channel, Draw::ReadbackMode mode);
 	// Used for when a shader is required, such as GLES.
@@ -566,7 +575,7 @@ protected:
 	Draw::Framebuffer *currentFramebufferCopy_ = nullptr;
 
 	// The range of PSP memory that may contain FBOs.  So we can skip iterating.
-	u32 framebufRangeEnd_ = 0;
+	u32 framebufColorRangeEnd_ = 0;
 
 	bool useBufferedRendering_ = false;
 	bool postShaderIsUpscalingFilter_ = false;

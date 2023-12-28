@@ -86,7 +86,6 @@ LRESULT CALLBACK CtrlDisplayListView::wndProc(HWND hwnd, UINT msg, WPARAM wParam
 		// Continue with window creation.
 		return win != NULL;
 	case WM_NCDESTROY:
-		delete win;
 		break;
 	case WM_SIZE:
 		win->redraw();
@@ -280,6 +279,10 @@ void CtrlDisplayListView::PromptBreakpointCond() {
 
 void CtrlDisplayListView::onMouseDown(WPARAM wParam, LPARAM lParam, int button)
 {
+	if (!validDisplayList || !gpuDebug) {
+		return;
+	}
+
 	int y = HIWORD(lParam);
 
 	int line = y/rowHeight;
@@ -307,6 +310,10 @@ void CtrlDisplayListView::onMouseDown(WPARAM wParam, LPARAM lParam, int button)
 
 void CtrlDisplayListView::onMouseUp(WPARAM wParam, LPARAM lParam, int button)
 {
+	if (!validDisplayList || !gpuDebug) {
+		return;
+	}
+
 	if (button == 2)
 	{
 		HMENU menu = GetContextMenu(ContextMenuID::DISPLAYLISTVIEW);

@@ -468,7 +468,7 @@ public:
 	virtual bool IsViewGroup() const { return false; }
 	virtual bool ContainsSubview(const View *view) const { return false; }
 
-	Point GetFocusPosition(FocusDirection dir) const;
+	virtual Point GetFocusPosition(FocusDirection dir) const;
 
 	template <class T>
 	T *AddTween(T *t) {
@@ -871,6 +871,8 @@ public:
 	void GetContentDimensionsBySpec(const UIContext &dc, MeasureSpec horiz, MeasureSpec vert, float &w, float &h) const override;
 	void GetContentDimensions(const UIContext &dc, float &w, float &h) const override;
 
+	Point GetFocusPosition(FocusDirection dir) const override;
+
 	void SetHasSubitems(bool hasSubItems) { hasSubItems_ = hasSubItems; }
 private:
 	bool hasSubItems_ = true;
@@ -903,6 +905,18 @@ public:
 	void GetContentDimensions(const UIContext &dc, float &w, float &h) const override {
 		w = size_; h = size_;
 	}
+
+	void GetContentDimensionsBySpec(const UIContext &dc, MeasureSpec horiz, MeasureSpec vert, float &w, float &h) const override {
+		if (horiz.type == AT_MOST || horiz.type == EXACTLY)
+			w = horiz.size;
+		else
+			w = size_;
+		if (vert.type == AT_MOST || vert.type == EXACTLY)
+			h = vert.size;
+		else
+			h = size_;
+	}
+
 	void Draw(UIContext &dc) override {}
 	std::string DescribeText() const override { return ""; }
 
@@ -927,10 +941,10 @@ private:
 
 class TextView : public InertView {
 public:
-	TextView(const std::string &text, LayoutParams *layoutParams = 0)
+	TextView(std::string_view text, LayoutParams *layoutParams = 0)
 		: InertView(layoutParams), text_(text), textAlign_(0), textColor_(0xFFFFFFFF), small_(false), shadow_(false), focusable_(false), clip_(true) {}
 
-	TextView(const std::string &text, int textAlign, bool small, LayoutParams *layoutParams = 0)
+	TextView(std::string_view text, int textAlign, bool small, LayoutParams *layoutParams = 0)
 		: InertView(layoutParams), text_(text), textAlign_(textAlign), textColor_(0xFFFFFFFF), small_(small), shadow_(false), focusable_(false), clip_(true) {}
 
 	void GetContentDimensionsBySpec(const UIContext &dc, MeasureSpec horiz, MeasureSpec vert, float &w, float &h) const override;
@@ -1066,6 +1080,7 @@ void ApplyBoundsBySpec(Bounds &bounds, MeasureSpec horiz, MeasureSpec vert);
 bool IsDPadKey(const KeyInput &key);
 bool IsAcceptKey(const KeyInput &key);
 bool IsEscapeKey(const KeyInput &key);
+bool IsInfoKey(const KeyInput &key);
 bool IsTabLeftKey(const KeyInput &key);
 bool IsTabRightKey(const KeyInput &key);
 

@@ -166,26 +166,30 @@ ReportScreen::ReportScreen(const Path &gamePath)
 	ratingEnabled_ = enableReporting_;
 }
 
-void ReportScreen::postRender() {
-	// We do this after render because we need it to be within the frame (so the screenshot works).
-	// We could do it mid frame, but then we have to reapply viewport/scissor.
-	if (!tookScreenshot_) {
-		Path path = GetSysDirectory(DIRECTORY_SCREENSHOT);
-		if (!File::Exists(path)) {
-			File::CreateDir(path);
-		}
-		screenshotFilename_ = path / ".reporting.jpg";
-		if (TakeGameScreenshot(screenshotFilename_, ScreenshotFormat::JPG, SCREENSHOT_DISPLAY, nullptr, nullptr, 4)) {
-			// Redo the views already, now with a screenshot included.
-			RecreateViews();
-		} else {
-			// Good news (?), the views are good as-is without a screenshot.
-			screenshotFilename_.clear();
-		}
-		tookScreenshot_ = true;
-	}
+ScreenRenderFlags ReportScreen::render(ScreenRenderMode mode) {
+	ScreenRenderFlags flags = UIScreen::render(mode);
 
-	UIDialogScreenWithGameBackground::postRender();
+	if (mode & ScreenRenderMode::TOP) {
+
+		// We do this after render because we need it to be within the frame (so the screenshot works).
+		// We could do it mid frame, but then we have to reapply viewport/scissor.
+		if (!tookScreenshot_) {
+			Path path = GetSysDirectory(DIRECTORY_SCREENSHOT);
+			if (!File::Exists(path)) {
+				File::CreateDir(path);
+			}
+			screenshotFilename_ = path / ".reporting.jpg";
+			if (TakeGameScreenshot(screenshotFilename_, ScreenshotFormat::JPG, SCREENSHOT_DISPLAY, nullptr, nullptr, 4)) {
+				// Redo the views already, now with a screenshot included.
+				RecreateViews();
+			} else {
+				// Good news (?), the views are good as-is without a screenshot.
+				screenshotFilename_.clear();
+			}
+			tookScreenshot_ = true;
+		}
+	}
+	return flags;
 }
 
 void ReportScreen::update() {
@@ -249,7 +253,6 @@ EventReturn ReportScreen::HandleReportingChange(EventParams &e) {
 void ReportScreen::CreateViews() {
 	auto rp = GetI18NCategory(I18NCat::REPORTING);
 	auto di = GetI18NCategory(I18NCat::DIALOG);
-	auto sy = GetI18NCategory(I18NCat::SYSTEM);
 
 	Margins actionMenuMargins(0, 20, 15, 0);
 	Margins contentMargins(0, 20, 5, 5);
@@ -261,6 +264,7 @@ void ReportScreen::CreateViews() {
 
 	leftColumnItems->Add(new TextView(rp->T("FeedbackDesc", "How's the emulation?  Let us and the community know!"), FLAG_WRAP_TEXT, false, new LinearLayoutParams(Margins(12, 5, 0, 5))))->SetShadow(true);
 	if (!Reporting::IsEnabled()) {
+		auto sy = GetI18NCategory(I18NCat::SYSTEM);
 		reportingNotice_ = leftColumnItems->Add(new TextView(rp->T("FeedbackDisabled", "Compatibility server reports must be enabled."), FLAG_WRAP_TEXT, false, new LinearLayoutParams(Margins(12, 5, 0, 5))));
 		reportingNotice_->SetShadow(true);
 		reportingNotice_->SetTextColor(0xFF3030FF);
@@ -481,7 +485,7 @@ void ReportFinishScreen::ShowSuggestions() {
 		resultItems_->Clear();
 		bool shownConfig = false;
 		bool valid = false;
-		for (auto item : suggestions) {
+		for (const auto &item : suggestions) {
 			const char *suggestion = nullptr;
 			if (item == "Upgrade") {
 				suggestion = rp->T("SuggestionUpgrade", "Upgrade to a newer PPSSPP build");

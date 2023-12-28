@@ -58,7 +58,7 @@ static inline const char *DeNull(const char *ptr) {
 }
 
 void OnAchievementsLoginStateChange() {
-	System_PostUIMessage("achievements_loginstatechange", "");
+	System_PostUIMessage(UIMessage::ACHIEVEMENT_LOGIN_STATE_CHANGE);
 }
 
 namespace Achievements {
@@ -77,6 +77,7 @@ std::string s_game_hash;
 std::set<uint32_t> g_activeChallenges;
 bool g_isIdentifying = false;
 bool g_isLoggingIn = false;
+bool g_hasRichPresence = false;
 int g_loginResult;
 
 double g_lastLoginAttemptTime;
@@ -104,6 +105,19 @@ bool IsLoggedIn() {
 	return rc_client_get_user_info(g_rcClient) != nullptr && !g_isLoggingIn;
 }
 
+// This is the RetroAchievements game ID, rather than the PSP game ID.
+static u32 GetGameID() {
+	if (!g_rcClient) {
+		return 0;
+	}
+
+	const rc_client_game_t *info = rc_client_get_game_info(g_rcClient);
+	if (!info) {
+		return 0;
+	}
+	return info->id;  // 0 if not identified
+}
+
 bool EncoreModeActive() {
 	if (!g_rcClient) {
 		return false;
@@ -118,22 +132,30 @@ bool UnofficialEnabled() {
 	return rc_client_get_unofficial_enabled(g_rcClient);
 }
 
-bool ChallengeModeActive() {
+bool HardcoreModeActive() {
 	if (!g_rcClient) {
 		return false;
 	}
-	return IsLoggedIn() && rc_client_get_hardcore_enabled(g_rcClient);
+	// See "Enabling Hardcore" under https://github.com/RetroAchievements/rcheevos/wiki/rc_client-integration.
+	return IsLoggedIn() && rc_client_get_hardcore_enabled(g_rcClient) && rc_client_is_processing_required(g_rcClient);
 }
 
-bool WarnUserIfChallengeModeActive(const char *message) {
-	if (!ChallengeModeActive()) {
+size_t GetRichPresenceMessage(char *buffer, size_t bufSize) {
+	if (!IsLoggedIn() || !rc_client_has_rich_presence(g_rcClient)) {
+		return (size_t)-1;
+	}
+	return rc_client_get_rich_presence_message(g_rcClient, buffer, bufSize);
+}
+
+bool WarnUserIfHardcoreModeActive(bool isSaveStateAction, const char *message) {
+	if (!HardcoreModeActive() || (isSaveStateAction && g_Config.bAchievementsSaveStateInHardcoreMode)) {
 		return false;
 	}
 
 	const char *showMessage = message;
 	if (!message) {
 		auto ac = GetI18NCategory(I18NCat::ACHIEVEMENTS);
-		showMessage = ac->T("This feature is not available in Challenge Mode");
+		showMessage = ac->T("This feature is not available in Hardcore Mode");
 	}
 
 	g_OSD.Show(OSDType::MESSAGE_WARNING, showMessage, "", g_RAImageID, 3.0f);
@@ -146,18 +168,6 @@ bool IsBlockingExecution() {
 		// INFO_LOG(ACHIEVEMENTS, "isLoggingIn: %d   isIdentifying: %d", (int)g_isLoggingIn, (int)g_isIdentifying);
 	}
 	return g_isLoggingIn || g_isIdentifying;
-}
-
-static u32 GetGameID() {
-	if (!g_rcClient) {
-		return 0;
-	}
-
-	const rc_client_game_t *info = rc_client_get_game_info(g_rcClient);
-	if (!info) {
-		return 0;
-	}
-	return info->id;  // 0 if not identified
 }
 
 bool IsActive() {
@@ -228,7 +238,7 @@ static void event_handler_callback(const rc_client_event_t *event, rc_client_t *
 	case RC_CLIENT_EVENT_ACHIEVEMENT_TRIGGERED:
 		// An achievement was earned by the player. The handler should notify the player that the achievement was earned.
 		g_OSD.ShowAchievementUnlocked(event->achievement->id);
-		System_PostUIMessage("play_sound", "achievement_unlocked");
+		System_PostUIMessage(UIMessage::REQUEST_PLAY_SOUND, "achievement_unlocked");
 		INFO_LOG(ACHIEVEMENTS, "Achievement unlocked: '%s' (%d)", event->achievement->title, event->achievement->id);
 		break;
 
@@ -236,21 +246,22 @@ static void event_handler_callback(const rc_client_event_t *event, rc_client_t *
 	{
 		// TODO: Do some zany fireworks!
 
-		// All achievements for the game have been earned. The handler should notify the player that the game was completed or mastered, depending on challenge mode.
+		// All achievements for the game have been earned. The handler should notify the player that the game was completed or mastered, depending on mode, hardcore or not.
 		auto ac = GetI18NCategory(I18NCat::ACHIEVEMENTS);
 
 		const rc_client_game_t *gameInfo = rc_client_get_game_info(g_rcClient);
 
 		// TODO: Translation?
 		std::string title = ApplySafeSubstitutions(ac->T("Mastered %1"), gameInfo->title);
+
 		rc_client_user_game_summary_t summary;
 		rc_client_get_user_game_summary(g_rcClient, &summary);
 
-		std::string message = StringFromFormat(ac->T("%d achievements"), summary.num_unlocked_achievements);
+		std::string message = ApplySafeSubstitutions(ac->T("%1 achievements, %2 points"), summary.num_unlocked_achievements, summary.points_unlocked);
 
 		g_OSD.Show(OSDType::MESSAGE_INFO, title, message, DeNull(gameInfo->badge_name), 10.0f);
 
-		System_PostUIMessage("play_sound", "achievement_unlocked");
+		System_PostUIMessage(UIMessage::REQUEST_PLAY_SOUND, "achievement_unlocked");
 
 		INFO_LOG(ACHIEVEMENTS, "%s", message.c_str());
 		break;
@@ -284,7 +295,7 @@ static void event_handler_callback(const rc_client_event_t *event, rc_client_t *
 			title = event->leaderboard->description;
 		}
 		g_OSD.ShowLeaderboardSubmitted(ApplySafeSubstitutions(ac->T("Submitted %1 for %2"), DeNull(event->leaderboard->tracker_value), title), "");
-		System_PostUIMessage("play_sound", "leaderboard_submitted");
+		System_PostUIMessage(UIMessage::REQUEST_PLAY_SOUND, "leaderboard_submitted");
 		break;
 	}
 	case RC_CLIENT_EVENT_ACHIEVEMENT_CHALLENGE_INDICATOR_SHOW:
@@ -340,8 +351,8 @@ static void event_handler_callback(const rc_client_event_t *event, rc_client_t *
 		break;
 	case RC_CLIENT_EVENT_RESET:
 		WARN_LOG(ACHIEVEMENTS, "Resetting game due to achievement setting change!");
-		// Challenge mode was enabled, or something else that forces a game reset.
-		System_PostUIMessage("reset", "");
+		// Hardcore mode was enabled, or something else that forces a game reset.
+		System_PostUIMessage(UIMessage::REQUEST_GAME_RESET);
 		break;
 	case RC_CLIENT_EVENT_SERVER_ERROR:
 		ERROR_LOG(ACHIEVEMENTS, "Server error: %s: %s", event->server_error->api, event->server_error->error_message);
@@ -374,6 +385,9 @@ static void login_token_callback(int result, const char *error_message, rc_clien
 		}
 		break;
 	}
+	case RC_ACCESS_DENIED:
+	case RC_INVALID_CREDENTIALS:
+	case RC_EXPIRED_TOKEN:
 	case RC_API_FAILURE:
 	case RC_INVALID_STATE:
 	case RC_MISSING_VALUE:
@@ -518,6 +532,9 @@ static void login_password_callback(int result, const char *error_message, rc_cl
 	case RC_API_FAILURE:
 	case RC_MISSING_VALUE:
 	case RC_INVALID_JSON:
+	case RC_ACCESS_DENIED:
+	case RC_INVALID_CREDENTIALS:
+	case RC_EXPIRED_TOKEN:
 	default:
 	{
 		ERROR_LOG(ACHIEVEMENTS, "Failure logging in via password: %d, %s", result, error_message);
@@ -719,12 +736,12 @@ std::string GetGameAchievementSummary() {
 	if (summary.num_core_achievements + summary.num_unofficial_achievements == 0) {
 		summaryString = ac->T("This game has no achievements");
 	} else {
-		summaryString = StringFromFormat(ac->T("Earned", "You have unlocked %d of %d achievements, earning %d of %d points"),
+		summaryString = ApplySafeSubstitutions(ac->T("Earned", "You have unlocked %1 of %2 achievements, earning %3 of %4 points"),
 			summary.num_unlocked_achievements, summary.num_core_achievements + summary.num_unofficial_achievements,
 			summary.points_unlocked, summary.points_core);
-		if (ChallengeModeActive()) {
+		if (HardcoreModeActive()) {
 			summaryString.append("\n");
-			summaryString.append(ac->T("Challenge Mode"));
+			summaryString.append(ac->T("Hardcore Mode"));
 		}
 		if (EncoreModeActive()) {
 			summaryString.append("\n");

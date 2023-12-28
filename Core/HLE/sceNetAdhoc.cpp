@@ -1233,7 +1233,7 @@ void __UpdateAdhocctlHandlers(u32 flag, u32 error) {
 	adhocctlEvents.push_back({ flag, error });
 }
 
-void __UpdateMatchingHandler(MatchingArgs ArgsPtr) {
+void __UpdateMatchingHandler(const MatchingArgs &ArgsPtr) {
 	std::lock_guard<std::recursive_mutex> adhocGuard(adhocEvtMtx);
 	matchingEvents.push_back(ArgsPtr);
 }
@@ -2472,7 +2472,8 @@ u32 NetAdhocctl_Disconnect() {
 	// Library initialized
 	if (netAdhocctlInited) {
 		int iResult, error;
-		hleEatMicro(1000);
+		// We might need to have at least 16ms (1 frame?) delay before the game calls the next Adhocctl syscall for Tekken 6 not to stuck when exiting Lobby
+		hleEatMicro(16667);
 
 		if (isAdhocctlBusy && CoreTiming::IsScheduled(adhocctlNotifyEvent)) {
 			return ERROR_NET_ADHOCCTL_BUSY;

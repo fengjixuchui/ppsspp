@@ -709,7 +709,7 @@ bool GPUCommon::InterpretList(DisplayList &list) {
 	return gpuState == GPUSTATE_DONE || gpuState == GPUSTATE_ERROR;
 }
 
-void GPUCommon::BeginFrame() {
+void GPUCommon::PSPFrame() {
 	immCount_ = 0;
 	if (dumpNextFrame_) {
 		NOTICE_LOG(G3D, "DUMPING THIS FRAME");
@@ -720,6 +720,10 @@ void GPUCommon::BeginFrame() {
 	}
 	GPUDebug::NotifyBeginFrame();
 	GPURecord::NotifyBeginFrame();
+}
+
+bool GPUCommon::PresentedThisFrame() const {
+	return framebufferManager_ ? framebufferManager_->PresentedThisFrame() : true;
 }
 
 void GPUCommon::SlowRunLoop(DisplayList &list) {
@@ -921,9 +925,6 @@ void GPUCommon::Execute_Call(u32 op, u32 diff) {
 }
 
 void GPUCommon::DoExecuteCall(u32 target) {
-	// Saint Seiya needs correct support for relative calls.
-	const u32 retval = currentList->pc + 4;
-
 	// Bone matrix optimization - many games will CALL a bone matrix (!).
 	// We don't optimize during recording - so the matrix data gets recorded.
 	if (!debugRecording_ && Memory::IsValidRange(target, 13 * 4) && (Memory::ReadUnchecked_U32(target) >> 24) == GE_CMD_BONEMATRIXDATA) {
@@ -944,7 +945,7 @@ void GPUCommon::DoExecuteCall(u32 target) {
 		// TODO: UpdateState(GPUSTATE_ERROR) ?
 	} else {
 		auto &stackEntry = currentList->stack[currentList->stackptr++];
-		stackEntry.pc = retval;
+		stackEntry.pc = currentList->pc + 4;
 		stackEntry.offsetAddr = gstate_c.offsetAddr;
 		// The base address is NOT saved/restored for a regular call.
 		UpdatePC(currentList->pc, target - 4);
@@ -1286,7 +1287,7 @@ void GPUCommon::FlushImm() {
 		immCount_ = 0;
 		return;
 	}
-	UpdateUVScaleOffset();
+	gstate_c.UpdateUVScaleOffset();
 	if (vfb) {
 		CheckDepthUsage(vfb);
 	}
@@ -1605,6 +1606,7 @@ std::vector<GPUDebugOp> GPUCommon::DissassembleOpRange(u32 startpc, u32 endpc) {
 
 	// Don't trigger a pause.
 	u32 prev = Memory::IsValidAddress(startpc - 4) ? Memory::Read_U32(startpc - 4) : 0;
+	result.reserve((endpc - startpc) / 4);
 	for (u32 pc = startpc; pc < endpc; pc += 4) {
 		u32 op = Memory::IsValidAddress(pc) ? Memory::Read_U32(pc) : 0;
 		GeDisassembleOp(pc, op, prev, buffer, sizeof(buffer));
@@ -1665,6 +1667,7 @@ void GPUCommon::DoBlockTransfer(u32 skipDrawReason) {
 	int bpp = gstate.getTransferBpp();
 
 	DEBUG_LOG(G3D, "Block transfer: %08x/%x -> %08x/%x, %ix%ix%i (%i,%i)->(%i,%i)", srcBasePtr, srcStride, dstBasePtr, dstStride, width, height, bpp, srcX, srcY, dstX, dstY);
+	gpuStats.numBlockTransfers++;
 
 	// For VRAM, we wrap around when outside valid memory (mirrors still work.)
 	if ((srcBasePtr & 0x04800000) == 0x04800000)
@@ -1704,9 +1707,7 @@ void GPUCommon::DoBlockTransfer(u32 skipDrawReason) {
 			memcpy(dstp, srcp, bytesToCopy);
 
 			if (MemBlockInfoDetailed(bytesToCopy)) {
-				tagSize = FormatMemWriteTagAt(tag, sizeof(tag), "GPUBlockTransfer/", src, bytesToCopy);
-				NotifyMemInfo(MemBlockFlags::READ, src, bytesToCopy, tag, tagSize);
-				NotifyMemInfo(MemBlockFlags::WRITE, dst, bytesToCopy, tag, tagSize);
+				NotifyMemInfoCopy(dst, src, bytesToCopy, "GPUBlockTransfer/");
 			}
 		} else if ((srcDstOverlap || srcWraps || dstWraps) && (srcValid || srcWraps) && (dstValid || dstWraps)) {
 			// This path means we have either src/dst overlap, OR one or both of src and dst wrap.
@@ -1857,17 +1858,16 @@ void GPUCommon::DoBlockTransfer(u32 skipDrawReason) {
 
 bool GPUCommon::PerformMemoryCopy(u32 dest, u32 src, int size, GPUCopyFlag flags) {
 	// Track stray copies of a framebuffer in RAM. MotoGP does this.
-	if (framebufferManager_->MayIntersectFramebuffer(src) || framebufferManager_->MayIntersectFramebuffer(dest)) {
+	if (framebufferManager_->MayIntersectFramebufferColor(src) || framebufferManager_->MayIntersectFramebufferColor(dest)) {
 		if (!framebufferManager_->NotifyFramebufferCopy(src, dest, size, flags, gstate_c.skipDrawReason)) {
 			// We use matching values in PerformReadbackToMemory/PerformWriteColorFromMemory.
 			// Since they're identical we don't need to copy.
 			if (dest != src) {
+				if (Memory::IsValidRange(dest, size) && Memory::IsValidRange(src, size)) {
+					memcpy(Memory::GetPointerWriteUnchecked(dest), Memory::GetPointerUnchecked(src), size);
+				}
 				if (MemBlockInfoDetailed(size)) {
-					char tag[128];
-					size_t tagSize = FormatMemWriteTagAt(tag, sizeof(tag), "GPUMemcpy/", src, size);
-					Memory::Memcpy(dest, src, size, tag, tagSize);
-				} else {
-					Memory::Memcpy(dest, src, size, "GPUMemcpy");
+					NotifyMemInfoCopy(dest, src, size, "GPUMemcpy/");
 				}
 			}
 		}
@@ -1876,10 +1876,7 @@ bool GPUCommon::PerformMemoryCopy(u32 dest, u32 src, int size, GPUCopyFlag flags
 	}
 
 	if (MemBlockInfoDetailed(size)) {
-		char tag[128];
-		size_t tagSize = FormatMemWriteTagAt(tag, sizeof(tag), "GPUMemcpy/", src, size);
-		NotifyMemInfo(MemBlockFlags::READ, src, size, tag, tagSize);
-		NotifyMemInfo(MemBlockFlags::WRITE, dest, size, tag, tagSize);
+		NotifyMemInfoCopy(dest, src, size, "GPUMemcpy/");
 	}
 	InvalidateCache(dest, size, GPU_INVALIDATE_HINT);
 	if (!(flags & GPUCopyFlag::DEBUG_NOTIFIED))
@@ -1889,7 +1886,7 @@ bool GPUCommon::PerformMemoryCopy(u32 dest, u32 src, int size, GPUCopyFlag flags
 
 bool GPUCommon::PerformMemorySet(u32 dest, u8 v, int size) {
 	// This may indicate a memset, usually to 0, of a framebuffer.
-	if (framebufferManager_->MayIntersectFramebuffer(dest)) {
+	if (framebufferManager_->MayIntersectFramebufferColor(dest)) {
 		Memory::Memset(dest, v, size, "GPUMemset");
 		if (!framebufferManager_->NotifyFramebufferCopy(dest, dest, size, GPUCopyFlag::MEMSET, gstate_c.skipDrawReason)) {
 			InvalidateCache(dest, size, GPU_INVALIDATE_HINT);
@@ -1928,7 +1925,7 @@ void GPUCommon::PerformWriteFormattedFromMemory(u32 addr, int size, int frameWid
 }
 
 bool GPUCommon::PerformWriteStencilFromMemory(u32 dest, int size, WriteStencil flags) {
-	if (framebufferManager_->MayIntersectFramebuffer(dest)) {
+	if (framebufferManager_->MayIntersectFramebufferColor(dest)) {
 		framebufferManager_->PerformWriteStencilFromMemory(dest, size, flags);
 		return true;
 	}
@@ -1936,29 +1933,12 @@ bool GPUCommon::PerformWriteStencilFromMemory(u32 dest, int size, WriteStencil f
 }
 
 bool GPUCommon::GetCurrentSimpleVertices(int count, std::vector<GPUDebugVertex> &vertices, std::vector<u16> &indices) {
-	UpdateUVScaleOffset();
+	gstate_c.UpdateUVScaleOffset();
 	return drawEngineCommon_->GetCurrentSimpleVertices(count, vertices, indices);
 }
 
 bool GPUCommon::DescribeCodePtr(const u8 *ptr, std::string &name) {
-	if (drawEngineCommon_->IsCodePtrVertexDecoder(ptr)) {
-		name = "VertexDecoderJit";
-		return true;
-	}
-	return false;
-}
-
-void GPUCommon::UpdateUVScaleOffset() {
-#ifdef _M_SSE
-	__m128i values = _mm_slli_epi32(_mm_load_si128((const __m128i *) & gstate.texscaleu), 8);
-	_mm_storeu_si128((__m128i *)&gstate_c.uv, values);
-#elif PPSSPP_ARCH(ARM_NEON)
-	const uint32x4_t values = vshlq_n_u32(vld1q_u32((const u32 *)&gstate.texscaleu), 8);
-	vst1q_u32((u32 *)&gstate_c.uv, values);
-#else
-	gstate_c.uv.uScale = getFloat24(gstate.texscaleu);
-	gstate_c.uv.vScale = getFloat24(gstate.texscalev);
-	gstate_c.uv.uOff = getFloat24(gstate.texoffsetu);
-	gstate_c.uv.vOff = getFloat24(gstate.texoffsetv);
-#endif
+	// The only part of GPU emulation (other than software) that jits is the vertex decoder, currently,
+	// which is owned by the drawengine.
+	return drawEngineCommon_->DescribeCodePtr(ptr, name);
 }

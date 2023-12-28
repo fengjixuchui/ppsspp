@@ -523,6 +523,8 @@ static void check_variables(CoreParameter &coreParam)
          g_Config.iIOTimingMethod = IOTIMING_HOST;
       else if (!strcmp(var.value, "Simulate UMD delays"))
          g_Config.iIOTimingMethod = IOTIMING_REALISTIC;
+      else if (!strcmp(var.value, "Simulate UMD slow reading speed"))
+         g_Config.iIOTimingMethod = IOTIMING_UMDSLOWREALISTIC;
    }
 
    var.key = "ppsspp_force_lag_sync";
@@ -583,6 +585,14 @@ static void check_variables(CoreParameter &coreParam)
          g_Config.bAnalogIsCircular = true;
    }
 
+   var.key = "ppsspp_memstick_inserted";
+   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
+   {
+      if (!strcmp(var.value, "disabled"))
+         g_Config.bMemStickInserted = false;
+      else
+         g_Config.bMemStickInserted = true;
+   }
 
    var.key = "ppsspp_internal_resolution";
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
@@ -632,9 +642,9 @@ static void check_variables(CoreParameter &coreParam)
    if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
    {
       if (!strcmp(var.value, "disabled"))
-         g_Config.bSkipGPUReadbacks = false;
+         g_Config.iSkipGPUReadbackMode = (int)SkipGPUReadbackMode::SKIP;
       else
-         g_Config.bSkipGPUReadbacks = true;
+         g_Config.iSkipGPUReadbackMode = (int)SkipGPUReadbackMode::NO_SKIP;
    }
 
    var.key = "ppsspp_frameskip";
@@ -704,15 +714,6 @@ static void check_variables(CoreParameter &coreParam)
          g_Config.bSoftwareSkinning = false;
       else
          g_Config.bSoftwareSkinning = true;
-   }
-
-   var.key = "ppsspp_vertex_cache";
-   if (environ_cb(RETRO_ENVIRONMENT_GET_VARIABLE, &var) && var.value)
-   {
-      if (!strcmp(var.value, "disabled"))
-         g_Config.bVertexCache = false;
-      else
-         g_Config.bVertexCache = true;
    }
 
    var.key = "ppsspp_lazy_texture_caching";
@@ -1709,7 +1710,7 @@ void System_Notify(SystemNotification notification) {
    }
 }
 bool System_MakeRequest(SystemRequestType type, int requestId, const std::string &param1, const std::string &param2, int param3) { return false; }
-void System_PostUIMessage(const std::string &message, const std::string &param) {}
+void System_PostUIMessage(UIMessage message, const std::string &param) {}
 void NativeFrame(GraphicsContext *graphicsContext) {}
 void NativeResized() {}
 

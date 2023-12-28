@@ -68,7 +68,6 @@ public abstract class NativeActivity extends Activity {
 	// Graphics and audio interfaces for Vulkan (javaGL = false)
 	private NativeSurfaceView mSurfaceView;
 	private Surface mSurface;
-	private Thread mRenderLoopThread = null;
 
 	// Graphics and audio interfaces for Java EGL (javaGL = true)
 	private NativeGLView mGLSurfaceView;
@@ -402,6 +401,7 @@ public abstract class NativeActivity extends Activity {
 		String extStorageDir = Environment.getExternalStorageDirectory().getAbsolutePath();
 		File externalFiles = this.getExternalFilesDir(null);
 		String externalFilesDir = externalFiles == null ? "" : externalFiles.getAbsolutePath();
+		String nativeLibDir = getApplicationLibraryDir(appInfo);
 
 		Log.i(TAG, "Ext storage: " + extStorageState + " " + extStorageDir);
 		Log.i(TAG, "Ext files dir: " + externalFilesDir);
@@ -444,7 +444,7 @@ public abstract class NativeActivity extends Activity {
 		overrideShortcutParam = null;
 
 		NativeApp.audioConfig(optimalFramesPerBuffer, optimalSampleRate);
-		NativeApp.init(model, deviceType, languageRegion, apkFilePath, dataDir, extStorageDir, externalFilesDir, additionalStorageDirs, cacheDir, shortcut, Build.VERSION.SDK_INT, Build.BOARD);
+		NativeApp.init(model, deviceType, languageRegion, apkFilePath, dataDir, extStorageDir, externalFilesDir, nativeLibDir, additionalStorageDirs, cacheDir, shortcut, Build.VERSION.SDK_INT, Build.BOARD);
 
 		// Allow C++ to tell us to use JavaGL or not.
 		javaGL = "true".equalsIgnoreCase(NativeApp.queryConfig("androidJavaGL"));
@@ -568,19 +568,6 @@ public abstract class NativeActivity extends Activity {
 		}
 	}
 
-	private final Runnable mEmulationRunner = new Runnable() {
-		@Override
-		public void run() {
-			Log.i(TAG, "Starting the render loop: " + mSurface);
-			// Start emulation using the provided Surface.
-			if (!runVulkanRenderLoop(mSurface)) {
-				// Shouldn't happen.
-				Log.e(TAG, "Failed to start up OpenGL/Vulkan - runVulkanRenderLoop returned false");
-			}
-			Log.i(TAG, "Left the render loop: " + mSurface);
-		}
-	};
-
 	public native boolean runVulkanRenderLoop(Surface surface);
 	// Tells the render loop thread to exit, so we can restart it.
 	public native void requestExitVulkanRenderLoop();
@@ -650,6 +637,7 @@ public abstract class NativeActivity extends Activity {
 					// mGLSurfaceView.setEGLConfigChooser(8, 8, 8, 8, 16, 8);
 				// }
 			}
+
 			mGLSurfaceView.setRenderer(nativeRenderer);
 			setContentView(mGLSurfaceView);
 		} else {
@@ -675,6 +663,37 @@ public abstract class NativeActivity extends Activity {
 		}
 	}
 
+	private void applyFrameRate(Surface surface, float frameRateHz) {
+		if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R)
+			return;
+		if (mSurface != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+			try {
+				int method = NativeApp.getDisplayFramerateMode();
+				if (method > 0) {
+					Log.i(TAG, "Setting desired framerate to " + frameRateHz + " Hz method=" + method);
+					switch (method) {
+						case 1:
+							mSurface.setFrameRate(frameRateHz, Surface.FRAME_RATE_COMPATIBILITY_DEFAULT);
+							break;
+						case 2:
+							mSurface.setFrameRate(frameRateHz, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE);
+							break;
+						case 3:
+							if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+								mSurface.setFrameRate(frameRateHz, Surface.FRAME_RATE_COMPATIBILITY_FIXED_SOURCE, Surface.CHANGE_FRAME_RATE_ALWAYS);
+							}
+							break;
+						default:
+							break;
+					}
+
+				}
+			} catch (Exception e) {
+				Log.e(TAG, "Failed to set framerate: " + e.toString());
+			}
+		}
+	}
+
 	public void notifySurface(Surface surface) {
 		mSurface = surface;
 
@@ -690,49 +709,38 @@ public abstract class NativeActivity extends Activity {
 			} else {
 				startRenderLoopThread();
 			}
+		} else if (mSurface != null) {
+			applyFrameRate(mSurface, 60.0f);
 		}
 		updateSustainedPerformanceMode();
 	}
 
-	// Invariants: After this, mRenderLoopThread will be set, and the thread will be running,
-	// if in Vulkan mode.
+	// The render loop thread (EmuThread) is now spawned from the native side.
 	protected synchronized void startRenderLoopThread() {
 		if (javaGL) {
-			Log.e(TAG, "JavaGL mode - should not get into ensureRenderLoop.");
+			Log.e(TAG, "JavaGL mode - should not get into startRenderLoopThread.");
 			return;
 		}
 		if (mSurface == null) {
-			Log.w(TAG, "ensureRenderLoop - not starting thread, needs surface");
+			Log.w(TAG, "startRenderLoopThread - not starting thread, needs surface");
 			return;
 		}
-		if (mRenderLoopThread == null) {
-			Log.w(TAG, "ensureRenderLoop: Starting thread");
-			mRenderLoopThread = new Thread(mEmulationRunner);
-			mRenderLoopThread.start();
-		}
+
+		Log.w(TAG, "startRenderLoopThread: Starting thread");
+
+		applyFrameRate(mSurface, 60.0f);
+		runVulkanRenderLoop(mSurface);
 	}
 
-	// Invariants: After this, mRenderLoopThread will be null, and the thread has exited.
 	private synchronized void joinRenderLoopThread() {
 		if (javaGL) {
 			Log.e(TAG, "JavaGL - should not get into joinRenderLoopThread.");
 			return;
 		}
 
-		if (mRenderLoopThread != null) {
-			// This will wait until the thread has exited.
-			Log.i(TAG, "requestExitVulkanRenderLoop");
-			requestExitVulkanRenderLoop();
-			try {
-				Log.i(TAG, "joining render loop thread...");
-				mRenderLoopThread.join();
-				Log.w(TAG, "Joined render loop thread.");
-				mRenderLoopThread = null;
-			} catch (InterruptedException e) {
-				e.printStackTrace();
-				mRenderLoopThread = null;
-			}
-		}
+		// This will wait until the thread has exited.
+		Log.i(TAG, "requestExitVulkanRenderLoop");
+		requestExitVulkanRenderLoop();
 	}
 
 	@TargetApi(Build.VERSION_CODES.KITKAT)
@@ -1048,12 +1056,18 @@ public abstract class NativeActivity extends Activity {
 		}
 
 		if ((event.getSource() & InputDevice.SOURCE_CLASS_POINTER) != 0) {
+			if ((event.getSource() & InputDevice.SOURCE_MOUSE) == InputDevice.SOURCE_MOUSE) {
+				float dx = event.getAxisValue(MotionEvent.AXIS_RELATIVE_X);
+				float dy = event.getAxisValue(MotionEvent.AXIS_RELATIVE_Y);
+				NativeApp.mouseDelta(dx, dy);
+			}
+
 			switch (event.getAction()) {
 			case MotionEvent.ACTION_HOVER_MOVE:
 				// process the mouse hover movement...
 				return true;
 			case MotionEvent.ACTION_SCROLL:
-				NativeApp.mouseWheelEvent(event.getX(), event.getY());
+				NativeApp.mouseWheelEvent(event.getAxisValue(MotionEvent.AXIS_HSCROLL), event.getAxisValue(MotionEvent.AXIS_VSCROLL));
 				return true;
 			}
 		}
@@ -1399,9 +1413,6 @@ public abstract class NativeActivity extends Activity {
 					intent.setType("*/*");
 				}
 				intent.addFlags(Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
-				// Possible alternative approach:
-				// String[] mimeTypes = {"application/octet-stream", "/x-iso9660-image"};
-				// intent.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes);
 				startActivityForResult(intent, packedResultCode);
 				// intent.putExtra(DocumentsContract.EXTRA_INITIAL_URI, pickerInitialUri);
 			} catch (Exception e) {
@@ -1589,6 +1600,8 @@ public abstract class NativeActivity extends Activity {
 				throw new Exception();
 			} catch (Exception e) {
 				NativeApp.reportException(e, params);
+
+
 			}
 		}
 		return false;

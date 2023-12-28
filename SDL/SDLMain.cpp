@@ -96,7 +96,6 @@ static float g_ForcedDPI = 0.0f; // if this is 0.0f, use g_DesktopDPI
 static float g_RefreshRate = 60.f;
 static int g_sampleRate = 44100;
 
-static int g_frameCount = 0;
 static bool g_rebootEmuThread = false;
 
 static SDL_AudioSpec g_retFmt;
@@ -586,6 +585,12 @@ bool System_GetPropertyBool(SystemProperty prop) {
 	case SYSPROP_HAS_FILE_BROWSER:
 		return true;
 #endif
+	case SYSPROP_HAS_ACCELEROMETER:
+#if defined(MOBILE_DEVICE)
+		return true;
+#else
+		return false;
+#endif
 	default:
 		return false;
 	}
@@ -670,7 +675,17 @@ static void EmuThreadFunc(GraphicsContext *graphicsContext) {
 	NativeInitGraphics(graphicsContext);
 
 	while (emuThreadState != (int)EmuThreadState::QUIT_REQUESTED) {
+		double startTime = time_now_d();
+
 		UpdateRunLoop(graphicsContext);
+
+		// Simple throttling to not burn the GPU in the menu.
+		if (GetUIState() != UISTATE_INGAME || !PSP_IsInited()) {
+			double diffTime = time_now_d() - startTime;
+			int sleepTime = (int)(1000.0 / 60.0) - (int)(diffTime * 1000.0);
+			if (sleepTime > 0)
+				sleep_ms(sleepTime);
+		}
 	}
 	emuThreadState = (int)EmuThreadState::STOPPED;
 	graphicsContext->StopThread();
@@ -693,53 +708,6 @@ static void EmuThreadJoin() {
 }
 
 struct InputStateTracker {
-	void TranslateMouseWheel() {
-		// SDL2 doesn't consider the mousewheel a button anymore
-		// so let's send the KEY_UP if it was moved after some frames
-		if (mouseWheelMovedUpFrames > 0) {
-			mouseWheelMovedUpFrames--;
-			if (mouseWheelMovedUpFrames == 0) {
-				KeyInput key;
-				key.deviceId = DEVICE_ID_MOUSE;
-				key.keyCode = NKCODE_EXT_MOUSEWHEEL_UP;
-				key.flags = KEY_UP;
-				NativeKey(key);
-			}
-		}
-		if (mouseWheelMovedDownFrames > 0) {
-			mouseWheelMovedDownFrames--;
-			if (mouseWheelMovedDownFrames == 0) {
-				KeyInput key;
-				key.deviceId = DEVICE_ID_MOUSE;
-				key.keyCode = NKCODE_EXT_MOUSEWHEEL_DOWN;
-				key.flags = KEY_UP;
-				NativeKey(key);
-			}
-		}
-	}
-
-	void MouseControl() {
-		// Disabled by default, needs a workaround to map to psp keys.
-		if (g_Config.bMouseControl) {
-			float scaleFactor_x = g_display.dpi_scale_x * 0.1 * g_Config.fMouseSensitivity;
-			float scaleFactor_y = g_display.dpi_scale_y * 0.1 * g_Config.fMouseSensitivity;
-
-			AxisInput axis[2];
-			axis[0].axisId = JOYSTICK_AXIS_MOUSE_REL_X;
-			axis[0].deviceId = DEVICE_ID_MOUSE;
-			axis[0].value = std::max(-1.0f, std::min(1.0f, mouseDeltaX * scaleFactor_x));
-			axis[1].axisId = JOYSTICK_AXIS_MOUSE_REL_Y;
-			axis[1].deviceId = DEVICE_ID_MOUSE;
-			axis[1].value = std::max(-1.0f, std::min(1.0f, mouseDeltaY * scaleFactor_y));
-
-			if (GetUIState() == UISTATE_INGAME || g_Config.bMapMouse) {
-				NativeAxis(axis, 2);
-			}
-			mouseDeltaX *= g_Config.fMouseSmoothing;
-			mouseDeltaY *= g_Config.fMouseSmoothing;
-		}
-	}
-
 	void MouseCaptureControl() {
 		bool captureMouseCondition = g_Config.bMouseControl && ((GetUIState() == UISTATE_INGAME && g_Config.bMouseConfine) || g_Config.bMapMouse);
 		if (mouseCaptured != captureMouseCondition) {
@@ -752,10 +720,6 @@ struct InputStateTracker {
 	}
 
 	bool mouseDown;
-	float mouseDeltaX;
-	float mouseDeltaY;
-	int mouseWheelMovedUpFrames;
-	int mouseWheelMovedDownFrames;
 	bool mouseCaptured;
 };
 
@@ -819,13 +783,11 @@ static void ProcessSDLEvent(SDL_Window *window, const SDL_Event &event, InputSta
 
 		case SDL_WINDOWEVENT_MOVED:
 		{
-			int x = event.window.data1;
-			int y = event.window.data2;
 			Uint32 window_flags = SDL_GetWindowFlags(window);
 			bool fullscreen = (window_flags & SDL_WINDOW_FULLSCREEN);
 			if (!fullscreen) {
-				g_Config.iWindowX = x;
-				g_Config.iWindowY = y;
+				g_Config.iWindowX = (int)event.window.data1;
+				g_Config.iWindowY = (int)event.window.data2;
 			}
 			break;
 		}
@@ -873,7 +835,7 @@ static void ProcessSDLEvent(SDL_Window *window, const SDL_Event &event, InputSta
 					if (Core_IsStepping())
 						Core_EnableStepping(false);
 					Core_Stop();
-					System_PostUIMessage("stop", "");
+					System_PostUIMessage(UIMessage::REQUEST_GAME_STOP);
 					// NOTE: Unlike Windows version, this
 					// does not need Core_WaitInactive();
 					// since SDL does not have a separate
@@ -881,7 +843,7 @@ static void ProcessSDLEvent(SDL_Window *window, const SDL_Event &event, InputSta
 				}
 				if (ctrl && (k == SDLK_b))
 				{
-					System_PostUIMessage("reset", "");
+					System_PostUIMessage(UIMessage::REQUEST_GAME_RESET);
 					Core_EnableStepping(false);
 				}
 			}
@@ -1030,11 +992,9 @@ static void ProcessSDLEvent(SDL_Window *window, const SDL_Event &event, InputSta
 #endif
 			if (event.wheel.y > 0) {
 				key.keyCode = NKCODE_EXT_MOUSEWHEEL_UP;
-				inputTracker->mouseWheelMovedUpFrames = 5;
 				NativeKey(key);
 			} else if (event.wheel.y < 0) {
 				key.keyCode = NKCODE_EXT_MOUSEWHEEL_DOWN;
-				inputTracker->mouseWheelMovedDownFrames = 5;
 				NativeKey(key);
 			}
 			break;
@@ -1048,8 +1008,7 @@ static void ProcessSDLEvent(SDL_Window *window, const SDL_Event &event, InputSta
 			input.id = 0;
 			NativeTouch(input);
 		}
-		inputTracker->mouseDeltaX += event.motion.xrel;
-		inputTracker->mouseDeltaY += event.motion.yrel;
+		NativeMouseDelta(event.motion.xrel, event.motion.yrel);
 		break;
 	case SDL_MOUSEBUTTONUP:
 		switch (event.button.button) {
@@ -1102,7 +1061,7 @@ static void ProcessSDLEvent(SDL_Window *window, const SDL_Event &event, InputSta
 				break;
 			}
 			// Don't start auto switching for a second, because some devices init on start.
-			bool doAutoSwitch = g_Config.bAutoAudioDevice && g_frameCount > 60;
+			bool doAutoSwitch = g_Config.bAutoAudioDevice && time_now_d() > 1.0f;
 			if (doAutoSwitch || g_Config.sAudioDevice == name) {
 				StopSDLAudioDevice();
 				InitSDLAudioDevice(name ? name : "");
@@ -1123,7 +1082,18 @@ static void ProcessSDLEvent(SDL_Window *window, const SDL_Event &event, InputSta
 		}
 		break;
 	}
+}
 
+void UpdateSDLCursor() {
+#if !defined(MOBILE_DEVICE)
+	if (lastUIState != GetUIState()) {
+		lastUIState = GetUIState();
+		if (lastUIState == UISTATE_INGAME && g_Config.UseFullScreen() && !g_Config.bShowTouchControls)
+			SDL_ShowCursor(SDL_DISABLE);
+		if (lastUIState != UISTATE_INGAME || !g_Config.UseFullScreen())
+			SDL_ShowCursor(SDL_ENABLE);
+	}
+#endif
 }
 
 #ifdef _WIN32
@@ -1388,7 +1358,7 @@ int main(int argc, char *argv[]) {
 
 	UpdateScreenScale(w * g_DesktopDPI, h * g_DesktopDPI);
 
-	bool useEmuThread = g_Config.iGPUBackend == (int)GPUBackend::OPENGL;
+	bool mainThreadIsRender = g_Config.iGPUBackend == (int)GPUBackend::OPENGL;
 
 	SDL_SetWindowTitle(window, (app_name_nice + " " + PPSSPP_GIT_VERSION).c_str());
 
@@ -1421,11 +1391,6 @@ int main(int argc, char *argv[]) {
 	SDL_ShowCursor(SDL_DISABLE);
 #endif
 
-	if (!useEmuThread) {
-		NativeInitGraphics(graphicsContext);
-		NativeResized();
-	}
-
 	// Ensure that the swap interval is set after context creation (needed for kmsdrm)
 	SDL_GL_SetSwapInterval(1);
 
@@ -1438,9 +1403,8 @@ int main(int argc, char *argv[]) {
 	}
 	EnableFZ();
 
-	if (useEmuThread) {
-		EmuThreadStart(graphicsContext);
-	}
+	EmuThreadStart(graphicsContext);
+
 	graphicsContext->ThreadStart();
 
 	InputStateTracker inputTracker{};
@@ -1449,36 +1413,47 @@ int main(int argc, char *argv[]) {
 	// setup menu items for macOS
 	initializeOSXExtras();
 #endif
-	
-	while (true) {
-		double startTime = time_now_d();
 
-		inputTracker.TranslateMouseWheel();
+	bool waitOnExit = g_Config.iGPUBackend == (int)GPUBackend::OPENGL;
 
-		SDL_Event event;
-		while (SDL_PollEvent(&event)) {
-			ProcessSDLEvent(window, event, &inputTracker);
+	if (!mainThreadIsRender) {
+		// We should only be a message pump
+		while (true) {
+			SDL_Event event;
+			while (SDL_PollEvent(&event)) {
+				ProcessSDLEvent(window, event, &inputTracker);
+			}
+			if (g_QuitRequested || g_RestartRequested)
+				break;
+
+			UpdateSDLCursor();
+
+			inputTracker.MouseCaptureControl();
+
+			{
+				std::lock_guard<std::mutex> guard(g_mutexWindow);
+				if (g_windowState.update) {
+					UpdateWindowState(window);
+				}
+			}
+		}
+	} else while (true) {
+		{
+			SDL_Event event;
+			while (SDL_PollEvent(&event)) {
+				ProcessSDLEvent(window, event, &inputTracker);
+			}
 		}
 		if (g_QuitRequested || g_RestartRequested)
 			break;
-		const uint8_t *keys = SDL_GetKeyboardState(NULL);
 		if (emuThreadState == (int)EmuThreadState::DISABLED) {
 			UpdateRunLoop(graphicsContext);
 		}
 		if (g_QuitRequested || g_RestartRequested)
 			break;
 
-#if !defined(MOBILE_DEVICE)
-		if (lastUIState != GetUIState()) {
-			lastUIState = GetUIState();
-			if (lastUIState == UISTATE_INGAME && g_Config.UseFullScreen() && !g_Config.bShowTouchControls)
-				SDL_ShowCursor(SDL_DISABLE);
-			if (lastUIState != UISTATE_INGAME || !g_Config.UseFullScreen())
-				SDL_ShowCursor(SDL_ENABLE);
-		}
-#endif
+		UpdateSDLCursor();
 
-		inputTracker.MouseControl();
 		inputTracker.MouseCaptureControl();
 
 		bool renderThreadPaused = Core_IsWindowHidden() && g_Config.bPauseWhenMinimized && emuThreadState != (int)EmuThreadState::DISABLED;
@@ -1523,32 +1498,21 @@ int main(int argc, char *argv[]) {
 			EmuThreadStart(graphicsContext);
 			graphicsContext->ThreadStart();
 		}
-
-		// Simple throttling to not burn the GPU in the menu.
-		if (GetUIState() != UISTATE_INGAME || !PSP_IsInited() || renderThreadPaused) {
-			double diffTime = time_now_d() - startTime;
-			int sleepTime = (int)(1000.0 / 60.0) - (int)(diffTime * 1000.0);
-			if (sleepTime > 0)
-				sleep_ms(sleepTime);
-		}
-
-		g_frameCount++;
 	}
 
-	if (useEmuThread) {
-		EmuThreadStop("shutdown");
+	EmuThreadStop("shutdown");
+
+	if (waitOnExit) {
 		while (graphicsContext->ThreadFrame()) {
 			// Need to keep eating frames to allow the EmuThread to exit correctly.
 			continue;
 		}
-		EmuThreadJoin();
 	}
+
+	EmuThreadJoin();
 
 	delete joystick;
 
-	if (!useEmuThread) {
-		NativeShutdownGraphics();
-	}
 	graphicsContext->ThreadEnd();
 
 	NativeShutdown();

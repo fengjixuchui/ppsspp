@@ -864,7 +864,7 @@ void SoftGPU::Execute_Prim(u32 op, u32 diff) {
 
 	cyclesExecuted += EstimatePerVertexCost() * count;
 	int bytesRead;
-	UpdateUVScaleOffset();
+	gstate_c.UpdateUVScaleOffset();
 	drawEngine_->transformUnit.SetDirty(dirtyFlags_);
 	drawEngine_->transformUnit.SubmitPrimitive(verts, indices, prim, count, gstate.vertType, &bytesRead, drawEngine_);
 	dirtyFlags_ = drawEngine_->transformUnit.GetDirty();
@@ -917,7 +917,7 @@ void SoftGPU::Execute_Bezier(u32 op, u32 diff) {
 	SetDrawType(DRAW_BEZIER, PatchPrimToPrim(surface.primType));
 
 	int bytesRead = 0;
-	UpdateUVScaleOffset();
+	gstate_c.UpdateUVScaleOffset();
 	drawEngine_->transformUnit.SetDirty(dirtyFlags_);
 	drawEngineCommon_->SubmitCurve(control_points, indices, surface, gstate.vertType, &bytesRead, "bezier");
 	dirtyFlags_ = drawEngine_->transformUnit.GetDirty();
@@ -971,7 +971,7 @@ void SoftGPU::Execute_Spline(u32 op, u32 diff) {
 	SetDrawType(DRAW_SPLINE, PatchPrimToPrim(surface.primType));
 
 	int bytesRead = 0;
-	UpdateUVScaleOffset();
+	gstate_c.UpdateUVScaleOffset();
 	drawEngine_->transformUnit.SetDirty(dirtyFlags_);
 	drawEngineCommon_->SubmitCurve(control_points, indices, surface, gstate.vertType, &bytesRead, "spline");
 	dirtyFlags_ = drawEngine_->transformUnit.GetDirty();
@@ -1040,7 +1040,9 @@ void SoftGPU::Execute_ZbufPtr(u32 op, u32 diff) {
 	// We assume depthbuf.data won't change while we're drawing.
 	if (diff) {
 		drawEngine_->transformUnit.Flush("depthbuf");
-		depthbuf.data = Memory::GetPointerWrite(gstate.getDepthBufAddress());
+		// For the pointer, ignore memory mirrors.  This also gives some buffer for draws that go outside.
+		// TODO: Confirm how wrapping is handled in drawing.  Adjust if we ever handle VRAM mirrors more accurately.
+		depthbuf.data = Memory::GetPointerWrite(gstate.getDepthBufAddress() & 0x041FFFF0);
 	}
 }
 
@@ -1443,7 +1445,7 @@ bool SoftGPU::GetCurrentClut(GPUDebugBuffer &buffer)
 }
 
 bool SoftGPU::GetCurrentSimpleVertices(int count, std::vector<GPUDebugVertex> &vertices, std::vector<u16> &indices) {
-	UpdateUVScaleOffset();
+	gstate_c.UpdateUVScaleOffset();
 	return drawEngine_->transformUnit.GetCurrentSimpleVertices(count, vertices, indices);
 }
 

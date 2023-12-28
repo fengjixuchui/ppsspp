@@ -61,16 +61,16 @@ void Android_RegisterStorageCallbacks(JNIEnv * env, jobject obj) {
 	_dbg_assert_(computeRecursiveDirectorySize);
 }
 
-bool Android_IsContentUri(const std::string &filename) {
+bool Android_IsContentUri(std::string_view filename) {
 	return startsWith(filename, "content://");
 }
 
-int Android_OpenContentUriFd(const std::string &filename, Android_OpenContentUriMode mode) {
+int Android_OpenContentUriFd(std::string_view filename, Android_OpenContentUriMode mode) {
 	if (!g_nativeActivity) {
 		return -1;
 	}
 
-	std::string fname = filename;
+	std::string fname(filename);
 	// PPSSPP adds an ending slash to directories before looking them up.
 	// TODO: Fix that in the caller (or don't call this for directories).
 	if (fname.back() == '/')
@@ -245,8 +245,9 @@ std::vector<File::FileInfo> Android_ListContentUri(const std::string &path, bool
 	env->DeleteLocalRef(fileList);
 
 	double elapsed = time_now_d() - start;
-	if (elapsed > 0.1) {
-		INFO_LOG(FILESYS, "Listing directory on content URI took %0.3f s (%d files)", elapsed, (int)items.size());
+	double threshold = 0.1;
+	if (elapsed >= threshold) {
+		INFO_LOG(FILESYS, "Listing directory on content URI '%s' took %0.3f s (%d files, log threshold = %0.3f)", path.c_str(), elapsed, (int)items.size(), threshold);
 	}
 	return items;
 }
@@ -312,5 +313,6 @@ const char *Android_ErrorToString(StorageError error) {
 // Very hacky.
 std::string g_extFilesDir = "(IF YOU SEE THIS THERE'S A BUG)";
 std::string g_externalDir = "(IF YOU SEE THIS THERE'S A BUG (2))";
+std::string g_nativeLibDir = "(IF YOU SEE THIS THERE'S A BUG (3))";
 
 #endif

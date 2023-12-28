@@ -117,19 +117,15 @@ private:
 	float startDisplayOffsetY_ = -1.0f;
 };
 
-DisplayLayoutScreen::DisplayLayoutScreen(const Path &filename) : UIDialogScreenWithGameBackground(filename) {
-	// Show background at full brightness
-	darkenGameBackground_ = false;
-	forceTransparent_ = true;
-}
+DisplayLayoutScreen::DisplayLayoutScreen(const Path &filename) : UIDialogScreenWithGameBackground(filename) {}
 
 void DisplayLayoutScreen::DrawBackground(UIContext &dc) {
 	if (PSP_IsInited() && !g_Config.bSkipBufferEffects) {
-		// We normally rely on the PSP screen.
-		UIDialogScreenWithGameBackground::DrawBackground(dc);
+		// We normally rely on the PSP screen showing through.
 	} else {
 		// But if it's not present (we're not in game, or skip buffer effects is used),
 		// we have to draw a substitute ourselves.
+		UIContext &dc = *screenManager()->getUIContext();
 
 		// TODO: Clean this up a bit, this GetScreenFrame/CenterDisplay combo is too common.
 		FRect screenFrame = GetScreenFrame(g_display.pixel_xres, g_display.pixel_yres);
@@ -138,6 +134,7 @@ void DisplayLayoutScreen::DrawBackground(UIContext &dc) {
 
 		dc.Flush();
 		ImageID bg = ImageID("I_PSP_DISPLAY");
+		dc.Draw()->DrawImageStretch(bg, dc.GetBounds(), 0x7F000000);
 		dc.Draw()->DrawImageStretch(bg, FRectToBounds(rc), 0x7FFFFFFF);
 	}
 }
@@ -155,9 +152,9 @@ UI::EventReturn DisplayLayoutScreen::OnPostProcShaderChange(UI::EventParams &e) 
 	g_Config.vPostShaderNames.erase(std::remove(g_Config.vPostShaderNames.begin(), g_Config.vPostShaderNames.end(), "Off"), g_Config.vPostShaderNames.end());
 	FixPostShaderOrder(&g_Config.vPostShaderNames);
 
-	System_PostUIMessage("gpu_configChanged", "");
-	System_PostUIMessage("gpu_renderResized", "");  // To deal with shaders that can change render resolution like upscaling.
-	System_PostUIMessage("postshader_updated", "");
+	System_PostUIMessage(UIMessage::GPU_CONFIG_CHANGED);
+	System_PostUIMessage(UIMessage::GPU_RENDER_RESIZED);  // To deal with shaders that can change render resolution like upscaling.
+	System_PostUIMessage(UIMessage::POSTSHADER_UPDATED);
 
 	if (gpu) {
 		gpu->NotifyConfigChanged();
@@ -166,24 +163,24 @@ UI::EventReturn DisplayLayoutScreen::OnPostProcShaderChange(UI::EventParams &e) 
 }
 
 static std::string PostShaderTranslateName(const char *value) {
-	auto gr = GetI18NCategory(I18NCat::GRAPHICS);
-	auto ps = GetI18NCategory(I18NCat::POSTSHADERS);
 	if (!strcmp(value, "Off")) {
+		auto gr = GetI18NCategory(I18NCat::GRAPHICS);
 		// Off is a legacy fake item (gonna migrate off it later).
 		return gr->T("Add postprocessing shader");
 	}
 
 	const ShaderInfo *info = GetPostShaderInfo(value);
 	if (info) {
+		auto ps = GetI18NCategory(I18NCat::POSTSHADERS);
 		return ps->T(value, info ? info->name.c_str() : value);
 	} else {
 		return value;
 	}
 }
 
-void DisplayLayoutScreen::sendMessage(const char *message, const char *value) {
+void DisplayLayoutScreen::sendMessage(UIMessage message, const char *value) {
 	UIDialogScreenWithGameBackground::sendMessage(message, value);
-	if (!strcmp(message, "postshader_updated")) {
+	if (message == UIMessage::POSTSHADER_UPDATED) {
 		g_Config.bShaderChainRequires60FPS = PostShaderChainRequires60FPS(GetFullPostShadersChain(g_Config.vPostShaderNames));
 		RecreateViews();
 	}
@@ -381,7 +378,7 @@ void DisplayLayoutScreen::CreateViews() {
 			auto removeButton = shaderRow->Add(new Choice(ImageID("I_TRASHCAN"), new LinearLayoutParams(0.0f)));
 			removeButton->OnClick.Add([=](EventParams &e) -> UI::EventReturn {
 				g_Config.vPostShaderNames.erase(g_Config.vPostShaderNames.begin() + i);
-				System_PostUIMessage("gpu_configChanged", "");
+				System_PostUIMessage(UIMessage::GPU_CONFIG_CHANGED);
 				RecreateViews();
 				return UI::EVENT_DONE;
 			});
@@ -409,7 +406,7 @@ void DisplayLayoutScreen::CreateViews() {
 						return UI::EVENT_DONE;
 					}
 					FixPostShaderOrder(&g_Config.vPostShaderNames);
-					System_PostUIMessage("gpu_configChanged", "");
+					System_PostUIMessage(UIMessage::GPU_CONFIG_CHANGED);
 					RecreateViews();
 					return UI::EVENT_DONE;
 				});
@@ -493,18 +490,17 @@ void PostProcScreen::OnCompleted(DialogResult result) {
 	if (showStereoShaders_) {
 		if (g_Config.sStereoToMonoShader != value) {
 			g_Config.sStereoToMonoShader = value;
-			System_PostUIMessage("gpu_configChanged", "");
+			System_PostUIMessage(UIMessage::GPU_CONFIG_CHANGED);
 		}
 	} else {
 		if (id_ < (int)g_Config.vPostShaderNames.size()) {
 			if (g_Config.vPostShaderNames[id_] != value) {
 				g_Config.vPostShaderNames[id_] = value;
-				System_PostUIMessage("gpu_configChanged", "");
+				System_PostUIMessage(UIMessage::GPU_CONFIG_CHANGED);
 			}
-		}
-		else {
+		} else {
 			g_Config.vPostShaderNames.push_back(value);
-			System_PostUIMessage("gpu_configChanged", "");
+			System_PostUIMessage(UIMessage::GPU_CONFIG_CHANGED);
 		}
 	}
 }

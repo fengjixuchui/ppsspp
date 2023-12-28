@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <string>
 #include <cstring>
+#include <string_view>
 #include <vector>
 
 #ifdef _MSC_VER
@@ -36,42 +37,36 @@ std::string IndentString(const std::string &str, const std::string &sep, bool sk
 
 // Other simple string utilities.
 
-// Optimized for string constants.
-inline bool startsWith(const std::string &str, const char *key) {
-	size_t keyLen = strlen(key);
-	if (str.size() < keyLen)
+inline bool startsWith(std::string_view str, std::string_view key) {
+	if (str.size() < key.size())
 		return false;
-	return !memcmp(str.data(), key, keyLen);
+	return !memcmp(str.data(), key.data(), key.size());
 }
 
-inline bool startsWith(const std::string &str, const std::string &what) {
-	if (str.size() < what.size())
-		return false;
-	return str.substr(0, what.size()) == what;
-}
-
-inline bool endsWith(const std::string &str, const std::string &what) {
+inline bool endsWith(std::string_view str, std::string_view what) {
 	if (str.size() < what.size())
 		return false;
 	return str.substr(str.size() - what.size()) == what;
 }
 
 // Only use on strings where you're only concerned about ASCII.
-inline bool startsWithNoCase(const std::string &str, const std::string &what) {
-	if (str.size() < what.size())
+inline bool startsWithNoCase(std::string_view str, std::string_view key) {
+	if (str.size() < key.size())
 		return false;
-	return strncasecmp(str.c_str(), what.c_str(), what.size()) == 0;
+	return strncasecmp(str.data(), key.data(), key.size()) == 0;
 }
 
-inline bool endsWithNoCase(const std::string &str, const std::string &what) {
-	if (str.size() < what.size())
+inline bool endsWithNoCase(std::string_view str, std::string_view key) {
+	if (str.size() < key.size())
 		return false;
-	const size_t offset = str.size() - what.size();
-	return strncasecmp(str.c_str() + offset, what.c_str(), what.size()) == 0;
+	const size_t offset = str.size() - key.size();
+	return strncasecmp(str.data() + offset, key.data(), key.size()) == 0;
 }
 
-inline bool equalsNoCase(const std::string &str, const char *what) {
-	return strcasecmp(str.c_str(), what) == 0;
+inline bool equalsNoCase(std::string_view str, std::string_view key) {
+	if (str.size() != key.size())
+		return false;
+	return strncasecmp(str.data(), key.data(), key.size()) == 0;
 }
 
 void DataToHexString(const uint8_t *data, size_t size, std::string *output);
@@ -83,7 +78,12 @@ std::string StringFromInt(int value);
 std::string StripSpaces(const std::string &s);
 std::string StripQuotes(const std::string &s);
 
-void SplitString(const std::string& str, const char delim, std::vector<std::string>& output);
+std::string_view StripSpaces(std::string_view s);
+std::string_view StripQuotes(std::string_view s);
+
+// TODO: Make this a lot more efficient by outputting string_views.
+void SplitString(std::string_view str, const char delim, std::vector<std::string_view> &output);
+void SplitString(std::string_view str, const char delim, std::vector<std::string> &output);
 
 void GetQuotedStrings(const std::string& str, std::vector<std::string>& output);
 
@@ -103,7 +103,7 @@ inline size_t truncate_cpy(char(&out)[Count], const char *src) {
 
 const char* safe_string(const char* s);
 
-long parseHexLong(std::string s);
+long parseHexLong(const std::string &s);
 long parseLong(std::string s);
 std::string StringFromFormat(const char* format, ...);
 // Cheap!
@@ -123,4 +123,6 @@ bool SplitPath(const std::string& full_path, std::string* _pPath, std::string* _
 
 // Replaces %1, %2, %3 in format with arg1, arg2, arg3.
 // Much safer than snprintf and friends.
-std::string ApplySafeSubstitutions(const char *format, const std::string &string1, const std::string &string2 = "", const std::string &string3 = "");
+// For mixes of strings and ints, manually convert the ints to strings.
+std::string ApplySafeSubstitutions(const char *format, std::string_view string1, std::string_view string2 = "", std::string_view string3 = "", std::string_view string4 = "");
+std::string ApplySafeSubstitutions(const char *format, int i1, int i2 = 0, int i3 = 0, int i4 = 0);

@@ -134,8 +134,8 @@ static void RenderNotice(UIContext &dc, Bounds bounds, float height1, NoticeLeve
 		if (iconID.isValid()) {
 			// Atlas icon.
 			dc.Draw()->GetAtlas()->measureImage(iconID, &iconW, &iconH);
-			Bounds iconBounds = Bounds(bounds.x + 2.5f, bounds.y + 2.5f, iconW, iconH);
 			if (!iconName.empty()) {
+				Bounds iconBounds = Bounds(bounds.x + 2.5f, bounds.y + 2.5f, iconW, iconH);
 				// If it's not a preset OSD icon, give it some background to blend in. The RA icon for example
 				// easily melts into the orange of warnings otherwise.
 				dc.FillRect(UI::Drawable(0x50000000), iconBounds.Expand(2.0f));
@@ -517,9 +517,7 @@ void OSDOverlayScreen::CreateViews() {
 	osmView_ = root_->Add(new OnScreenMessagesView(new UI::AnchorLayoutParams(0.0f, 0.0f, 0.0f, 0.0f)));
 }
 
-void OSDOverlayScreen::render() {
-	UIScreen::render();
-
+void OSDOverlayScreen::DrawForeground(UIContext &ui) {
 	DebugOverlay debugOverlay = (DebugOverlay)g_Config.iDebugOverlay;
 
 	// Special case control for now, since it uses the control mapper that's owned by EmuScreen.

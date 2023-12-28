@@ -33,7 +33,6 @@ class DrawEngineVulkan;
 
 class VulkanContext;
 class VulkanTexture;
-class VulkanPushBuffer;
 
 class SamplerCache {
 public:
@@ -45,7 +44,7 @@ public:
 	void DeviceRestore(VulkanContext *vulkan);
 
 	std::vector<std::string> DebugGetSamplerIDs() const;
-	std::string DebugGetSamplerString(std::string id, DebugShaderStringType stringType);
+	std::string DebugGetSamplerString(const std::string &id, DebugShaderStringType stringType);
 
 private:
 	VulkanContext *vulkan_;
@@ -82,7 +81,7 @@ public:
 	VulkanDeviceAllocator *GetAllocator() { return allocator_; }
 
 	std::vector<std::string> DebugGetSamplerIDs() const;
-	std::string DebugGetSamplerString(std::string id, DebugShaderStringType stringType);
+	std::string DebugGetSamplerString(const std::string &id, DebugShaderStringType stringType);
 
 protected:
 	void BindTexture(TexCacheEntry *entry) override;

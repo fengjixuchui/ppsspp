@@ -220,7 +220,7 @@ else()
 	set(CoreLinkType STATIC)
 endif()
 
-if(NOT ANDROID AND NOT WIN32 AND NOT APPLE)
+if(NOT ANDROID AND NOT WIN32 AND (NOT APPLE OR IOS))
 	set(HTTPS_NOT_AVAILABLE ON)
 endif()
 
@@ -712,6 +712,8 @@ add_library(Common STATIC
 	Common/GPU/Vulkan/VulkanDebug.h
 	Common/GPU/Vulkan/VulkanContext.cpp
 	Common/GPU/Vulkan/VulkanContext.h
+	Common/GPU/Vulkan/VulkanDescSet.cpp
+	Common/GPU/Vulkan/VulkanDescSet.h
 	Common/GPU/Vulkan/VulkanFramebuffer.cpp
 	Common/GPU/Vulkan/VulkanFramebuffer.h
 	Common/GPU/Vulkan/VulkanImage.cpp
@@ -735,6 +737,7 @@ add_library(Common STATIC
 	Common/Input/InputState.cpp
 	Common/Input/InputState.h
 	Common/Math/fast/fast_matrix.c
+	Common/Math/CrossSIMD.h
 	Common/Math/curves.cpp
 	Common/Math/curves.h
 	Common/Math/expression_parser.cpp
@@ -871,6 +874,12 @@ setup_target_project(Common Common)
 
 target_link_libraries(Common Ext::Snappy cpu_features)
 
+if(ARM64)
+    if(ANDROID)
+        target_link_libraries(Common adrenotools)
+    endif()
+endif()
+
 if(USING_GLES2 OR (USING_EGL AND NOT USING_FBDEV))
 	find_package(X11)
 endif()
@@ -899,7 +908,11 @@ if(USE_FFMPEG)
 					set(PLATFORM_ARCH "android/x86")
 				endif()
 			elseif(IOS)
-				set(PLATFORM_ARCH "ios/universal")
+				if(IOS_PLATFORM STREQUAL "TVOS")
+					set(PLATFORM_ARCH "tvos/arm64")
+				else()
+					set(PLATFORM_ARCH "ios/universal")
+				endif()
 			elseif(MACOSX)
 				set(PLATFORM_ARCH "macosx/universal")
 			elseif(LINUX)
@@ -2259,6 +2272,8 @@ add_library(${CoreLibName} ${CoreLinkType}
 	Core/Util/AudioFormat.h
 	Core/Util/GameManager.cpp
 	Core/Util/GameManager.h
+	Core/Util/GameDB.cpp
+	Core/Util/GameDB.h
 	Core/Util/PortManager.cpp
 	Core/Util/PortManager.h
 	Core/Util/BlockAllocator.cpp
@@ -2317,11 +2332,16 @@ else()
 	include_directories(ext/zstd/lib)
 endif()
 
-target_link_libraries(${CoreLibName} Common native kirk cityhash sfmt19937 xbrz xxhash rcheevos ${GlslangLibs}
+include_directories(ext/libchdr/include)
+
+target_link_libraries(${CoreLibName} Common native chdr kirk cityhash sfmt19937 xbrz xxhash rcheevos ${GlslangLibs}
 	${CoreExtraLibs} ${OPENGL_LIBRARIES} ${X11_LIBRARIES} ${CMAKE_DL_LIBS})
 
 if(NOT HTTPS_NOT_AVAILABLE)
 	target_link_libraries(${CoreLibName} naett)
+	if(WIN32)
+		target_link_libraries(${CoreLibName} winhttp)
+	endif()
 endif()
 
 target_compile_features(${CoreLibName} PUBLIC cxx_std_17)

@@ -17,9 +17,9 @@ void MessagePopupScreen::CreatePopupContents(UI::ViewGroup *parent) {
 	using namespace UI;
 	UIContext &dc = *screenManager()->getUIContext();
 
-	std::vector<std::string> messageLines;
+	std::vector<std::string_view> messageLines;
 	SplitString(message_, '\n', messageLines);
-	for (const auto &lineOfText : messageLines)
+	for (auto lineOfText : messageLines)
 		parent->Add(new UI::TextView(lineOfText, ALIGN_LEFT | ALIGN_VCENTER, false))->SetTextColor(dc.theme->popupStyle.fgColor);
 }
 
@@ -36,7 +36,7 @@ void MessagePopupScreen::OnCompleted(DialogResult result) {
 void ListPopupScreen::CreatePopupContents(UI::ViewGroup *parent) {
 	using namespace UI;
 
-	listView_ = parent->Add(new ListView(&adaptor_, hidden_)); //, new LinearLayoutParams(1.0)));
+	listView_ = parent->Add(new ListView(&adaptor_, hidden_, icons_)); //, new LinearLayoutParams(1.0)));
 	listView_->SetMaxHeight(screenManager()->getUIContext()->GetBounds().h - 140);
 	listView_->OnChoice.Handle(this, &ListPopupScreen::OnListChoice);
 }
@@ -105,6 +105,7 @@ UI::EventReturn PopupMultiChoice::HandleClick(UI::EventParams &e) {
 	ListPopupScreen *popupScreen = new ListPopupScreen(ChopTitle(text_), choices, *value_ - minVal_,
 		std::bind(&PopupMultiChoice::ChoiceCallback, this, std::placeholders::_1));
 	popupScreen->SetHiddenChoices(hidden_);
+	popupScreen->SetChoiceIcons(icons_);
 	if (e.v)
 		popupScreen->SetPopupOrigin(e.v);
 	screenManager_->push(popupScreen);
@@ -167,12 +168,15 @@ PopupSliderChoice::PopupSliderChoice(int *value, int minValue, int maxValue, int
 
 PopupSliderChoiceFloat::PopupSliderChoiceFloat(float *value, float minValue, float maxValue, float defaultValue, const std::string &text, ScreenManager *screenManager, const std::string &units, LayoutParams *layoutParams)
 	: AbstractChoiceWithValueDisplay(text, layoutParams), value_(value), minValue_(minValue), maxValue_(maxValue), defaultValue_(defaultValue), step_(1.0f), units_(units), screenManager_(screenManager) {
+	_dbg_assert_(maxValue > minValue);
 	fmt_ = "%2.2f";
 	OnClick.Handle(this, &PopupSliderChoiceFloat::HandleClick);
 }
 
 PopupSliderChoiceFloat::PopupSliderChoiceFloat(float *value, float minValue, float maxValue, float defaultValue, const std::string &text, float step, ScreenManager *screenManager, const std::string &units, LayoutParams *layoutParams)
 	: AbstractChoiceWithValueDisplay(text, layoutParams), value_(value), minValue_(minValue), maxValue_(maxValue), defaultValue_(defaultValue), step_(step), units_(units), screenManager_(screenManager) {
+	_dbg_assert_(step > 0.0f);
+	_dbg_assert_(maxValue > minValue);
 	fmt_ = "%2.2f";
 	OnClick.Handle(this, &PopupSliderChoiceFloat::HandleClick);
 }
@@ -329,7 +333,6 @@ void SliderPopupScreen::UpdateTextBox() {
 void SliderPopupScreen::CreatePopupContents(UI::ViewGroup *parent) {
 	using namespace UI;
 	UIContext &dc = *screenManager()->getUIContext();
-	auto di = GetI18NCategory(I18NCat::DIALOG);
 
 	sliderValue_ = *value_;
 	if (disabled_ && sliderValue_ < 0)
@@ -358,6 +361,7 @@ void SliderPopupScreen::CreatePopupContents(UI::ViewGroup *parent) {
 		lin->Add(new TextView(units_))->SetTextColor(dc.theme->itemStyle.fgColor);
 
 	if (defaultValue_ != NO_DEFAULT_FLOAT) {
+		auto di = GetI18NCategory(I18NCat::DIALOG);
 		lin->Add(new Button(di->T("Reset")))->OnClick.Add([=](UI::EventParams &) {
 			sliderValue_ = defaultValue_;
 			changing_ = true;
@@ -377,7 +381,6 @@ void SliderPopupScreen::CreatePopupContents(UI::ViewGroup *parent) {
 void SliderFloatPopupScreen::CreatePopupContents(UI::ViewGroup *parent) {
 	using namespace UI;
 	UIContext &dc = *screenManager()->getUIContext();
-	auto di = GetI18NCategory(I18NCat::DIALOG);
 
 	sliderValue_ = *value_;
 	LinearLayout *vert = parent->Add(new LinearLayout(ORIENT_VERTICAL, new LinearLayoutParams(UI::Margins(10, 10))));
@@ -402,6 +405,7 @@ void SliderFloatPopupScreen::CreatePopupContents(UI::ViewGroup *parent) {
 		lin->Add(new TextView(units_))->SetTextColor(dc.theme->itemStyle.fgColor);
 
 	if (defaultValue_ != NO_DEFAULT_FLOAT) {
+		auto di = GetI18NCategory(I18NCat::DIALOG);
 		lin->Add(new Button(di->T("Reset")))->OnClick.Add([=](UI::EventParams &) {
 			sliderValue_ = defaultValue_;
 			if (liveUpdate_) {
@@ -620,8 +624,12 @@ void AbstractChoiceWithValueDisplay::Draw(UIContext &dc) {
 		textPadding_.right = w + paddingX;
 
 		Choice::Draw(dc);
+		int imagePadding = 0;
+		if (rightIconImage_.isValid()) {
+			imagePadding = bounds_.h;
+		}
 		dc.SetFontScale(scale, scale);
-		Bounds valueBounds(bounds_.x2() - textPadding_.right, bounds_.y, w, bounds_.h);
+		Bounds valueBounds(bounds_.x2() - textPadding_.right - imagePadding, bounds_.y, w, bounds_.h);
 		dc.DrawTextRect(valueText.c_str(), valueBounds, style.fgColor, ALIGN_RIGHT | ALIGN_VCENTER | FLAG_WRAP_TEXT);
 		dc.SetFontScale(1.0f, 1.0f);
 	} else {

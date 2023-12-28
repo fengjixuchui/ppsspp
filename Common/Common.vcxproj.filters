@@ -515,6 +515,12 @@
     <ClInclude Include="Render\Text\draw_text_sdl.h">
       <Filter>Render\Text</Filter>
     </ClInclude>
+    <ClInclude Include="GPU\Vulkan\VulkanDescSet.h">
+      <Filter>GPU\Vulkan</Filter>
+    </ClInclude>
+    <ClInclude Include="Math\CrossSIMD.h">
+      <Filter>Math</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="ABI.cpp" />
@@ -966,6 +972,9 @@
     <ClCompile Include="Render\Text\draw_text_sdl.cpp">
       <Filter>Render\Text</Filter>
     </ClCompile>
+    <ClCompile Include="GPU\Vulkan\VulkanDescSet.cpp">
+      <Filter>GPU\Vulkan</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <Filter Include="Crypto">
@@ -1072,6 +1081,9 @@
     </Filter>
     <Filter Include="ext\naett">
       <UniqueIdentifier>{34f45db9-5c08-49cb-b349-b9e760ce3213}</UniqueIdentifier>
+    </Filter>
+    <Filter Include="ext\libchdr">
+      <UniqueIdentifier>{b681797d-7747-487f-b448-5ef5b2d2805b}</UniqueIdentifier>
     </Filter>
   </ItemGroup>
   <ItemGroup>

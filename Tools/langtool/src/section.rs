@@ -92,7 +92,12 @@ impl Section {
         }
         if let Some(index) = found_index {
             let line = self.lines.remove(index);
-            let line = new.to_owned() + " =" + line.strip_prefix(&prefix).unwrap();
+            let mut right_part = line.strip_prefix(&prefix).unwrap().to_string();
+            if right_part.trim() == old.trim() {
+                // Was still untranslated - replace the translation too.
+                right_part = format!(" {}", new);
+            }
+            let line = new.to_owned() + " =" + &right_part;
             self.insert_line_if_missing(&line);
         } else {
             let name = &self.name;
@@ -117,12 +122,10 @@ impl Section {
             if prefix.starts_with("Font") || prefix.starts_with('#') {
                 continue;
             }
-            if !other.lines.iter().any(|line| line.starts_with(prefix)) {
-                if !prefix.contains("URL") {
-                    println!("Commenting out from {}: {line}", other.name);
-                    // Comment out the line.
-                    *line = "#".to_owned() + line;
-                }
+            if !other.lines.iter().any(|line| line.starts_with(prefix)) && !prefix.contains("URL") {
+                println!("Commenting out from {}: {line}", other.name);
+                // Comment out the line.
+                *line = "#".to_owned() + line;
             }
         }
     }

@@ -52,14 +52,15 @@ protected:
 
 	void dialogFinished(const Screen *dialog, DialogResult result) override;
 	void update() override;
-	void render() override {
+	ScreenRenderFlags render(ScreenRenderMode mode) override {
 		// Simple anti-flicker due to delayed finish.
 		if (!done_) {
 			// render as usual.
-			UIDialogScreenWithBackground::render();
+			return UIDialogScreenWithBackground::render(mode);
 		} else {
 			// no render. black frame insertion is better than flicker.
 		}
+		return ScreenRenderFlags::NONE;
 	}
 
 private:
@@ -92,7 +93,7 @@ private:
 
 class ProgressReporter {
 public:
-	void Set(std::string value) {
+	void Set(const std::string &value) {
 		std::lock_guard<std::mutex> guard(mutex_);
 		progress_ = value;
 	}

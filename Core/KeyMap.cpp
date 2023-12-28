@@ -67,13 +67,16 @@ void UpdateNativeMenuKeys() {
 	std::vector<InputMapping> confirmKeys, cancelKeys;
 	std::vector<InputMapping> tabLeft, tabRight;
 	std::vector<InputMapping> upKeys, downKeys, leftKeys, rightKeys;
+	std::vector<InputMapping> infoKeys;
+
+	// Mouse mapping might be problematic in UI, so let's ignore mouse for UI
 
 	int confirmKey = g_Config.iButtonPreference == PSP_SYSTEMPARAM_BUTTON_CROSS ? CTRL_CROSS : CTRL_CIRCLE;
 	int cancelKey = g_Config.iButtonPreference == PSP_SYSTEMPARAM_BUTTON_CROSS ? CTRL_CIRCLE : CTRL_CROSS;
 
-	// Mouse mapping might be problematic in UI, so let's ignore mouse for UI
 	SingleInputMappingFromPspButton(confirmKey, &confirmKeys, true);
 	SingleInputMappingFromPspButton(cancelKey, &cancelKeys, true);
+	SingleInputMappingFromPspButton(CTRL_TRIANGLE, &infoKeys, true);
 	SingleInputMappingFromPspButton(CTRL_LTRIGGER, &tabLeft, true);
 	SingleInputMappingFromPspButton(CTRL_RTRIGGER, &tabRight, true);
 	SingleInputMappingFromPspButton(CTRL_UP, &upKeys, true);
@@ -116,9 +119,21 @@ void UpdateNativeMenuKeys() {
 			cancelKeys.push_back(hardcodedCancelKeys[i]);
 	}
 
+	const InputMapping hardcodedInfoKeys[] = {
+		InputMapping(DEVICE_ID_KEYBOARD, NKCODE_S),
+		InputMapping(DEVICE_ID_KEYBOARD, NKCODE_NUMPAD_ADD),
+		InputMapping(DEVICE_ID_PAD_0, NKCODE_BUTTON_Y),  // Also triangle
+	};
+
+	for (size_t i = 0; i < ARRAY_SIZE(hardcodedInfoKeys); i++) {
+		if (std::find(infoKeys.begin(), infoKeys.end(), hardcodedInfoKeys[i]) == infoKeys.end())
+			infoKeys.push_back(hardcodedInfoKeys[i]);
+	}
+
 	SetDPadKeys(upKeys, downKeys, leftKeys, rightKeys);
 	SetConfirmCancelKeys(confirmKeys, cancelKeys);
 	SetTabLeftRightKeys(tabLeft, tabRight);
+	SetInfoKeys(infoKeys);
 
 	std::unordered_map<InputDeviceID, int> flipYByDeviceId;
 	for (InputDeviceID deviceId : g_seenDeviceIds) {
@@ -384,17 +399,21 @@ const KeyMap_IntStrPair psp_button_names[] = {
 	{VIRTKEY_AXIS_Y_MIN, "An.Down"},
 	{VIRTKEY_AXIS_X_MIN, "An.Left"},
 	{VIRTKEY_AXIS_X_MAX, "An.Right"},
-	{VIRTKEY_ANALOG_LIGHTLY, "Analog limiter"},
 
+	{VIRTKEY_ANALOG_ROTATE_CW, "Rotate Analog (CW)"},
+	{VIRTKEY_ANALOG_ROTATE_CCW, "Rotate Analog (CCW)"},
+	{VIRTKEY_ANALOG_LIGHTLY, "Analog limiter"},
 	{VIRTKEY_RAPID_FIRE, "RapidFire"},
+	{VIRTKEY_AXIS_SWAP, "AxisSwap"},
+
 	{VIRTKEY_FASTFORWARD, "Fast-forward"},
 	{VIRTKEY_SPEED_TOGGLE, "SpeedToggle"},
 	{VIRTKEY_SPEED_CUSTOM1, "Alt speed 1"},
 	{VIRTKEY_SPEED_CUSTOM2, "Alt speed 2"},
 	{VIRTKEY_SPEED_ANALOG, "Analog speed"},
 	{VIRTKEY_PAUSE, "Pause"},
-#ifndef MOBILE_DEVICE
 	{VIRTKEY_FRAME_ADVANCE, "Frame Advance"},
+#if !defined(MOBILE_DEVICE)
 	{VIRTKEY_RECORD, "Audio/Video Recording" },
 #endif
 	{VIRTKEY_REWIND, "Rewind"},
@@ -406,20 +425,13 @@ const KeyMap_IntStrPair psp_button_names[] = {
 	{VIRTKEY_TOGGLE_FULLSCREEN, "Toggle Fullscreen"},
 #endif
 
-	{VIRTKEY_AXIS_RIGHT_Y_MAX, "RightAn.Up"},
-	{VIRTKEY_AXIS_RIGHT_Y_MIN, "RightAn.Down"},
-	{VIRTKEY_AXIS_RIGHT_X_MIN, "RightAn.Left"},
-	{VIRTKEY_AXIS_RIGHT_X_MAX, "RightAn.Right"},
 	{VIRTKEY_OPENCHAT, "OpenChat" },
 
-	{VIRTKEY_AXIS_SWAP, "AxisSwap"},
 	{VIRTKEY_DEVMENU, "DevMenu"},
 	{VIRTKEY_TEXTURE_DUMP, "Texture Dumping"},
 	{VIRTKEY_TEXTURE_REPLACE, "Texture Replacement"},
 	{VIRTKEY_SCREENSHOT, "Screenshot"},
 	{VIRTKEY_MUTE_TOGGLE, "Mute toggle"},
-	{VIRTKEY_ANALOG_ROTATE_CW, "Rotate Analog (CW)"},
-	{VIRTKEY_ANALOG_ROTATE_CCW, "Rotate Analog (CCW)"},
 
 #ifdef OPENXR
 	{VIRTKEY_VR_CAMERA_ADJUST, "VR camera adjust"},
@@ -432,6 +444,12 @@ const KeyMap_IntStrPair psp_button_names[] = {
 #endif
 
 	{VIRTKEY_TOGGLE_WLAN, "Toggle WLAN"},
+	{VIRTKEY_EXIT_APP, "Exit App"},
+
+	{VIRTKEY_AXIS_RIGHT_Y_MAX, "RightAn.Up"},
+	{VIRTKEY_AXIS_RIGHT_Y_MIN, "RightAn.Down"},
+	{VIRTKEY_AXIS_RIGHT_X_MIN, "RightAn.Left"},
+	{VIRTKEY_AXIS_RIGHT_X_MAX, "RightAn.Right"},
 
 	{CTRL_HOME, "Home"},
 	{CTRL_HOLD, "Hold"},
@@ -486,12 +504,9 @@ const char* GetPspButtonNameCharPointer(int btn) {
 	return nullptr;
 }
 
-std::vector<KeyMap_IntStrPair> GetMappableKeys() {
-	std::vector<KeyMap_IntStrPair> temp;
-	for (size_t i = 0; i < ARRAY_SIZE(psp_button_names); i++) {
-		temp.push_back(psp_button_names[i]);
-	}
-	return temp;
+const KeyMap::KeyMap_IntStrPair *GetMappableKeys(size_t *count) {
+	*count = ARRAY_SIZE(psp_button_names);
+	return psp_button_names;
 }
 
 bool InputMappingToPspButton(const InputMapping &mapping, std::vector<int> *pspButtons) {
@@ -509,13 +524,14 @@ bool InputMappingToPspButton(const InputMapping &mapping, std::vector<int> *pspB
 	return found;
 }
 
-bool InputMappingsFromPspButton(int btn, std::vector<MultiInputMapping> *mappings, bool ignoreMouse) {
-	std::lock_guard<std::recursive_mutex> guard(g_controllerMapLock);
+// This is the main workhorse of the ControlMapper.
+bool InputMappingsFromPspButtonNoLock(int btn, std::vector<MultiInputMapping> *mappings, bool ignoreMouse) {
 	auto iter = g_controllerMap.find(btn);
 	if (iter == g_controllerMap.end()) {
 		return false;
 	}
 	bool mapped = false;
+	mappings->clear();
 	for (auto &iter2 : iter->second) {
 		bool ignore = ignoreMouse && iter2.HasMouse();
 		if (mappings && !ignore) {
@@ -524,6 +540,19 @@ bool InputMappingsFromPspButton(int btn, std::vector<MultiInputMapping> *mapping
 		}
 	}
 	return mapped;
+}
+
+bool InputMappingsFromPspButton(int btn, std::vector<MultiInputMapping> *mappings, bool ignoreMouse) {
+	std::lock_guard<std::recursive_mutex> guard(g_controllerMapLock);
+	return InputMappingsFromPspButtonNoLock(btn, mappings, ignoreMouse);
+}
+
+void LockMappings() {
+	g_controllerMapLock.lock();
+}
+
+void UnlockMappings() {
+	g_controllerMapLock.unlock();
 }
 
 bool PspButtonHasMappings(int btn) {
@@ -592,7 +621,7 @@ bool IsKeyMapped(InputDeviceID device, int key) {
 	return false;
 }
 
-bool ReplaceSingleKeyMapping(int btn, int index, MultiInputMapping key) {
+bool ReplaceSingleKeyMapping(int btn, int index, const MultiInputMapping &key) {
 	std::lock_guard<std::recursive_mutex> guard(g_controllerMapLock);
 	// Check for duplicate
 	for (int i = 0; i < (int)g_controllerMap[btn].size(); ++i) {
@@ -806,8 +835,12 @@ void AutoConfForPad(const std::string &name) {
 		SetDefaultKeyMap(DEFAULT_MAPPING_ANDROID_PAD, false);
 	}
 #else
-	// TODO: Should actually check for XInput?
-	if (name.find("Xbox") != std::string::npos) {
+#if PPSSPP_PLATFORM(WINDOWS)
+	const bool platformSupportsXinput = true;
+#else
+	const bool platformSupportsXinput = false;
+#endif
+	if (platformSupportsXinput && name.find("Xbox") != std::string::npos) {
 		SetDefaultKeyMap(DEFAULT_MAPPING_XINPUT, false);
 	} else {
 		SetDefaultKeyMap(DEFAULT_MAPPING_PAD, false);
@@ -890,9 +923,9 @@ const char *GetVirtKeyName(int vkey) {
 	return g_vKeyNames[index];
 }
 
-MultiInputMapping MultiInputMapping::FromConfigString(const std::string &str) {
+MultiInputMapping MultiInputMapping::FromConfigString(std::string_view str) {
 	MultiInputMapping out;
-	std::vector<std::string> parts;
+	std::vector<std::string_view> parts;
 	SplitString(str, ':', parts);
 	for (auto iter : parts) {
 		out.mappings.push_back(InputMapping::FromConfigString(iter));

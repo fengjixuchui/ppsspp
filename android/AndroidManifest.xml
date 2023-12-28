@@ -47,7 +47,8 @@
         android:isGame="true"
         android:banner="@drawable/tv_banner"
         android:requestLegacyExternalStorage="true"
-        android:preserveLegacyExternalStorage="true">
+        android:preserveLegacyExternalStorage="true"
+		android:extractNativeLibs="true">
         <meta-data android:name="android.max_aspect" android:value="2.4" />
         <activity
             android:name=".PpssppActivity"
@@ -79,6 +80,9 @@
 				<data android:pathPattern=".*\\.cso" />
 				<data android:pathPattern=".*\\..*\\.cso" />
 				<data android:pathPattern=".*\\..*\\..*\\.cso" />
+				<data android:pathPattern=".*\\.chd" />
+				<data android:pathPattern=".*\\..*\\.chd" />
+				<data android:pathPattern=".*\\..*\\..*\\.chd" />
 				<data android:pathPattern=".*\\.elf" />
 				<data android:pathPattern=".*\\..*\\.elf" />
 				<data android:pathPattern=".*\\..*\\..*\\.elf" />
@@ -91,6 +95,9 @@
 				<data android:pathPattern=".*\\.ELF" />
 				<data android:pathPattern=".*\\..*\\.ELF" />
 				<data android:pathPattern=".*\\..*\\..*\\.ELF" />
+				<data android:pathPattern=".*\\.CHD" />
+				<data android:pathPattern=".*\\..*\\.CHD" />
+				<data android:pathPattern=".*\\..*\\..*\\.CHD" />
 				<data android:pathPattern=".*\\.ppdmp" />
 			</intent-filter>
         </activity>
