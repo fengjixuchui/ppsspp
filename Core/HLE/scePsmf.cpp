@@ -312,6 +312,7 @@ public:
 
 		psmf->EPMap.clear();
 		for (u32 i = 0; i < psmf->EPMapEntriesNum; i++) {
+			// TODO: Should look into validating these offsets. Got a crash report here.
 			const u8 *const entryAddr = data + psmf->EPMapOffset + EP_MAP_STRIDE * i;
 			PsmfEntry entry;
 			entry.EPIndex = entryAddr[0];
@@ -1453,7 +1454,7 @@ static int scePsmfPlayerStart(u32 psmfPlayer, u32 psmfPlayerData, int initPts)
 	psmfplayer->mediaengine->openContext();
 
 	s64 dist = initPts - psmfplayer->mediaengine->getVideoTimeStamp();
-	if (dist < 0 || dist > VIDEO_FRAME_DURATION_TS * 60) {
+	if (dist < 0 || dist > static_cast<long long>(VIDEO_FRAME_DURATION_TS) * 60) {
 		// When seeking backwards, we just start populating the stream from the start.
 		pspFileSystem.SeekFile(psmfplayer->filehandle, 0, FILEMOVE_BEGIN);
 

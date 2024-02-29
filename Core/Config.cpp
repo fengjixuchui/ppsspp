@@ -76,9 +76,9 @@ struct ConfigPrivate {
 };
 
 #ifdef _DEBUG
-static const char *logSectionName = "LogDebug";
+static const char * const logSectionName = "LogDebug";
 #else
-static const char *logSectionName = "Log";
+static const char * const logSectionName = "Log";
 #endif
 
 std::string GPUBackendToString(GPUBackend backend) {
@@ -213,7 +213,7 @@ static const ConfigSetting generalSettings[] = {
 	ConfigSetting("DisableHTTPS", &g_Config.bDisableHTTPS, false, CfgFlag::DONT_SAVE),
 	ConfigSetting("AutoLoadSaveState", &g_Config.iAutoLoadSaveState, 0, CfgFlag::PER_GAME),
 	ConfigSetting("EnableCheats", &g_Config.bEnableCheats, false, CfgFlag::PER_GAME | CfgFlag::REPORT),
-	ConfigSetting("CwCheatRefreshRate", &g_Config.iCwCheatRefreshRate, 77, CfgFlag::PER_GAME),
+	ConfigSetting("CwCheatRefreshRate", &g_Config.iCwCheatRefreshIntervalMs, 77, CfgFlag::PER_GAME),
 	ConfigSetting("CwCheatScrollPosition", &g_Config.fCwCheatScrollPosition, 0.0f, CfgFlag::PER_GAME),
 	ConfigSetting("GameListScrollPosition", &g_Config.fGameListScrollPosition, 0.0f, CfgFlag::DEFAULT),
 	ConfigSetting("DebugOverlay", &g_Config.iDebugOverlay, 0, CfgFlag::DONT_SAVE),
@@ -265,6 +265,9 @@ static const ConfigSetting generalSettings[] = {
 	ConfigSetting("RemoteShareOnStartup", &g_Config.bRemoteShareOnStartup, false, CfgFlag::DEFAULT),
 	ConfigSetting("RemoteISOSubdir", &g_Config.sRemoteISOSubdir, "/", CfgFlag::DEFAULT),
 	ConfigSetting("RemoteDebuggerOnStartup", &g_Config.bRemoteDebuggerOnStartup, false, CfgFlag::DEFAULT),
+	ConfigSetting("RemoteTab", &g_Config.bRemoteTab, false, CfgFlag::DEFAULT),
+	ConfigSetting("RemoteISOSharedDir", &g_Config.sRemoteISOSharedDir, "", CfgFlag::DEFAULT),
+	ConfigSetting("RemoteISOShareType", &g_Config.iRemoteISOShareType, (int)RemoteISOShareType::RECENT, CfgFlag::DEFAULT),
 
 #ifdef __ANDROID__
 	ConfigSetting("ScreenRotation", &g_Config.iScreenRotation, ROTATION_AUTO_HORIZONTAL),
@@ -589,7 +592,7 @@ static const ConfigSetting graphicsSettings[] = {
 	ConfigSetting("iShowStatusFlags", &g_Config.iShowStatusFlags, 0, CfgFlag::PER_GAME),
 	ConfigSetting("GraphicsBackend", &g_Config.iGPUBackend, &DefaultGPUBackend, &GPUBackendTranslator::To, &GPUBackendTranslator::From, CfgFlag::DEFAULT | CfgFlag::REPORT),
 #if PPSSPP_PLATFORM(ANDROID) && PPSSPP_ARCH(ARM64)
-    ConfigSetting("CustomDriver", &g_Config.customDriver, "", CfgFlag::DEFAULT),
+	ConfigSetting("CustomDriver", &g_Config.sCustomDriver, "", CfgFlag::DEFAULT),
 #endif
 	ConfigSetting("FailedGraphicsBackends", &g_Config.sFailedGPUBackends, "", CfgFlag::DEFAULT),
 	ConfigSetting("DisabledGraphicsBackends", &g_Config.sDisabledGPUBackends, "", CfgFlag::DEFAULT),
@@ -608,6 +611,7 @@ static const ConfigSetting graphicsSettings[] = {
 	ConfigSetting("HardwareTransform", &g_Config.bHardwareTransform, true, CfgFlag::PER_GAME | CfgFlag::REPORT),
 	ConfigSetting("SoftwareSkinning", &g_Config.bSoftwareSkinning, true, CfgFlag::PER_GAME | CfgFlag::REPORT),
 	ConfigSetting("TextureFiltering", &g_Config.iTexFiltering, 1, CfgFlag::PER_GAME | CfgFlag::REPORT),
+	ConfigSetting("Smart2DTexFiltering", &g_Config.bSmart2DTexFiltering, false, CfgFlag::PER_GAME | CfgFlag::REPORT),
 	ConfigSetting("InternalResolution", &g_Config.iInternalResolution, &DefaultInternalResolution, CfgFlag::PER_GAME | CfgFlag::REPORT),
 	ConfigSetting("AndroidHwScale", &g_Config.iAndroidHwScale, &DefaultAndroidHwScale, CfgFlag::DEFAULT),
 	ConfigSetting("HighQualityDepth", &g_Config.bHighQualityDepth, true, CfgFlag::PER_GAME | CfgFlag::REPORT),
@@ -643,6 +647,7 @@ static const ConfigSetting graphicsSettings[] = {
 	ConfigSetting("DisplayIntegerScale", &g_Config.bDisplayIntegerScale, false, CfgFlag::PER_GAME),
 	ConfigSetting("DisplayAspectRatio", &g_Config.fDisplayAspectRatio, 1.0f, CfgFlag::PER_GAME),
 	ConfigSetting("DisplayStretch", &g_Config.bDisplayStretch, false, CfgFlag::PER_GAME),
+	ConfigSetting("DisplayCropTo16x9", &g_Config.bDisplayCropTo16x9, true, CfgFlag::PER_GAME),
 
 	ConfigSetting("ImmersiveMode", &g_Config.bImmersiveMode, true, CfgFlag::PER_GAME),
 	ConfigSetting("SustainedPerformanceMode", &g_Config.bSustainedPerformanceMode, false, CfgFlag::PER_GAME),
@@ -689,6 +694,7 @@ static const ConfigSetting soundSettings[] = {
 	ConfigSetting("GlobalVolume", &g_Config.iGlobalVolume, VOLUME_FULL, CfgFlag::PER_GAME),
 	ConfigSetting("ReverbVolume", &g_Config.iReverbVolume, VOLUME_FULL, CfgFlag::PER_GAME),
 	ConfigSetting("AltSpeedVolume", &g_Config.iAltSpeedVolume, -1, CfgFlag::PER_GAME),
+	ConfigSetting("AchievementSoundVolume", &g_Config.iAchievementSoundVolume, 6, CfgFlag::PER_GAME),
 	ConfigSetting("AudioDevice", &g_Config.sAudioDevice, "", CfgFlag::DEFAULT),
 	ConfigSetting("AutoAudioDevice", &g_Config.bAutoAudioDevice, true, CfgFlag::DEFAULT),
 };
@@ -827,8 +833,10 @@ static const ConfigSetting controlSettings[] = {
 	ConfigSetting("AnalogAutoRotSpeed", &g_Config.fAnalogAutoRotSpeed, 8.0f, CfgFlag::PER_GAME),
 
 	ConfigSetting("AnalogLimiterDeadzone", &g_Config.fAnalogLimiterDeadzone, 0.6f, CfgFlag::DEFAULT),
+	ConfigSetting("AnalogTriggerThreshold", &g_Config.fAnalogTriggerThreshold, 0.75f, CfgFlag::DEFAULT),
 
 	ConfigSetting("AllowMappingCombos", &g_Config.bAllowMappingCombos, false, CfgFlag::DEFAULT),
+	ConfigSetting("StrictComboOrder", &g_Config.bStrictComboOrder, false, CfgFlag::DEFAULT),
 
 	ConfigSetting("LeftStickHeadScale", &g_Config.fLeftStickHeadScale, 1.0f, CfgFlag::PER_GAME),
 	ConfigSetting("RightStickHeadScale", &g_Config.fRightStickHeadScale, 1.0f, CfgFlag::PER_GAME),
@@ -1049,7 +1057,7 @@ void Config::LoadLangValuesMapping() {
 	}
 }
 
-const std::map<std::string, std::pair<std::string, int>> &Config::GetLangValuesMapping() {
+const std::map<std::string, std::pair<std::string, int>, std::less<>> &Config::GetLangValuesMapping() {
 	if (langValuesMapping_.empty()) {
 		LoadLangValuesMapping();
 	}
@@ -1393,6 +1401,11 @@ void Config::PostLoadCleanup(bool gameSpecific) {
 	if (iTexScalingLevel <= 0) {
 		iTexScalingLevel = 1;
 	}
+
+	// Remove a legacy value.
+	if (g_Config.sCustomDriver == "Default") {
+		g_Config.sCustomDriver = "";
+	}
 }
 
 void Config::PreSaveCleanup(bool gameSpecific) {
@@ -1442,7 +1455,8 @@ void Config::DownloadCompletedCallback(http::Request &download) {
 		return;
 	}
 
-	std::string version = root.getString("version", "");
+	std::string version;
+	root.getString("version", &version);
 
 	const char *gitVer = PPSSPP_GIT_VERSION;
 	Version installed(gitVer);
@@ -1893,19 +1907,14 @@ void PlayTimeTracker::Stop(const std::string &gameId) {
 void PlayTimeTracker::Load(const Section *section) {
 	tracker_.clear();
 
-	std::vector<std::string> keys;
-	section->GetKeys(keys);
+	auto map = section->ToMap();
 
-	for (auto key : keys) {
-		std::string value;
-		if (!section->Get(key.c_str(), &value, nullptr)) {
-			continue;
-		}
-
+	for (const auto &iter : map) {
+		const std::string &value = iter.second;
 		// Parse the string.
 		PlayTime gameTime{};
 		if (2 == sscanf(value.c_str(), "%d,%llu", &gameTime.totalTimePlayed, (long long *)&gameTime.lastTimePlayed)) {
-			tracker_[key] = gameTime;
+			tracker_[iter.first.c_str()] = gameTime;
 		}
 	}
 }
