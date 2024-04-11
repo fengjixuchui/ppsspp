@@ -124,6 +124,7 @@ void __KernelInit()
 	__IoInit();
 	__JpegInit();
 	__AudioInit();
+	__Mp3Init();
 	__SasInit();
 	__AtracInit();
 	__CccInit();
@@ -200,6 +201,7 @@ void __KernelShutdown()
 	__AtracShutdown();
 	__AudioShutdown();
 	__IoShutdown();
+	__HeapShutdown();
 	__KernelMutexShutdown();
 	__KernelThreadingShutdown();
 	__KernelMemoryShutdown();

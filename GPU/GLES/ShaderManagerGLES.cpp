@@ -379,7 +379,7 @@ static inline bool GuessVRDrawingHUD(bool is2D, bool flatScreen) {
 	return hud;
 }
 
-void LinkedShader::use(const ShaderID &VSID) {
+void LinkedShader::use(const ShaderID &VSID) const {
 	render_->BindProgram(program);
 	// Note that we no longer track attr masks here - we do it for the input layouts instead.
 }
@@ -1026,7 +1026,7 @@ bool ShaderManagerGLES::LoadCache(File::IOFile &f) {
 			linkPos = 0;
 		}
 
-		bool Done() {
+		bool Done() const {
 			return vertPos >= vert.size() && fragPos >= frag.size() && linkPos >= link.size();
 		}
 	} diskCachePending_;
@@ -1109,7 +1109,6 @@ bool ShaderManagerGLES::LoadCache(File::IOFile &f) {
 				// Give up on using the cache, just bail. We can't safely create the fallback shaders here
 				// without trying to deduce the vertType from the VSID.
 				ERROR_LOG(G3D, "Failed to compile a vertex shader loading from cache. Skipping rest of shader cache.");
-				delete vs;
 				pending.Clear();
 				return false;
 			}
@@ -1127,7 +1126,6 @@ bool ShaderManagerGLES::LoadCache(File::IOFile &f) {
 				// Give up on using the cache - something went wrong.
 				// We'll still keep the shaders we generated so far around.
 				ERROR_LOG(G3D, "Failed to compile a fragment shader loading from cache. Skipping rest of shader cache.");
-				delete fs;
 				pending.Clear();
 				return false;
 			}

@@ -37,6 +37,7 @@
 #include "Core/System.h"
 #include "Core/Loaders.h"
 #include "Core/Util/GameDB.h"
+#include "Core/HLE/Plugins.h"
 #include "UI/OnScreenDisplay.h"
 #include "UI/CwCheatScreen.h"
 #include "UI/EmuScreen.h"
@@ -150,9 +151,15 @@ void GameScreen::CreateViews() {
 		tvVerified_ = infoLayout->Add(new NoticeView(NoticeLevel::INFO, ga->T("Click \"Calculate CRC\" to verify ISO"), "", new LinearLayoutParams(FILL_PARENT, WRAP_CONTENT)));
 		tvVerified_->SetVisibility(UI::V_GONE);
 		tvVerified_->SetSquishy(true);
-		if (info->badCHD) {
-			auto e = GetI18NCategory(I18NCat::ERRORS);
-			infoLayout->Add(new NoticeView(NoticeLevel::ERROR, e->T("BadCHD", "Bad CHD file.\nCompress using \"chdman createdvd\" for good performance."), "", new LinearLayoutParams(FILL_PARENT, WRAP_CONTENT)))->SetSquishy(true);
+
+		// Show plugin info, if any. Later might add checkboxes.
+		auto plugins = HLEPlugins::FindPlugins(info->id, g_Config.sLanguageIni);
+		if (!plugins.empty()) {
+			auto sy = GetI18NCategory(I18NCat::SYSTEM);
+			infoLayout->Add(new TextView(sy->T("Plugins"), ALIGN_LEFT, true));
+			for (const auto &plugin : plugins) {
+				infoLayout->Add(new TextView(ApplySafeSubstitutions("* %1", plugin.name), ALIGN_LEFT, true));
+			}
 		}
 	} else {
 		tvTitle_ = nullptr;

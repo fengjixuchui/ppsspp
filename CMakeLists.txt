@@ -121,10 +121,9 @@ include(GNUInstallDirs)
 
 add_definitions(-DASSETS_DIR="${CMAKE_INSTALL_FULL_DATADIR}/ppsspp/assets/")
 
-if(OPENXR)
+if(OPENXR AND NOT ARMV7_DEVICE)
 	add_definitions(-DOPENXR)
-	add_library(openxr SHARED IMPORTED)
-	set_property(TARGET openxr PROPERTY IMPORTED_LOCATION "${CMAKE_SOURCE_DIR}/ext/openxr/stub/arm64-v8a/libopenxr_loader.so")
+	add_subdirectory(ext/OpenXR-SDK)
 	message("OpenXR enabled")
 endif()
 
@@ -242,7 +241,7 @@ include_directories(ext/glslang)
 # Anyway, glew will be going away anyway.
 include_directories(ext/glew)
 
-if(OPENXR)
+if(OPENXR AND NOT ARMV7_DEVICE)
 	set(OPENGL_LIBRARIES GLESv3 EGL)
 elseif(NOT OPENGL_LIBRARIES AND USING_GLES2)
 	set(OPENGL_LIBRARIES GLESv2 EGL)
@@ -587,7 +586,7 @@ set(CommonVR
 	Common/VR/VRRenderer.cpp
 	Common/VR/VRRenderer.h
 )
-include_directories(ext/openxr)
+include_directories(ext/OpenXR-SDK/include)
 
 add_library(Common STATIC
 	${CommonX86}
@@ -1247,6 +1246,10 @@ set(BASISU_LIBRARIES basis_universal)
 set(nativeExtra)
 set(nativeExtraLibs)
 
+if(OPENXR AND NOT ARMV7_DEVICE)
+	set(nativeExtraLibs ${nativeExtraLibs} openxr_loader)
+endif()
+
 if(ANDROID)
 	set(NativeAppSource ${NativeAppSource}
 		android/jni/app-android.cpp
@@ -1260,9 +1263,6 @@ if(ANDROID)
 		android/jni/OpenSLContext.cpp
 		android/jni/OpenSLContext.h
 	)
-	if (OPENXR)
-		set(nativeExtraLibs ${nativeExtraLibs} openxr)
-	endif()
 	# No target
 elseif(IOS AND NOT LIBRETRO)
 	set(nativeExtra ${nativeExtra}
@@ -2215,6 +2215,9 @@ add_library(${CoreLibName} ${CoreLinkType}
 	Core/HLE/scePauth.h
 	Core/HW/SimpleAudioDec.cpp
 	Core/HW/SimpleAudioDec.h
+	Core/HW/Atrac3Standalone.cpp
+	Core/HW/Atrac3Standalone.h
+	Core/HW/SimpleAudioDec.h
 	Core/HW/AsyncIOManager.cpp
 	Core/HW/AsyncIOManager.h
 	Core/HW/BufferQueue.cpp
@@ -2363,7 +2366,7 @@ endif()
 
 include_directories(ext/libchdr/include)
 
-target_link_libraries(${CoreLibName} Common native chdr kirk cityhash sfmt19937 xbrz xxhash rcheevos ${GlslangLibs}
+target_link_libraries(${CoreLibName} Common native chdr kirk cityhash sfmt19937 xbrz xxhash rcheevos minimp3 at3_standalone ${GlslangLibs}
 	${CoreExtraLibs} ${OPENGL_LIBRARIES} ${X11_LIBRARIES} ${CMAKE_DL_LIBS})
 
 if(NOT HTTPS_NOT_AVAILABLE)
@@ -2636,6 +2639,8 @@ set(NativeAssets
 	assets/sfx_select.wav
 	assets/sfx_toggle_off.wav
 	assets/sfx_toggle_on.wav
+	assets/sfx_achievement_unlocked.wav
+	assets/sfx_leaderbord_submitted.wav
 	source_assets/image/logo.png
 	source_assets/image/icon_regular_72.png
 )

@@ -46,7 +46,7 @@ AudioFileChooser::AudioFileChooser(RequesterToken token, std::string *value, std
 			g_BackgroundAudio.SFX().UpdateSample(sound, sample);
 		} else {
 			auto au = GetI18NCategory(I18NCat::AUDIO);
-			g_OSD.Show(OSDType::MESSAGE_ERROR, au->T("Audio file format not supported. Must be WAV."));
+			g_OSD.Show(OSDType::MESSAGE_ERROR, au->T("Audio file format not supported. Must be WAV or MP3."));
 			value->clear();
 		}
 		return UI::EVENT_DONE;
@@ -254,10 +254,8 @@ void RetroAchievementsSettingsScreen::CreateTabs() {
 	using namespace UI;
 
 	CreateAccountTab(AddTab("AchievementsAccount", ac->T("Account")));
-	if (System_GetPropertyBool(SYSPROP_HAS_FILE_BROWSER)) {
-		// Don't bother creating this tab if we don't have a file browser.
-		CreateCustomizeTab(AddTab("AchievementsCustomize", ac->T("Customize")));
-	}
+	// Don't bother creating this tab if we don't have a file browser.
+	CreateCustomizeTab(AddTab("AchievementsCustomize", ac->T("Customize")));
 	CreateDeveloperToolsTab(AddTab("AchievementsDeveloperTools", sy->T("Developer Tools")));
 }
 
@@ -339,7 +337,7 @@ void RetroAchievementsSettingsScreen::CreateAccountTab(UI::ViewGroup *viewGroup)
 		RecreateViews();
 		return UI::EVENT_DONE;
 	});
-	viewGroup->Add(new CheckBox(&g_Config.bAchievementsChallengeMode, ac->T("Hardcore Mode (no savestates)")))->SetEnabledPtr(&g_Config.bAchievementsEnable);
+	viewGroup->Add(new CheckBox(&g_Config.bAchievementsHardcoreMode, ac->T("Hardcore Mode (no savestates)")))->SetEnabledPtr(&g_Config.bAchievementsEnable);
 	viewGroup->Add(new CheckBox(&g_Config.bAchievementsSoundEffects, ac->T("Sound Effects")))->SetEnabledPtr(&g_Config.bAchievementsEnable);  // not yet implemented
 
 	viewGroup->Add(new ItemHeader(di->T("Links")));
@@ -359,8 +357,10 @@ void RetroAchievementsSettingsScreen::CreateCustomizeTab(UI::ViewGroup *viewGrou
 
 	using namespace UI;
 	viewGroup->Add(new ItemHeader(ac->T("Sound Effects")));
-	viewGroup->Add(new AudioFileChooser(GetRequesterToken(), &g_Config.sAchievementsUnlockAudioFile, ac->T("Achievement unlocked"), UISound::ACHIEVEMENT_UNLOCKED));
-	viewGroup->Add(new AudioFileChooser(GetRequesterToken(), &g_Config.sAchievementsLeaderboardSubmitAudioFile, ac->T("Leaderboard score submission"), UISound::LEADERBOARD_SUBMITTED));
+	if (System_GetPropertyBool(SYSPROP_HAS_FILE_BROWSER)) {
+		viewGroup->Add(new AudioFileChooser(GetRequesterToken(), &g_Config.sAchievementsUnlockAudioFile, ac->T("Achievement unlocked"), UISound::ACHIEVEMENT_UNLOCKED));
+		viewGroup->Add(new AudioFileChooser(GetRequesterToken(), &g_Config.sAchievementsLeaderboardSubmitAudioFile, ac->T("Leaderboard score submission"), UISound::LEADERBOARD_SUBMITTED));
+	}
 	PopupSliderChoice *volume = viewGroup->Add(new PopupSliderChoice(&g_Config.iAchievementSoundVolume, VOLUME_OFF, VOLUME_FULL, VOLUME_FULL, a->T("Achievement sound volume"), screenManager()));
 	volume->SetEnabledPtr(&g_Config.bEnableSound);
 	volume->SetZeroLabel(a->T("Mute"));
@@ -382,6 +382,9 @@ void RetroAchievementsSettingsScreen::CreateDeveloperToolsTab(UI::ViewGroup *vie
 
 	using namespace UI;
 	viewGroup->Add(new ItemHeader(di->T("Settings")));
+#ifdef RC_CLIENT_SUPPORTS_RAINTEGRATION
+	viewGroup->Add(new CheckBox(&g_Config.bAchievementsEnableRAIntegration, ac->T("Enable RAIntegration (for achievement development)")))->SetEnabledPtr(&g_Config.bAchievementsEnable);
+#endif
 	viewGroup->Add(new CheckBox(&g_Config.bAchievementsEncoreMode, ac->T("Encore Mode")))->SetEnabledPtr(&g_Config.bAchievementsEnable);
 	viewGroup->Add(new CheckBox(&g_Config.bAchievementsUnofficial, ac->T("Unofficial achievements")))->SetEnabledPtr(&g_Config.bAchievementsEnable);
 	viewGroup->Add(new CheckBox(&g_Config.bAchievementsLogBadMemReads, ac->T("Log bad memory accesses")))->SetEnabledPtr(&g_Config.bAchievementsEnable);

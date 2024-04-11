@@ -99,7 +99,7 @@ void NativeResized() { }
 
 std::string System_GetProperty(SystemProperty prop) { return ""; }
 std::vector<std::string> System_GetPropertyStringVec(SystemProperty prop) { return std::vector<std::string>(); }
-int System_GetPropertyInt(SystemProperty prop) {
+int64_t System_GetPropertyInt(SystemProperty prop) {
 	if (prop == SYSPROP_SYSTEMVERSION)
 		return 31;
 	return -1;
@@ -117,7 +117,7 @@ bool System_GetPropertyBool(SystemProperty prop) {
 }
 void System_Notify(SystemNotification notification) {}
 void System_PostUIMessage(UIMessage message, const std::string &param) {}
-bool System_MakeRequest(SystemRequestType type, int requestId, const std::string &param1, const std::string &param2, int param3) {
+bool System_MakeRequest(SystemRequestType type, int requestId, const std::string &param1, const std::string &param2, int64_t param3, int64_t param4) {
 	switch (type) {
 	case SystemRequestType::SEND_DEBUG_OUTPUT:
 		if (g_headlessHost) {

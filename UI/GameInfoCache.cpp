@@ -354,10 +354,10 @@ void GameInfo::SetupTexture(Draw::DrawContext *thin3d, GameInfoTex &tex) {
 	using namespace Draw;
 	// TODO: Use TempImage to semi-load the image in the worker task, then here we
 	// could just call CreateTextureFromTempImage.
-	tex.texture = CreateTextureFromFileData(thin3d, (const uint8_t *)tex.data.data(), (int)tex.data.size(), ImageFileType::DETECT, false, GetTitle().c_str());
+	tex.texture = CreateTextureFromFileData(thin3d, (const uint8_t *)tex.data.data(), tex.data.size(), ImageFileType::DETECT, false, GetTitle().c_str());
 	tex.timeLoaded = time_now_d();
 	if (!tex.texture) {
-		ERROR_LOG(G3D, "Failed creating texture (%s) from %d-byte file", GetTitle().c_str(), (int)tex.data.size());
+		ERROR_LOG(G3D, "Failed creating texture (%s) from %d-byte file", GetTitle().c_str(), tex.data.size());
 	}
 }
 
@@ -451,12 +451,11 @@ public:
 	void Run() override {
 		// An early-return will result in the destructor running, where we can set
 		// flags like working and pending.
-		if (!info_->CreateLoader()) {
-			return;
-		}
-
-		// In case of a remote file, check if it actually exists before locking.
-		if (!info_->GetFileLoader() || !info_->GetFileLoader()->Exists()) {
+		if (!info_->CreateLoader() || !info_->GetFileLoader() || !info_->GetFileLoader()->Exists()) {
+			// Mark everything requested as done, so 
+			std::unique_lock<std::mutex> lock(info_->lock);
+			info_->MarkReadyNoLock(flags_);
+			ERROR_LOG(LOADER, "Failed getting game info.");
 			return;
 		}
 
@@ -687,9 +686,6 @@ handleELF:
 				BlockDevice *bd = constructBlockDevice(info_->GetFileLoader().get());
 				if (!bd) {
 					return;
-				}
-				if (bd->IsBadCHD()) {
-					info_->badCHD = true;
 				}
 				ISOFileSystem umd(&handles, bd);
 

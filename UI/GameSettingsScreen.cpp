@@ -1208,6 +1208,7 @@ void GameSettingsScreen::CreateSystemSettings(UI::ViewGroup *systemSettings) {
 		enableReportsCheckbox_->SetEnabled(Reporting::IsSupported());
 		return UI::EVENT_CONTINUE;
 	});
+	systemSettings->Add(new CheckBox(&g_Config.bEnablePlugins, sy->T("Enable plugins")));
 
 	systemSettings->Add(new ItemHeader(sy->T("PSP Settings")));
 
@@ -1509,7 +1510,7 @@ void GameSettingsScreen::CallbackMemstickFolder(bool yes) {
 		}
 		File::Delete(Path(testWriteFile));
 
-		if (!File::WriteDataToFile(true, pendingMemstickFolder_.c_str(), (unsigned int)pendingMemstickFolder_.size(), memstickDirFile)) {
+		if (!File::WriteDataToFile(true, pendingMemstickFolder_.c_str(), pendingMemstickFolder_.size(), memstickDirFile)) {
 			WARN_LOG(SYSTEM, "Failed to write memstick folder to '%s'", memstickDirFile.c_str());
 		} else {
 			// Save so the settings, at least, are transferred.

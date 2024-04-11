@@ -38,7 +38,7 @@ static bool IsDepthStencilFormat(VkFormat format) {
 	}
 }
 
-bool VulkanTexture::CreateDirect(VkCommandBuffer cmd, int w, int h, int depth, int numMips, VkFormat format, VkImageLayout initialLayout, VkImageUsageFlags usage, const VkComponentMapping *mapping) {
+bool VulkanTexture::CreateDirect(int w, int h, int depth, int numMips, VkFormat format, VkImageLayout initialLayout, VkImageUsageFlags usage, VulkanBarrierBatch *barrierBatch, const VkComponentMapping *mapping) {
 	if (w == 0 || h == 0 || numMips == 0) {
 		ERROR_LOG(G3D, "Can't create a zero-size VulkanTexture");
 		return false;
@@ -113,10 +113,10 @@ bool VulkanTexture::CreateDirect(VkCommandBuffer cmd, int w, int h, int depth, i
 			_assert_(false);
 			break;
 		}
-		TransitionImageLayout2(cmd, image_, 0, numMips, 1, VK_IMAGE_ASPECT_COLOR_BIT,
+		barrierBatch->TransitionImage(image_, 0, numMips, 1, VK_IMAGE_ASPECT_COLOR_BIT,
 			VK_IMAGE_LAYOUT_UNDEFINED, initialLayout,
-			VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, dstStage,
-			0, dstAccessFlags);
+			0, dstAccessFlags,
+			VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, dstStage);
 	}
 
 	// Create the view while we're at it.
@@ -305,10 +305,10 @@ VkImageView VulkanTexture::CreateViewForMip(int mip) {
 	view_info.image = image_;
 	view_info.viewType = VK_IMAGE_VIEW_TYPE_2D;
 	view_info.format = format_;
-	view_info.components.r = VK_COMPONENT_SWIZZLE_R;
-	view_info.components.g = VK_COMPONENT_SWIZZLE_G;
-	view_info.components.b = VK_COMPONENT_SWIZZLE_B;
-	view_info.components.a = VK_COMPONENT_SWIZZLE_A;
+	view_info.components.r = VK_COMPONENT_SWIZZLE_IDENTITY;
+	view_info.components.g = VK_COMPONENT_SWIZZLE_IDENTITY;
+	view_info.components.b = VK_COMPONENT_SWIZZLE_IDENTITY;
+	view_info.components.a = VK_COMPONENT_SWIZZLE_IDENTITY;
 	view_info.subresourceRange.aspectMask = VK_IMAGE_ASPECT_COLOR_BIT;
 	view_info.subresourceRange.baseMipLevel = mip;
 	view_info.subresourceRange.levelCount = 1;

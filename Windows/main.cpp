@@ -307,8 +307,10 @@ static int ScreenRefreshRateHz() {
 	return rate;
 }
 
-int System_GetPropertyInt(SystemProperty prop) {
+int64_t System_GetPropertyInt(SystemProperty prop) {
 	switch (prop) {
+	case SYSPROP_MAIN_WINDOW_HANDLE:
+		return (int64_t)MainWindow::GetHWND();
 	case SYSPROP_AUDIO_SAMPLE_RATE:
 		return winAudioBackend ? winAudioBackend->GetSampleRate() : -1;
 	case SYSPROP_DEVICE_TYPE:
@@ -486,7 +488,7 @@ std::wstring MakeFilter(std::wstring filter) {
 	return filter;
 }
 
-bool System_MakeRequest(SystemRequestType type, int requestId, const std::string &param1, const std::string &param2, int param3) {
+bool System_MakeRequest(SystemRequestType type, int requestId, const std::string &param1, const std::string &param2, int64_t param3, int64_t param4) {
 	switch (type) {
 	case SystemRequestType::EXIT_APP:
 		if (!NativeIsRestarting()) {
@@ -576,7 +578,7 @@ bool System_MakeRequest(SystemRequestType type, int requestId, const std::string
 			filter = MakeFilter(L"Cheat db files (*.db)|*.db|All files (*.*)|*.*||");
 			break;
 		case BrowseFileType::SOUND_EFFECT:
-			filter = MakeFilter(L"WAVE files (*.wav)|*.wav|All files (*.*)|*.*||");
+			filter = MakeFilter(L"Sound effect files (*.wav *.mp3)|*.wav;*.mp3|All files (*.*)|*.*||");
 			break;
 		case BrowseFileType::ANY:
 			filter = MakeFilter(L"All files (*.*)|*.*||");
@@ -634,6 +636,13 @@ bool System_MakeRequest(SystemRequestType type, int requestId, const std::string
 	}
 	case SystemRequestType::CREATE_GAME_SHORTCUT:
 		return W32Util::CreateDesktopShortcut(param1, param2);
+	case SystemRequestType::RUN_CALLBACK_IN_WNDPROC:
+	{
+		auto func = reinterpret_cast<void (*)(void *window, void *userdata)>(param3);
+		void *userdata = reinterpret_cast<void *>(param4);
+		MainWindow::RunCallbackInWndProc(func, userdata);
+		return true;
+	}
 	default:
 		return false;
 	}

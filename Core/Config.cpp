@@ -213,6 +213,7 @@ static const ConfigSetting generalSettings[] = {
 	ConfigSetting("DisableHTTPS", &g_Config.bDisableHTTPS, false, CfgFlag::DONT_SAVE),
 	ConfigSetting("AutoLoadSaveState", &g_Config.iAutoLoadSaveState, 0, CfgFlag::PER_GAME),
 	ConfigSetting("EnableCheats", &g_Config.bEnableCheats, false, CfgFlag::PER_GAME | CfgFlag::REPORT),
+	ConfigSetting("EnablePlugins", &g_Config.bEnablePlugins, true, CfgFlag::PER_GAME | CfgFlag::REPORT),
 	ConfigSetting("CwCheatRefreshRate", &g_Config.iCwCheatRefreshIntervalMs, 77, CfgFlag::PER_GAME),
 	ConfigSetting("CwCheatScrollPosition", &g_Config.fCwCheatScrollPosition, 0.0f, CfgFlag::PER_GAME),
 	ConfigSetting("GameListScrollPosition", &g_Config.fGameListScrollPosition, 0.0f, CfgFlag::DEFAULT),
@@ -314,11 +315,12 @@ static bool DefaultSasThread() {
 static const ConfigSetting achievementSettings[] = {
 	// Core settings
 	ConfigSetting("AchievementsEnable", &g_Config.bAchievementsEnable, true, CfgFlag::DEFAULT),
-	ConfigSetting("AchievementsChallengeMode", &g_Config.bAchievementsChallengeMode, true, CfgFlag::PER_GAME | CfgFlag::DEFAULT),
+	ConfigSetting("AchievementsEnableRAIntegration", &g_Config.bAchievementsEnableRAIntegration, false, CfgFlag::DEFAULT),
+	ConfigSetting("AchievementsChallengeMode", &g_Config.bAchievementsHardcoreMode, true, CfgFlag::PER_GAME | CfgFlag::DEFAULT),
 	ConfigSetting("AchievementsEncoreMode", &g_Config.bAchievementsEncoreMode, false, CfgFlag::PER_GAME | CfgFlag::DEFAULT),
 	ConfigSetting("AchievementsUnofficial", &g_Config.bAchievementsUnofficial, false, CfgFlag::PER_GAME | CfgFlag::DEFAULT),
 	ConfigSetting("AchievementsLogBadMemReads", &g_Config.bAchievementsLogBadMemReads, false, CfgFlag::DEFAULT),
-	ConfigSetting("bAchievementsSaveStateInChallengeMode", &g_Config.bAchievementsSaveStateInHardcoreMode, false, CfgFlag::DEFAULT),
+	ConfigSetting("AchievementsSaveStateInHardcoreMode", &g_Config.bAchievementsSaveStateInHardcoreMode, false, CfgFlag::DEFAULT),
 
 	// Achievements login info. Note that password is NOT stored, only a login token.
 	// And that login token is stored separately from the ini, see NativeSaveSecret, but it can also be loaded
@@ -1514,16 +1516,14 @@ void Config::RemoveRecent(const std::string &file) {
 
 	private_->ResetRecentIsosThread();
 	std::lock_guard<std::mutex> guard(private_->recentIsosLock);
-	const std::string filename = File::ResolvePath(file);
-	for (auto iter = recentIsos.begin(); iter != recentIsos.end();) {
-		const std::string recent = File::ResolvePath(*iter);
-		if (filename == recent) {
-			// Note that the increment-erase idiom doesn't work with vectors.
-			iter = recentIsos.erase(iter);
-		} else {
-			iter++;
-		}
-	}
+	
+	const auto &filename = File::ResolvePath(file);
+	auto iter = std::remove_if(recentIsos.begin(), recentIsos.end(), [filename](const auto &str) {
+		const auto &recent = File::ResolvePath(str);
+		return filename == recent;
+	});
+	// remove_if is weird.
+	recentIsos.erase(iter, recentIsos.end());
 }
 
 void Config::CleanRecent() {

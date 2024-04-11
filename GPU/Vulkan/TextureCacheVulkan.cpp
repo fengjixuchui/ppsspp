@@ -512,7 +512,10 @@ void TextureCacheVulkan::BuildTexture(TexCacheEntry *const entry) {
 	snprintf(texName, sizeof(texName), "tex_%08x_%s_%s", entry->addr, GeTextureFormatToString((GETextureFormat)entry->format, gstate.getClutPaletteFormat()), gstate.isTextureSwizzled() ? "swz" : "lin");
 	entry->vkTex = new VulkanTexture(vulkan, texName);
 	VulkanTexture *image = entry->vkTex;
-	bool allocSuccess = image->CreateDirect(cmdInit, plan.createW, plan.createH, plan.depth, plan.levelsToCreate, actualFmt, imageLayout, usage, mapping);
+
+	VulkanBarrierBatch barrier;
+	bool allocSuccess = image->CreateDirect(plan.createW, plan.createH, plan.depth, plan.levelsToCreate, actualFmt, imageLayout, usage, &barrier, mapping);
+	barrier.Flush(cmdInit);
 	if (!allocSuccess && !lowMemoryMode_) {
 		WARN_LOG_REPORT(G3D, "Texture cache ran out of GPU memory; switching to low memory mode");
 		lowMemoryMode_ = true;
@@ -537,7 +540,8 @@ void TextureCacheVulkan::BuildTexture(TexCacheEntry *const entry) {
 		plan.scaleFactor = 1;
 		actualFmt = dstFmt;
 
-		allocSuccess = image->CreateDirect(cmdInit, plan.createW, plan.createH, plan.depth, plan.levelsToCreate, actualFmt, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, mapping);
+		allocSuccess = image->CreateDirect(plan.createW, plan.createH, plan.depth, plan.levelsToCreate, actualFmt, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_USAGE_TRANSFER_DST_BIT | VK_IMAGE_USAGE_SAMPLED_BIT, &barrier, mapping);
+		barrier.Flush(cmdInit);
 	}
 
 	if (!allocSuccess) {
@@ -699,7 +703,7 @@ void TextureCacheVulkan::BuildTexture(TexCacheEntry *const entry) {
 	}
 }
 
-VkFormat TextureCacheVulkan::GetDestFormat(GETextureFormat format, GEPaletteFormat clutFormat) const {
+VkFormat TextureCacheVulkan::GetDestFormat(GETextureFormat format, GEPaletteFormat clutFormat) {
 	if (!gstate_c.Use(GPU_USE_16BIT_FORMATS)) {
 		return VK_FORMAT_R8G8B8A8_UNORM;
 	}

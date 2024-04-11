@@ -223,7 +223,7 @@ void System_Vibrate(int length_ms) {
 	// Ignore on PC
 }
 
-bool System_MakeRequest(SystemRequestType type, int requestId, const std::string &param1, const std::string &param2, int param3) {
+bool System_MakeRequest(SystemRequestType type, int requestId, const std::string &param1, const std::string &param2, int64_t param3, int64_t param4) {
 	switch (type) {
 	case SystemRequestType::RESTART_APP:
 		g_RestartRequested = true;
@@ -492,7 +492,7 @@ std::vector<std::string> System_GetPropertyStringVec(SystemProperty prop) {
 	}
 }
 
-int System_GetPropertyInt(SystemProperty prop) {
+int64_t System_GetPropertyInt(SystemProperty prop) {
 	switch (prop) {
 	case SYSPROP_AUDIO_SAMPLE_RATE:
 		return g_retFmt.freq;
@@ -935,6 +935,14 @@ static void ProcessSDLEvent(SDL_Window *window, const SDL_Event &event, InputSta
 			break;
 		case SDL_BUTTON_RIGHT:
 			{
+				// Right button only emits mouse move events. This is weird,
+				// but consistent with Windows. Needs cleanup.
+				TouchInput input{};
+				input.x = mx;
+				input.y = my;
+				input.flags = TOUCH_MOVE | TOUCH_MOUSE;
+				input.id = 0;
+				NativeTouch(input);
 				KeyInput key(DEVICE_ID_MOUSE, NKCODE_EXT_MOUSEBUTTON_2, KEY_DOWN);
 				NativeKey(key);
 			}
@@ -1008,7 +1016,6 @@ static void ProcessSDLEvent(SDL_Window *window, const SDL_Event &event, InputSta
 				input.x = mx;
 				input.y = my;
 				input.flags = TOUCH_UP | TOUCH_MOUSE;
-				input.id = 0;
 				NativeTouch(input);
 				KeyInput key(DEVICE_ID_MOUSE, NKCODE_EXT_MOUSEBUTTON_1, KEY_UP);
 				NativeKey(key);
@@ -1016,6 +1023,13 @@ static void ProcessSDLEvent(SDL_Window *window, const SDL_Event &event, InputSta
 			break;
 		case SDL_BUTTON_RIGHT:
 			{
+				// Right button only emits mouse move events. This is weird,
+				// but consistent with Windows. Needs cleanup.
+				TouchInput input{};
+				input.x = mx;
+				input.y = my;
+				input.flags = TOUCH_MOVE | TOUCH_MOUSE;
+				NativeTouch(input);
 				KeyInput key(DEVICE_ID_MOUSE, NKCODE_EXT_MOUSEBUTTON_2, KEY_UP);
 				NativeKey(key);
 			}
