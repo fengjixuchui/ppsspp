@@ -15,7 +15,8 @@ inline int16_t clamp16(float f) {
 // Test case for ATRAC3: Mega Man Maverick Hunter X, PSP menu sound
 class Atrac3Audio : public AudioDecoder {
 public:
-	Atrac3Audio(PSPAudioType audioType, int channels, size_t blockAlign, const uint8_t *extraData, size_t extraDataSize) : audioType_(audioType) {
+	Atrac3Audio(PSPAudioType audioType, int channels, size_t blockAlign, const uint8_t *extraData, size_t extraDataSize)
+		: audioType_(audioType), channels_(channels) {
 		blockAlign_ = (int)blockAlign;
 		if (audioType == PSP_CODEC_AT3PLUS) {
 			at3pCtx_ = atrac3p_alloc(channels, &blockAlign_);
@@ -46,7 +47,7 @@ public:
 		return codecOpen_;
 	}
 
-	void FlushBuffers() {
+	void FlushBuffers() override {
 		if (at3Ctx_) {
 			atrac3_flush_buffers(at3Ctx_);
 		}
@@ -55,7 +56,7 @@ public:
 		}
 	}
 
-	bool Decode(const uint8_t *inbuf, int inbytes, int *inbytesConsumed, uint8_t *outbuf, int *outbytes) override {
+	bool Decode(const uint8_t *inbuf, int inbytes, int *inbytesConsumed, int outputChannels, uint8_t *outbuf, int *outbytes) override {
 		if (!codecOpen_) {
 			_dbg_assert_(false);
 		}
@@ -64,32 +65,44 @@ public:
 		}
 		blockAlign_ = inbytes;
 		// We just call the decode function directly without going through the whole packet machinery.
-		int got_frame = 0;
 		int result;
 		int nb_samples = 0;
 		if (audioType_ == PSP_CODEC_AT3PLUS) {
-			result = atrac3p_decode_frame(at3pCtx_, buffers_, &nb_samples, &got_frame, inbuf, inbytes);
+			result = atrac3p_decode_frame(at3pCtx_, buffers_, &nb_samples, inbuf, inbytes);
 		} else {
-			result = atrac3_decode_frame(at3Ctx_, buffers_, &nb_samples, &got_frame, inbuf, inbytes);
+			result = atrac3_decode_frame(at3Ctx_, buffers_, &nb_samples, inbuf, inbytes);
 		}
 		if (result < 0) {
 			*outbytes = 0;
 			return false;
 		}
-		*inbytesConsumed = result;
+		if (inbytesConsumed) {
+			*inbytesConsumed = result;
+		}
 		outSamples_ = nb_samples;
 		if (nb_samples > 0) {
-			*outbytes = nb_samples * 2 * 2;
-
-			// Convert frame to outbuf. TODO: Very SIMDable, though hardly hot.
-			for (int channel = 0; channel < 2; channel++) {
+			if (outbytes) {
+				*outbytes = nb_samples * 2 * 2;
+			}
+			if (outbuf) {
+				_dbg_assert_(outputChannels == 1 || outputChannels == 2);
 				int16_t *output = (int16_t *)outbuf;
-				for (int i = 0; i < nb_samples; i++) {
-					output[i * 2] = clamp16(buffers_[0][i]);
-					output[i * 2 + 1] = clamp16(buffers_[1][i]);
+				const float *left = buffers_[0];
+				if (outputChannels == 2) {
+					// Stereo output, standard.
+					const float *right = channels_ == 2 ? buffers_[1] : buffers_[0];
+					for (int i = 0; i < nb_samples; i++) {
+						output[i * 2] = clamp16(left[i]);
+						output[i * 2 + 1] = clamp16(right[i]);
+					}
+				} else {
+					// Mono output, just take the left channel.
+					for (int i = 0; i < nb_samples; i++) {
+						output[i] = clamp16(left[i]);
+					}
 				}
 			}
-		} else {
+		} else if (outbytes) {
 			*outbytes = 0;
 		}
 		return true;
@@ -109,6 +122,7 @@ private:
 	ATRAC3PContext *at3pCtx_ = nullptr;
 	ATRAC3Context *at3Ctx_ = nullptr;
 
+	int channels_ = 0;
 	int blockAlign_ = 0;
 
 	int outSamples_ = 0;

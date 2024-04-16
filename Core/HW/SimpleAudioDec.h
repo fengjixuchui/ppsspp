@@ -20,10 +20,7 @@
 #include "Core/HW/MediaEngine.h"
 #include "Core/HLE/sceAudio.h"
 
-// Wraps FFMPEG for audio decoding in a nice interface.
 // Decodes packet by packet - does NOT demux.
-
-// Based on http://ffmpeg.org/doxygen/trunk/doc_2examples_2decoding_encoding_8c-example.html#_a13
 
 // audioType
 enum PSPAudioType {
@@ -40,7 +37,7 @@ public:
 	virtual PSPAudioType GetAudioType() const = 0;
 
 	// inbytesConsumed can include skipping metadata.
-	virtual bool Decode(const uint8_t *inbuf, int inbytes, int *inbytesConsumed, uint8_t *outbuf, int *outbytes) = 0;
+	virtual bool Decode(const uint8_t *inbuf, int inbytes, int *inbytesConsumed, int outputChannels, uint8_t *outbuf, int *outbytes) = 0;
 	virtual bool IsOK() const = 0;
 
 	// These two are only ever called after Decode, so can initialize on first.

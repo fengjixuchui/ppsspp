@@ -163,7 +163,7 @@ static std::string TextureTranslateName(std::string_view value) {
 	const TextureShaderInfo *info = GetTextureShaderInfo(value);
 	if (info) {
 		auto ts = GetI18NCategory(I18NCat::TEXTURESHADERS);
-		return std::string(ts->T(value, info ? info->name.c_str() : value));
+		return std::string(ts->T(value, info->name.c_str()));
 	} else {
 		return std::string(value);
 	}
@@ -210,7 +210,7 @@ static std::string PostShaderTranslateName(std::string_view value) {
 	const ShaderInfo *info = GetPostShaderInfo(value);
 	if (info) {
 		auto ps = GetI18NCategory(I18NCat::POSTSHADERS);
-		return std::string(ps->T(value, info ? info->name : value));
+		return std::string(ps->T(value, info->name));
 	} else {
 		return std::string(value);
 	}
@@ -1782,6 +1782,8 @@ void DeveloperToolsScreen::CreateViews() {
 
 	cpuTests->SetEnabled(TestsAvailable());
 #endif
+
+	list->Add(new CheckBox(&g_Config.bUseNewAtrac, dev->T("Use experimental sceAtrac")));
 
 	AddOverlayList(list, screenManager());
 
